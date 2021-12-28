@@ -7,7 +7,6 @@ export CEPHCLUSTER="${CEPHCLUSTER:-cephcluster}"
 export METRONET="${METRONET:-default}"
 export MANAGEDCLUSTER_ROOK_NAMESPACE="${MANAGEDCLUSTER_ROOK_NAMESPACE:-rook-ceph}"
 basedir="$(dirname "$(realpath "$0")")"
-scriptdir="$basedir/ramen-1"
 
 export PATH=${HOME}/.local/bin:${PATH}
 
@@ -74,16 +73,16 @@ function connect_external_storage_cluster() {
 	echo "======Deploying rook operator=======" && sleep 100
         kubectl --context "${KUBECLUSTER}" create -f https://raw.githubusercontent.com/rook/rook/master/deploy/examples/operator.yaml
 	echo "======Deploying cluster=======" && sleep 100
-	kubectl --context "${KUBECLUSTER}" create -f "${scriptdir}/hack/dev-rook-cluster-external.yaml"
+	kubectl --context "${KUBECLUSTER}" create -f "${basedir}/dev-rook-cluster-external.yaml"
 	echo "======Deploying toolbox=======" && sleep 100
         kubectl --context "${KUBECLUSTER}" create -f https://raw.githubusercontent.com/rook/rook/master/deploy/examples/toolbox.yaml
 	
         # exit 0
 	# echo "======Deploying pool=======" && sleep 100
-	# kubectl --context ${KUBECLUSTER} create -f "${scriptdir}/hack/dev-rook-rbdpool.yaml"
+	# kubectl --context ${KUBECLUSTER} create -f "${basedir}/dev-rook-rbdpool.yaml"
 	# echo "======Deploying rbd storageclass=======" && sleep 100
 
-        kubectl --context "${KUBECLUSTER}" create -f "${scriptdir}/hack/dev-rook-sc.yaml"
+        kubectl --context "${KUBECLUSTER}" create -f "${basedir}/dev-rook-sc.yaml"
         echo "======Patching default storageClass to rbd"
         kubectl --context "${KUBECLUSTER}" patch storageclass rook-ceph-block -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
         kubectl --context "${KUBECLUSTER}" patch storageclass standard -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
@@ -189,15 +188,15 @@ then
         kubectl --context "${CEPHCLUSTER}" create -f https://raw.githubusercontent.com/rook/rook/master/deploy/examples/operator.yaml
 	echo "======Deploying cluster=======" && sleep 100
 	#kubectl --context ${CEPHCLUSTER} create -f https://raw.githubusercontent.com/rook/rook/master/deploy/examples/cluster.yaml
-	kubectl --context "${CEPHCLUSTER}" create -f "${scriptdir}/hack/dev-rook-cluster.yaml"
+	kubectl --context "${CEPHCLUSTER}" create -f "${basedir}/dev-rook-cluster.yaml"
 	echo "======Deploying toolbox=======" && sleep 100
         kubectl --context "${CEPHCLUSTER}" create -f https://raw.githubusercontent.com/rook/rook/master/deploy/examples/toolbox.yaml
 	echo "======Deploying pool=======" && sleep 100
-        kubectl --context "${CEPHCLUSTER}" create -f "${scriptdir}/hack/dev-rook-rbdpool.yaml"
+        kubectl --context "${CEPHCLUSTER}" create -f "${basedir}/dev-rook-rbdpool.yaml"
 	# echo "======Deploying filesystem=======" && sleep 100
  	# kubectl --context ${CEPHCLUSTER} create -f https://raw.githubusercontent.com/rook/rook/master/deploy/examples/filesystem.yaml
 	echo "======Deploying rbd storageclass=======" && sleep 100
-        kubectl --context "${CEPHCLUSTER}" create -f "${scriptdir}/hack/dev-rook-sc.yaml"
+        kubectl --context "${CEPHCLUSTER}" create -f "${basedir}/dev-rook-sc.yaml"
 	# echo "======Deploying fs storageclass=======" && sleep 100
         # kubectl --context ${CEPHCLUSTER} create -f https://raw.githubusercontent.com/rook/rook/master/deploy/examples/csi/cephfs/storageclass.yaml
 
