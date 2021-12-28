@@ -202,7 +202,6 @@ then
 
 	echo "======Patching default storageClass to rbd"
         kubectl --context "${CEPHCLUSTER}" patch storageclass rook-ceph-block -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
-        kubectl --context "${CEPHCLUSTER}" patch storageclass rook-cephfs -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
         kubectl --context "${CEPHCLUSTER}" patch storageclass standard -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
         kubectl --context "${CEPHCLUSTER}" get storageclass 
         # install ramen
