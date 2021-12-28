@@ -126,10 +126,10 @@ fi
 
 if [[ $1 == "setup" ]]
 then
-        echo "hub cluster:" && echo "$HUBCLUSTER"
-        echo "mangedcluster1:" && echo "$MANAGEDCLUSTER1"	
-	echo "storage cluster:" && echo "$CEPHCLUSTER"
-	echo "network:" && echo "$METRONET"
+        echo "hub cluster: $HUBCLUSTER"
+        echo "mangedcluster1: $MANAGEDCLUSTER1"	
+	echo "storage cluster: $CEPHCLUSTER"
+	echo "network: $METRONET"
 	
 	metroNetIP=$(virsh net-dumpxml "${METRONET}" | grep "ip address" | cut -d"=" -f2 | cut -d" " -f1 | tr -d "'")
         minikube start --profile "${HUBCLUSTER}" --network="${METRONET}" --insecure-registry="${metroNetIP}/24" --nodes=1 --extra-disks=1 --addons=registry
