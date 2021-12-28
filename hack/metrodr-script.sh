@@ -131,7 +131,7 @@ then
 	echo "storage cluster:" && echo "$CEPHCLUSTER"
 	echo "network:" && echo "$METRONET"
 	
-	metroNetIP=$(virsh net-dumpxml "$(virsh net-list --name | grep "${METRONET}")" | grep "ip address" | cut -d"=" -f2 | cut -d" " -f1 | tr -d "'")
+	metroNetIP=$(virsh net-dumpxml "${METRONET}" | grep "ip address" | cut -d"=" -f2 | cut -d" " -f1 | tr -d "'")
         minikube start --profile "${HUBCLUSTER}" --network="${METRONET}" --insecure-registry="${metroNetIP}/24" --nodes=1 --extra-disks=1 --addons=registry
 	echo "sleeping before proceeding" && sleep 22
 	minikube start --profile "${MANAGEDCLUSTER1}" --network="${METRONET}" --insecure-registry="${metroNetIP}/24" --nodes=1 --extra-disks=1 --addons=registry
