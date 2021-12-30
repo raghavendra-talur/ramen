@@ -144,6 +144,12 @@ then
 	cd registration-operator || exit
 	echo "====== deploying hub ========="
 	kubectl config use-context "${HUBCLUSTER}"
+	ret=$?
+	if [ $ret != 0 ]
+	then
+             echo "Hub deployment failed, Please run the script again with setup option"
+	     exit 1
+        fi
 	make deploy-hub
 	# make deploy-spoke
 	make deploy-spoke-operator
@@ -152,6 +158,12 @@ then
 	sleep 44
         echo "====== deploying spoke managed cluster ========"
         kubectl config use-context "${MANAGEDCLUSTER1}"
+	ret=$?
+	if [ $ret != 0 ]
+	then
+             echo " Spoke managed cluster deployment failed, Please run the script again with setup option"
+	     exit 1
+        fi
         make deploy-spoke
         # make deploy-spoke-operator
         # make bootstrap-secret
