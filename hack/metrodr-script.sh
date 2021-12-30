@@ -140,7 +140,12 @@ then
 	# echo "sleeping before proceeding" && sleep 22
 	minikube start --profile "${CEPHCLUSTER}"     --network="${METRONET}" --insecure-registry="${metroNetIP}/24" --nodes=1 --extra-disks=1 --addons=registry
 	# echo "sleeping before proceeding" && sleep 22
-	git clone https://github.com/open-cluster-management-io/registration-operator.git
+	if [ -d "$basedir/registration-operator" ]
+        then
+		echo "registration-operator already exists, so skipping this step."
+        else
+		git clone https://github.com/open-cluster-management-io/registration-operator.git
+        fi
 	cd registration-operator || exit
 	echo "====== deploying hub ========="
 	kubectl config use-context "${HUBCLUSTER}"
