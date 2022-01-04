@@ -47,6 +47,27 @@ const (
 	UnknownState State = "Unknown"
 )
 
+type Mode string
+
+const (
+	// Only protect the ClusterData associated with
+	// storage resources such as PV/PVC etc. Used
+	// for MetroDR.
+	ClusterDataBackup Mode = "ClusterDataBackup"
+
+	// Protect the ClusterData of storage resources and
+	// sync the data from persistent volumes to the peer
+	// cluster. Mainly RegionalDR.
+	ClusterDataBackupAndReplication Mode = "ClusterDataBackupAndReplication"
+
+	// Protect the ClusterData of storage resources and
+	// fence off a peer cluster. Mainly used for MetroDR
+	ClusterDataBackupAndClusterFencing Mode = "ClusterDataBackupAndClusterFencing"
+
+	// UnknwonMode represents unknown mode
+	UnknownMode Mode = "Unknown"
+)
+
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // VolumeReplicationGroup (VRG) spec declares the desired schedule for data
@@ -87,6 +108,9 @@ type VolumeReplicationGroupSpec struct {
 	// List of unique S3 profiles in RamenConfig that should be used to store
 	// and forward PV related cluster state to peer DR clusters.
 	S3Profiles []string `json:"s3Profiles"`
+
+	// Indiciation to VRG about whether it is MetroDR or RegionalDR.
+	Mode Mode `json:"mode"`
 }
 
 type ProtectedPVC struct {

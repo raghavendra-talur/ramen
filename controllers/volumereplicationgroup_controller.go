@@ -359,6 +359,27 @@ func (v *VRGInstance) processVRG() (ctrl.Result, error) {
 		return ctrl.Result{}, nil
 	}
 
+	// if invalid mode is given or no mode is given, then should VRG assume
+	// RegionalDR for backward compatibility? But, the API is still in Alpha
+	// version.
+	if err := v.validateVRGMode(); err != nil {
+		// record the event
+		v.log.Error(err, "Failed to validate the spec mode")
+		rmnutil.ReportIfNotPresent(v.reconciler.eventRecorder, v.instance, corev1.EventTypeWarning,
+			rmnutil.EventReasonValidationFailed, err.Error())
+
+		msg := "VolumeReplicationGroup mode is invalid"
+		setVRGDataErrorCondition(&v.instance.Status.Conditions, v.instance.Generation, msg)
+
+		if err = v.updateVRGStatus(false); err != nil {
+			v.log.Error(err, "Status update failed")
+			// Since updating status failed, reconcile
+			return ctrl.Result{Requeue: true}, nil
+		}
+		// No requeue, as there is no reconcile till user changes desired spec to a valid value
+		return ctrl.Result{}, nil
+	}
+
 	if err := v.updatePVCList(); err != nil {
 		v.log.Error(err, "Failed to update PersistentVolumeClaims for resource")
 
@@ -399,6 +420,28 @@ func (v *VRGInstance) validateVRGState() error {
 		err := fmt.Errorf("invalid or unknown replication state detected (deleted %v, desired replicationState %v)",
 			!v.instance.GetDeletionTimestamp().IsZero(),
 			v.instance.Spec.ReplicationState)
+
+		v.log.Error(err, "Invalid request detected")
+
+		return err
+	}
+
+	return nil
+}
+
+func (v *VRGInstance) validateVRGMode() error {
+	// this is for backward compatibility for now. If mode is not given
+	// in the yaml, then default IIUC is empty string. If so, then make
+	// it regionalDR for now.
+	if string(v.instance.Spec.Mode) == "" {
+		v.instance.Spec.Mode = ramendrv1alpha1.ClusterDataBackupAndReplication
+	}
+
+	if v.instance.Spec.Mode != ramendrv1alpha1.ClusterDataBackup &&
+		v.instance.Spec.Mode != ramendrv1alpha1.ClusterDataBackupAndReplication &&
+		v.instance.Spec.Mode != ramendrv1alpha1.ClusterDataBackupAndClusterFencing {
+		err := fmt.Errorf("invalid or unknown mode detected (deleted %v, desired mode %v)",
+			!v.instance.GetDeletionTimestamp().IsZero(), v.instance.Spec.Mode)
 
 		v.log.Error(err, "Invalid request detected")
 
@@ -682,7 +725,7 @@ func (v *VRGInstance) processForDeletion() (ctrl.Result, error) {
 		return ctrl.Result{}, nil
 	}
 
-	if v.reconcileVRsForDeletion() {
+	if v.deleteVRGHandleMode() {
 		v.log.Info("Requeuing as reconciling VolumeReplication for deletion failed")
 
 		return ctrl.Result{Requeue: true}, nil
@@ -707,6 +750,21 @@ func (v *VRGInstance) processForDeletion() (ctrl.Result, error) {
 		rmnutil.EventReasonDeleteSuccess, "Deletion Success")
 
 	return ctrl.Result{}, nil
+}
+
+func (v *VRGInstance) deleteVRGHandleMode() bool {
+	switch v.instance.Spec.Mode {
+	case ramendrv1alpha1.ClusterDataBackup:
+		return false
+	case ramendrv1alpha1.ClusterDataBackupAndClusterFencing:
+		return false
+	case ramendrv1alpha1.UnknownMode:
+		return false
+	case ramendrv1alpha1.ClusterDataBackupAndReplication:
+		return v.reconcileVRsForDeletion()
+	default:
+		return false
+	}
 }
 
 // reconcileVRsForDeletion cleans up VR resources managed by VRG and also cleans up changes made to PVCs
@@ -854,7 +912,7 @@ func (v *VRGInstance) processAsPrimary() (ctrl.Result, error) {
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	requeue := v.reconcileVRsAsPrimary()
+	requeue := v.handleVRGMode(ramendrv1alpha1.Primary)
 
 	// If requeue is false, then VRG was successfully processed as primary.
 	// Hence the event to be generated is Success of type normal.
@@ -876,6 +934,55 @@ func (v *VRGInstance) processAsPrimary() (ctrl.Result, error) {
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (v *VRGInstance) handleVRGMode(state ramendrv1alpha1.ReplicationState) bool {
+	switch v.instance.Spec.Mode {
+	case ramendrv1alpha1.ClusterDataBackupAndReplication:
+		if state == ramendrv1alpha1.Primary {
+			return v.reconcileVRsAsPrimary()
+		}
+
+		if state == ramendrv1alpha1.Secondary {
+			return v.reconcileVRsAsSecondary()
+		}
+
+		return false
+	case ramendrv1alpha1.ClusterDataBackup:
+		// mark all PVCs as protected.
+		v.markAllPVCsProtected()
+
+		return false
+	// When there is capability do per pvc fencing,
+	// then appropriate new mode has to be created and new
+	// function to be implemented to handle each pvc separately.
+	// A function similar to reconcileVRsAsPrimary() has to be
+	// written to handle fencing of each pvc separately.
+	case ramendrv1alpha1.ClusterDataBackupAndClusterFencing:
+		// for now returning false. Mark all PVCs as protected
+		v.markAllPVCsProtected()
+
+		return false
+	case ramendrv1alpha1.UnknownMode:
+		return false
+	default:
+		return false
+	}
+}
+
+func (v *VRGInstance) markAllPVCsProtected() {
+	v.log.Info("marking all pvc resources ready for use and protected")
+
+	msg := "PVC in the VolumeReplicationGroup is ready for use"
+
+	for idx := range v.pvcList.Items {
+		pvc := &v.pvcList.Items[idx]
+
+		// Each protected PVC condition in VRG status has the same name
+		// as PVC. Use that.
+		v.updatePVCDataReadyCondition(pvc.Name, VRGConditionReasonReady, msg)
+		v.updatePVCDataProtectedCondition(pvc.Name, VRGConditionReasonReady, msg)
+	}
 }
 
 // reconcileVRsAsPrimary creates/updates VolumeReplication CR for each pvc
@@ -948,7 +1055,7 @@ func (v *VRGInstance) processAsSecondary() (ctrl.Result, error) {
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	requeue := v.reconcileVRsAsSecondary()
+	requeue := v.handleVRGMode(ramendrv1alpha1.Secondary)
 
 	// If requeue is false, then VRG was successfully processed as Secondary.
 	// Hence the event to be generated is Success of type normal.

@@ -49,6 +49,9 @@ spec:
               from a secret resource.  - Manage the lifecycle of VR CR and S3 data
               according to CUD operations on    the PVC and the VRG CR."
             properties:
+              mode:
+                description: Indiciation to VRG about whether it is MetroDR or RegionalDR.
+                type: string
               pvcSelector:
                 description: Label selector to identify all the PVCs that are in this
                   group that needs to be replicated to the peer cluster.
@@ -160,6 +163,7 @@ spec:
                 pattern: ^\d+[mhd]$
                 type: string
             required:
+            - mode
             - pvcSelector
             - replicationState
             - s3Profiles
