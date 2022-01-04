@@ -47,6 +47,58 @@ const (
 	UnknownState State = "Unknown"
 )
 
+// AsyncMode which will be either Enabled or Disabled
+// +kubebuilder:validation:Enum=Enabled;Disabled
+type AsyncMode string
+
+// SyncMode which will be either Enabled or Disabled
+// +kubebuilder:validation:Enum=Enabled;Disabled
+type SyncMode string
+
+// These are the valid values for AsyncMode
+const (
+	// AsyncMode enabled for DR
+	AsyncModeEnabled = AsyncMode("Enabled")
+
+	// AsyncMode disabled for DR
+	AsyncModeDisabled = AsyncMode("Disabled")
+)
+
+// These are the valid values for SyncMode
+const (
+	// AsyncMode enabled for DR
+	SyncModeEnabled = SyncMode("Enabled")
+
+	// AsyncMode disabled for DR
+	SyncModeDisabled = SyncMode("Disabled")
+)
+
+// AsyncSpec has the parameters associated with RegionalDR
+type AsyncSpec struct {
+	// Label selector to identify the VolumeReplicationClass resources
+	// that are scanned to select an appropriate VolumeReplicationClass
+	// for the VolumeReplication resource.
+	//+optional
+	ReplicationClassSelector metav1.LabelSelector `json:"replicationClassSelector,omitempty"`
+
+	// scheduling Interval for replicating Persistent Volume
+	// data to a peer cluster. Interval is typically in the
+	// form <num><m,h,d>. Here <num> is a number, 'm' means
+	// minutes, 'h' means hours and 'd' stands for days.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^\d+[mhd]$`
+	SchedulingInterval string `json:"schedulingInterval"`
+
+	// Mode determines if AsyncDR is enabled or not
+	Mode AsyncMode `json:"mode"`
+}
+
+// SyncSpec has the parameters associated with MetroDR
+type SyncSpec struct {
+	// Mode determines if SyncDR is enabled or not
+	Mode SyncMode `json:"mode"`
+}
+
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // VolumeReplicationGroup (VRG) spec declares the desired schedule for data
@@ -66,20 +118,6 @@ type VolumeReplicationGroupSpec struct {
 	// that needs to be replicated to the peer cluster.
 	PVCSelector metav1.LabelSelector `json:"pvcSelector"`
 
-	// Label selector to identify the VolumeReplicationClass resources
-	// that are scanned to select an appropriate VolumeReplicationClass
-	// for the VolumeReplication resource.
-	//+optional
-	ReplicationClassSelector metav1.LabelSelector `json:"replicationClassSelector,omitempty"`
-
-	// scheduling Interval for replicating Persistent Volume
-	// data to a peer cluster. Interval is typically in the
-	// form <num><m,h,d>. Here <num> is a number, 'm' means
-	// minutes, 'h' means hours and 'd' stands for days.
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Pattern=`^\d+[mhd]$`
-	SchedulingInterval string `json:"schedulingInterval"`
-
 	// Desired state of all volumes [primary or secondary] in this replication group;
 	// this value is propagated to children VolumeReplication CRs
 	ReplicationState ReplicationState `json:"replicationState"`
@@ -87,6 +125,10 @@ type VolumeReplicationGroupSpec struct {
 	// List of unique S3 profiles in RamenConfig that should be used to store
 	// and forward PV related cluster state to peer DR clusters.
 	S3Profiles []string `json:"s3Profiles"`
+
+	// Fields specific to Sync or Async DR
+	Async AsyncSpec `json:"async,omitempty"`
+	Sync  SyncSpec  `json:"sync,omitempty"`
 }
 
 type ProtectedPVC struct {

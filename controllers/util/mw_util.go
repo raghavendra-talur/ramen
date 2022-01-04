@@ -167,11 +167,14 @@ func (mwu *MWUtil) generateVRGManifest(
 		TypeMeta:   metav1.TypeMeta{Kind: "VolumeReplicationGroup", APIVersion: "ramendr.openshift.io/v1alpha1"},
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Spec: rmn.VolumeReplicationGroupSpec{
-			PVCSelector:              pvcSelector,
-			SchedulingInterval:       schedulingInterval,
-			ReplicationState:         rmn.Primary,
-			S3Profiles:               s3Profiles,
-			ReplicationClassSelector: replClassSelector,
+			PVCSelector: pvcSelector,
+			Async: rmn.AsyncSpec{
+				ReplicationClassSelector: replClassSelector,
+				SchedulingInterval:       schedulingInterval,
+				Mode:                     rmn.AsyncModeEnabled,
+			},
+			ReplicationState: rmn.Primary,
+			S3Profiles:       s3Profiles,
 		},
 	})
 }
