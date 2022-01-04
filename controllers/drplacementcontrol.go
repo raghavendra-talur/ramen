@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	rmn "github.com/ramendr/ramen/api/v1alpha1"
+	"github.com/ramendr/ramen/controllers/util"
 	rmnutil "github.com/ramendr/ramen/controllers/util"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -886,15 +887,36 @@ func (d *DRPCInstance) generateVRG() rmn.VolumeReplicationGroup {
 		TypeMeta:   metav1.TypeMeta{Kind: "VolumeReplicationGroup", APIVersion: "ramendr.openshift.io/v1alpha1"},
 		ObjectMeta: metav1.ObjectMeta{Name: d.instance.Name, Namespace: d.instance.Namespace},
 		Spec: rmn.VolumeReplicationGroupSpec{
-			PVCSelector:              d.instance.Spec.PVCSelector,
-			ReplicationState:         rmn.Primary,
-			S3Profiles:               rmnutil.S3UploadProfileList(*d.drPolicy),
-			ReplicationClassSelector: d.drPolicy.Spec.ReplicationClassSelector,
-			SchedulingInterval:       d.drPolicy.Spec.SchedulingInterval,
+			PVCSelector:      d.instance.Spec.PVCSelector,
+			ReplicationState: rmn.Primary,
+			S3Profiles:       rmnutil.S3UploadProfileList(*d.drPolicy),
 		},
 	}
 
+	vrg.Spec.Async = d.generateVRGSpecAsync()
+
 	return vrg
+}
+
+func (d *DRPCInstance) generateVRGSpecAsync() rmn.VRGAsyncSpec {
+	spec := rmn.VRGAsyncSpec{}
+
+	if dRPolicySupportsRegional(d.drPolicy) {
+		spec = rmn.VRGAsyncSpec{
+			ReplicationClassSelector: d.drPolicy.Spec.ReplicationClassSelector,
+			SchedulingInterval:       d.drPolicy.Spec.SchedulingInterval,
+			Mode:                     rmn.AsyncModeEnabled,
+		}
+	}
+
+	return spec
+}
+
+func dRPolicySupportsRegional(drpolicy *rmn.DRPolicy) bool {
+	if util.DrpolicyRegionNames(drpolicy).Len() > 1 {
+		return true
+	}
+	return false
 }
 
 func (d *DRPCInstance) ensureNamespaceExistsOnManagedCluster(homeCluster string) error {
