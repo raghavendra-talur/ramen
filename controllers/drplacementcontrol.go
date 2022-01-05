@@ -756,7 +756,7 @@ func (d *DRPCInstance) moveVRGToSecondaryEverywhere() bool {
 
 	failedCount := 0
 
-	for _, drCluster := range d.drPolicy.Spec.DRClusterSet {
+	for _, drCluster := range d.drPolicy.Spec.AsyncDRPolicySpec.DRClusterSet {
 		clusterName := drCluster.Name
 
 		err := d.updateVRGStateToSecondary(clusterName)
@@ -784,7 +784,7 @@ func BuildManagedClusterViewName(resourceName, resourceNamespace, resource strin
 }
 
 func (d *DRPCInstance) cleanupSecondaries(skipCluster string) (bool, error) {
-	for _, drCluster := range d.drPolicy.Spec.DRClusterSet {
+	for _, drCluster := range d.drPolicy.Spec.AsyncDRPolicySpec.DRClusterSet {
 		clusterName := drCluster.Name
 		if skipCluster == clusterName {
 			continue
@@ -1060,7 +1060,7 @@ func (d *DRPCInstance) ensureVRGManifestWorkOnClusterDeleted(clusterName string)
 // a cluster if provided. It returns true if all clusters report secondary for the VRG,
 // otherwise, it returns false
 func (d *DRPCInstance) ensureVRGIsSecondaryEverywhere(clusterToSkip string) bool {
-	for _, drCluster := range d.drPolicy.Spec.DRClusterSet {
+	for _, drCluster := range d.drPolicy.Spec.AsyncDRPolicySpec.DRClusterSet {
 		clusterName := drCluster.Name
 		if clusterToSkip == clusterName {
 			continue
@@ -1114,7 +1114,7 @@ func (d *DRPCInstance) ensureVRGIsSecondaryOnCluster(clusterName string) bool {
 // has to be ensured. This can only be done at the other cluster which has been moved to
 // secondary by now.
 func (d *DRPCInstance) ensureDataProtected(targetCluster string) bool {
-	for _, drCluster := range d.drPolicy.Spec.DRClusterSet {
+	for _, drCluster := range d.drPolicy.Spec.AsyncDRPolicySpec.DRClusterSet {
 		clusterName := drCluster.Name
 		if targetCluster == clusterName {
 			continue

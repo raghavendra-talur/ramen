@@ -35,6 +35,48 @@ type ManagedCluster struct {
 	S3ProfileName string `json:"s3ProfileName"`
 }
 
+//east cluster set will contain east1 and east2.
+type EastCluster struct {
+        // Name of this managed cluster as configured in OCM/ACM
+        ClusterName string `json:"clusterName"`
+
+}
+
+type SyncSpec struct {
+	EastClusterSet []EastCluster `json:"eastClusterSet"`
+}
+
+type AsyncSpec struct {
+	EastClusterSet []EastCluster `json:"eastClusterSet"`
+
+	WestCluster string  `json:"westCluster"`
+	// Important: Run "make" to regenerate code after modifying this file
+
+	// scheduling Interval for replicating Persistent Volume
+	// data to a peer cluster. Interval is typically in the
+	// form <num><m,h,d>. Here <num> is a number, 'm' means
+	// minutes, 'h' means hours and 'd' stands for days.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^\d+[mhd]$`
+	SchedulingInterval string `json:"schedulingInterval"`
+
+	// Label selector to identify all the VolumeReplicationClasses.
+	// This selector is assumed to be the same for all subscriptions that
+	// need DR protection. It will be passed in to the VRG when it is created
+	//+optional
+	ReplicationClassSelector metav1.LabelSelector `json:"replicationClassSelector,omitempty"`
+
+	// The set of managed clusters governed by this policy, which have
+	// replication relationship enabled between them.
+	DRClusterSet []ManagedCluster `json:"drClusterSet"`
+}
+
+// DRPolicySpec defines the desired state of DRPolicy
+type DRPolicySpec struct {
+	AsyncDRPolicySpec  AsyncSpec `json:"asynDRPolicySpec,omitempty"`
+	SyncDRPolicySpec   SyncSpec  `json:"syncDRPolicySpec,omitempty"`
+}
+/**
 // DRPolicySpec defines the desired state of DRPolicy
 type DRPolicySpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
@@ -57,7 +99,7 @@ type DRPolicySpec struct {
 	// replication relationship enabled between them.
 	DRClusterSet []ManagedCluster `json:"drClusterSet"`
 }
-
+**/
 // DRPolicyStatus defines the observed state of DRPolicy
 // INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 // Important: Run "make" to regenerate code after modifying this file

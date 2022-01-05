@@ -49,6 +49,8 @@ const (
 	DRPCNamespaceName     = "app-namespace"
 	UserPlacementRuleName = "user-placement-rule"
 	EastManagedCluster    = "east-cluster"
+	East1ManagedCluster    = "east-1-cluster"
+	East2ManagedCluster    = "east-2-cluster"
 	WestManagedCluster    = "west-cluster"
 	DRPolicyName          = "my-dr-peers"
 
@@ -98,17 +100,30 @@ var (
 			Name: DRPolicyName,
 		},
 		Spec: rmn.DRPolicySpec{
-			DRClusterSet: []rmn.ManagedCluster{
-				{
-					Name:          EastManagedCluster,
-					S3ProfileName: "fakeS3Profile",
+			AsyncDRPolicySpec: rmn.AsyncSpec{
+
+				EastClusterSet: []rmn.EastCluster{
+					{
+						ClusterName:          East1ManagedCluster,
+					},
+					{
+						ClusterName:          East2ManagedCluster,
+					},
 				},
-				{
-					Name:          WestManagedCluster,
-					S3ProfileName: "fakeS3Profile",
+				WestCluster: WestManagedCluster,
+
+				DRClusterSet: []rmn.ManagedCluster{
+					{
+						Name:          EastManagedCluster,
+						S3ProfileName: "fakeS3Profile",
+					},
+					{
+						Name:          WestManagedCluster,
+						S3ProfileName: "fakeS3Profile",
+					},
 				},
+				SchedulingInterval: schedulingInterval,
 			},
-			SchedulingInterval: schedulingInterval,
 		},
 	}
 )

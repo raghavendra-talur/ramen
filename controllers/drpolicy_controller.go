@@ -104,8 +104,8 @@ func (r *DRPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 func validate(ctx context.Context, drpolicy *ramen.DRPolicy, apiReader client.Reader,
 	objectStoreGetter ObjectStoreGetter, listKeyPrefix string,
 ) (string, error) {
-	for i := range drpolicy.Spec.DRClusterSet {
-		cluster := &drpolicy.Spec.DRClusterSet[i]
+	for i := range drpolicy.Spec.AsyncDRPolicySpec.DRClusterSet {
+		cluster := &drpolicy.Spec.AsyncDRPolicySpec.DRClusterSet[i]
 		if reason, err := s3ProfileValidate(ctx, apiReader, objectStoreGetter,
 			cluster.S3ProfileName, listKeyPrefix); err != nil {
 			return reason, err

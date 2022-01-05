@@ -927,7 +927,7 @@ func (r *DRPlacementControlReconciler) getVRGsFromManagedClusters(drpc *rmn.DRPl
 	drPolicy *rmn.DRPolicy) (map[string]*rmn.VolumeReplicationGroup, error) {
 	vrgs := map[string]*rmn.VolumeReplicationGroup{}
 
-	for _, drCluster := range drPolicy.Spec.DRClusterSet {
+	for _, drCluster := range drPolicy.Spec.AsyncDRPolicySpec.DRClusterSet {
 		// Only fetch failover cluster VRG if action is Failover
 		if drpc.Spec.Action == rmn.ActionFailover && drpc.Spec.FailoverCluster != drCluster.Name {
 			r.Log.Info("Skipping fetching VRG", "cluster", drCluster.Name)
@@ -976,13 +976,13 @@ func (r *DRPlacementControlReconciler) deleteClonedPlacementRule(ctx context.Con
 
 func (r *DRPlacementControlReconciler) addClusterPeersToPlacementRule(
 	drPolicy *rmn.DRPolicy, plRule *plrv1.PlacementRule) error {
-	if len(drPolicy.Spec.DRClusterSet) == 0 {
+	if len(drPolicy.Spec.AsyncDRPolicySpec.DRClusterSet) == 0 {
 		return fmt.Errorf("DRPolicy %s is missing DR clusters", drPolicy.Name)
 	}
 
-	for idx := range drPolicy.Spec.DRClusterSet {
+	for idx := range drPolicy.Spec.AsyncDRPolicySpec.DRClusterSet {
 		plRule.Spec.Clusters = append(plRule.Spec.Clusters, plrv1.GenericClusterReference{
-			Name: drPolicy.Spec.DRClusterSet[idx].Name,
+			Name: drPolicy.Spec.AsyncDRPolicySpec.DRClusterSet[idx].Name,
 		})
 	}
 

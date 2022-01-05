@@ -123,8 +123,8 @@ func (mwu *MWUtil) CreateOrUpdateVRGManifestWork(
 	name, namespace, homeCluster string,
 	drPolicy *rmn.DRPolicy, pvcSelector metav1.LabelSelector) error {
 	s3Profiles := S3UploadProfileList(*drPolicy)
-	schedulingInterval := drPolicy.Spec.SchedulingInterval
-	replClassSelector := drPolicy.Spec.ReplicationClassSelector
+	schedulingInterval := drPolicy.Spec.AsyncDRPolicySpec.SchedulingInterval
+	replClassSelector := drPolicy.Spec.AsyncDRPolicySpec.ReplicationClassSelector
 
 	mwu.Log.Info(fmt.Sprintf("Create or Update manifestwork %s:%s:%s:%s",
 		name, namespace, homeCluster, s3Profiles))

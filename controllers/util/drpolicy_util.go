@@ -26,9 +26,9 @@ import (
 )
 
 func DrpolicyClusterNames(drpolicy *rmn.DRPolicy) []string {
-	clusterNames := make([]string, len(drpolicy.Spec.DRClusterSet))
-	for i := range drpolicy.Spec.DRClusterSet {
-		clusterNames[i] = drpolicy.Spec.DRClusterSet[i].Name
+	clusterNames := make([]string, len(drpolicy.Spec.AsyncDRPolicySpec.DRClusterSet))
+	for i := range drpolicy.Spec.AsyncDRPolicySpec.DRClusterSet {
+		clusterNames[i] = drpolicy.Spec.AsyncDRPolicySpec.DRClusterSet[i].Name
 	}
 
 	return clusterNames
@@ -48,7 +48,7 @@ func DrpolicyValidated(drpolicy *rmn.DRPolicy) error {
 
 // Return a list of unique S3 profiles to upload the relevant cluster state
 func S3UploadProfileList(drPolicy rmn.DRPolicy) (s3Profiles []string) {
-	for _, drCluster := range drPolicy.Spec.DRClusterSet {
+	for _, drCluster := range drPolicy.Spec.AsyncDRPolicySpec.DRClusterSet {
 		found := false
 
 		for _, s3ProfileName := range s3Profiles {
