@@ -64,18 +64,6 @@ spec:
                       - s3ProfileName
                       type: object
                     type: array
-                  eastClusterSet:
-                    items:
-                      description: east cluster set will contain east1 and east2.
-                      properties:
-                        clusterName:
-                          description: Name of this managed cluster as configured
-                            in OCM/ACM
-                          type: string
-                      required:
-                      - clusterName
-                      type: object
-                    type: array
                   replicationClassSelector:
                     description: Label selector to identify all the VolumeReplicationClasses.
                       This selector is assumed to be the same for all subscriptions
@@ -130,30 +118,44 @@ spec:
                       'd' stands for days.
                     pattern: ^\d+[mhd]$
                     type: string
-                  westCluster:
-                    type: string
                 required:
                 - drClusterSet
-                - eastClusterSet
                 - schedulingInterval
-                - westCluster
                 type: object
               syncDRPolicySpec:
+                description: Clustersets is a arrays of arrays which would look like
+                  [[east1 east2] [west] [central]] Here east1 and east2 are in Sync
+                  relationship as part of metro DR.
                 properties:
-                  eastClusterSet:
+                  clusterSets:
                     items:
-                      description: east cluster set will contain east1 and east2.
-                      properties:
-                        clusterName:
-                          description: Name of this managed cluster as configured
-                            in OCM/ACM
-                          type: string
-                      required:
-                      - clusterName
-                      type: object
+                      items:
+                        description: Managed cluster information
+                        properties:
+                          name:
+                            description: Name of this managed cluster as configured
+                              in OCM/ACM
+                            type: string
+                          s3ProfileName:
+                            description: S3 profile name (in Ramen config) to use
+                              as a source to restore PV related cluster state during
+                              recovery or relocate actions of applications to this
+                              managed cluster;  hence, this S3 profile should be available
+                              to successfully move the workload to this managed cluster.  For
+                              applications that are active on this managed cluster,
+                              their PV related cluster state is stored to S3 profiles
+                              of all other managed clusters in the same DRPolicy to
+                              enable recovery or relocate actions on those managed
+                              clusters.
+                            type: string
+                        required:
+                        - name
+                        - s3ProfileName
+                        type: object
+                      type: array
                     type: array
                 required:
-                - eastClusterSet
+                - clusterSets
                 type: object
             type: object
           status:

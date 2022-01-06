@@ -35,21 +35,13 @@ type ManagedCluster struct {
 	S3ProfileName string `json:"s3ProfileName"`
 }
 
-//east cluster set will contain east1 and east2.
-type EastCluster struct {
-        // Name of this managed cluster as configured in OCM/ACM
-        ClusterName string `json:"clusterName"`
-
-}
-
+// Clustersets is a arrays of arrays which would look like [[east1 east2] [west] [central]]
+// Here east1 and east2 are in Sync relationship as part of metro DR.
 type SyncSpec struct {
-	EastClusterSet []EastCluster `json:"eastClusterSet"`
+	ClusterSets [][]ManagedCluster `json:"clusterSets"`
 }
 
 type AsyncSpec struct {
-	EastClusterSet []EastCluster `json:"eastClusterSet"`
-
-	WestCluster string  `json:"westCluster"`
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// scheduling Interval for replicating Persistent Volume
@@ -73,9 +65,10 @@ type AsyncSpec struct {
 
 // DRPolicySpec defines the desired state of DRPolicy
 type DRPolicySpec struct {
-	AsyncDRPolicySpec  AsyncSpec `json:"asynDRPolicySpec,omitempty"`
-	SyncDRPolicySpec   SyncSpec  `json:"syncDRPolicySpec,omitempty"`
+	AsyncDRPolicySpec AsyncSpec `json:"asynDRPolicySpec,omitempty"`
+	SyncDRPolicySpec  SyncSpec  `json:"syncDRPolicySpec,omitempty"`
 }
+
 /**
 // DRPolicySpec defines the desired state of DRPolicy
 type DRPolicySpec struct {

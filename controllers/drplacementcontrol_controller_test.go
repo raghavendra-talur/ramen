@@ -49,8 +49,8 @@ const (
 	DRPCNamespaceName     = "app-namespace"
 	UserPlacementRuleName = "user-placement-rule"
 	EastManagedCluster    = "east-cluster"
-	East1ManagedCluster    = "east-1-cluster"
-	East2ManagedCluster    = "east-2-cluster"
+	East1ManagedCluster   = "east-1-cluster"
+	East2ManagedCluster   = "east-2-cluster"
 	WestManagedCluster    = "west-cluster"
 	DRPolicyName          = "my-dr-peers"
 
@@ -101,16 +101,6 @@ var (
 		},
 		Spec: rmn.DRPolicySpec{
 			AsyncDRPolicySpec: rmn.AsyncSpec{
-
-				EastClusterSet: []rmn.EastCluster{
-					{
-						ClusterName:          East1ManagedCluster,
-					},
-					{
-						ClusterName:          East2ManagedCluster,
-					},
-				},
-				WestCluster: WestManagedCluster,
 
 				DRClusterSet: []rmn.ManagedCluster{
 					{

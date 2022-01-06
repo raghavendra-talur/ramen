@@ -123,10 +123,23 @@ var _ = Describe("DrpolicyController", func() {
 		{Name: `cluster1`, S3ProfileName: s3ProfileNameConnectSucc},
 		{Name: `cluster2`, S3ProfileName: s3ProfileNameConnectSucc},
 	}
-	eastclusters := [...]ramen.EastCluster{
-		{ClusterName: `cluster0` },
-		{ClusterName: `cluster1`},
+
+	clustersets := [][]ramen.ManagedCluster{
+		{
+
+			{Name: `east1`, S3ProfileName: s3ProfileNameConnectSucc},
+			{Name: `east2`, S3ProfileName: s3ProfileNameConnectSucc},
+		},
+		{
+
+			{Name: `west`, S3ProfileName: s3ProfileNameConnectSucc},
+		},
+		{
+
+			{Name: `central`, S3ProfileName: s3ProfileNameConnectSucc},
+		},
 	}
+
 	objectMetas := [...]metav1.ObjectMeta{
 		{Name: `drpolicy0`},
 		{Name: `drpolicy1`},
@@ -134,17 +147,17 @@ var _ = Describe("DrpolicyController", func() {
 	drpolicies := [...]ramen.DRPolicy{
 		{
 			ObjectMeta: objectMetas[0],
-			Spec:       ramen.DRPolicySpec{
-				ramen.AsyncSpec{EastClusterSet:eastclusters[0:1], WestCluster: "west" , DRClusterSet: clusters[0:2], SchedulingInterval: `00m`},
-				ramen.SyncSpec{EastClusterSet: eastclusters[0:1] },
-				},
+			Spec: ramen.DRPolicySpec{
+				ramen.AsyncSpec{DRClusterSet: clusters[0:2], SchedulingInterval: `00m`},
+				ramen.SyncSpec{ClusterSets: clustersets[0:1]},
+			},
 		},
 		{
 			ObjectMeta: objectMetas[1],
-			Spec:       ramen.DRPolicySpec{
-					ramen.AsyncSpec{EastClusterSet:eastclusters[0:1], WestCluster: "west", DRClusterSet: clusters[1:3], SchedulingInterval: `9999999d`},
-				        ramen.SyncSpec{EastClusterSet: eastclusters[0:1] },
-				},
+			Spec: ramen.DRPolicySpec{
+				ramen.AsyncSpec{DRClusterSet: clusters[1:3], SchedulingInterval: `9999999d`},
+				ramen.SyncSpec{ClusterSets: clustersets[0:1]},
+			},
 		},
 	}
 	clusterNamesNone := sets.String{}
