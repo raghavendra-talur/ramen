@@ -148,15 +148,15 @@ var _ = Describe("DrpolicyController", func() {
 		{
 			ObjectMeta: objectMetas[0],
 			Spec: ramen.DRPolicySpec{
-				ramen.AsyncSpec{DRClusterSet: clusters[0:2], SchedulingInterval: `00m`},
-				ramen.SyncSpec{ClusterSets: clustersets[0:1]},
+				AsyncDRPolicySpec: ramen.AsyncSpec{DRClusterSet: clusters[0:2], SchedulingInterval: `00m`},
+				SyncDRPolicySpec:  ramen.SyncSpec{ClusterSets: clustersets[0:1]},
 			},
 		},
 		{
 			ObjectMeta: objectMetas[1],
 			Spec: ramen.DRPolicySpec{
-				ramen.AsyncSpec{DRClusterSet: clusters[1:3], SchedulingInterval: `9999999d`},
-				ramen.SyncSpec{ClusterSets: clustersets[0:1]},
+				AsyncDRPolicySpec: ramen.AsyncSpec{DRClusterSet: clusters[1:3], SchedulingInterval: `9999999d`},
+				SyncDRPolicySpec:  ramen.SyncSpec{ClusterSets: clustersets[0:1]},
 			},
 		},
 	}
