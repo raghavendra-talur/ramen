@@ -20,10 +20,24 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ClusterFenceState which will be either Unfenced, or Fenced or ManuallyFenced
+// +kubebuilder:validation:Enum=Unfenced;Fenced;ManuallyFenced
+type ClusterFenceState string
+
+const (
+	ClusterFenceStateUnfenced       = ClusterFenceState("Unfenced")
+	ClusterFenceStateFenced         = ClusterFenceState("Fenced")
+	ClusterFenceStateManuallyFenced = ClusterFenceState("ManuallyFenced")
+)
+
 // Managed cluster information
 type ManagedCluster struct {
 	// Name of this managed cluster as configured in OCM/ACM
 	Name string `json:"name"`
+
+	// ClusterFence is a string that determines the fencing state of the
+	// cluster.
+	ClusterFence ClusterFenceState `json:"clusterFence,omitempty"`
 
 	// S3 profile name (in Ramen config) to use as a source to restore PV
 	// related cluster state during recovery or relocate actions of applications
