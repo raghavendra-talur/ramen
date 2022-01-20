@@ -949,7 +949,26 @@ func (d *DRPCInstance) generateVRGSpecAsync() rmn.VRGAsyncSpec {
 }
 
 func dRPolicySupportsRegional(drpolicy *rmn.DRPolicy) bool {
-	return rmnutil.DrpolicyRegionNames(drpolicy).Len() > 1
+	return rmnutil.DrpolicyRegionNamesAsASet(drpolicy).Len() > 1
+}
+
+func dRPolicySupportsMetro(drpolicy *rmn.DRPolicy) (bool, map[rmn.Region][]string) {
+	m := make(map[rmn.Region][]string)
+	metroMap := make(map[rmn.Region][]string)
+	var supportsMetro bool
+
+	for _, v := range drpolicy.Spec.DRClusterSet {
+		m[v.Region] = append(m[v.Region], v.Name)
+	}
+
+	for k, v := range m {
+		if len(v) > 1 {
+			supportsMetro = true
+			metroMap[k] = v
+		}
+	}
+
+	return supportsMetro, metroMap
 }
 
 func isMetroAction(drpolicy *rmn.DRPolicy, from string, to string) bool {

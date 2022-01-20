@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -39,6 +40,9 @@ type DRPolicyReconciler struct {
 	Scheme            *runtime.Scheme
 	ObjectStoreGetter ObjectStoreGetter
 }
+
+// ReasonValidationFailed is set when the DRPolicy could not be validated or is not valid
+const ReasonValidationFailed = "ValidationFailed"
 
 //nolint:lll
 //+kubebuilder:rbac:groups=ramendr.openshift.io,resources=drpolicies,verbs=get;list;watch;create;update;patch;delete
@@ -124,7 +128,80 @@ func validateDRPolicy(ctx context.Context, drpolicy *ramen.DRPolicy, apiReader c
 		return reason, err
 	}
 
+	err = validateManagedClusters(ctx, apiReader, drpolicy)
+	if err != nil {
+		return ReasonValidationFailed, err
+	}
+
 	return "", nil
+}
+
+// If two drpolicies have common managed cluster(s) and at least one of them is a metro supported drpolicy, then fail.
+func hasConflictingDRPolicy(ctx context.Context, match *ramen.DRPolicy, list ramen.DRPolicyList) error {
+	// Valid cases
+	// [e1,w1] [e1,c1]
+	// [e1,w1] [e1,w1]
+	// [e1,w1] [e2,e3,w1]
+	// TODO: [e1,e2,w1] [e3,e4,w1]
+	// TODO: [e1,e2,w1,w2,c1] [e3,e4,w3,w4,c1]
+
+	// Failure cases
+	// [e1,e2] [e1,e3] intersection e1, east=e1,e2 east=e1,e3
+	// [e1,e2] [e1,w1]
+	// [e1,e2,w1] [e1,e2,w1]
+	// [e1,e2,c1] [e1,w1]
+
+	matchClusterNames := sets.NewString(util.DrpolicyClusterNames(match)...)
+	matchSupportsMetro, matchMetroRegions := dRPolicySupportsMetro(match)
+
+	for i := range list.Items {
+		drp := &list.Items[i]
+
+		if drp.ObjectMeta.Name == match.ObjectMeta.Name {
+			continue
+		}
+
+		clusterNames := sets.NewString(util.DrpolicyClusterNames(drp)...)
+		supportsMetro, metroRegions := dRPolicySupportsMetro(drp)
+		intersection := matchClusterNames.Intersection(clusterNames)
+
+		if intersection.Len() == 0 {
+			return nil
+		}
+
+		if supportsMetro {
+			for _, v := range metroRegions {
+				if sets.NewString(v...).HasAny(intersection.List()...) {
+					return fmt.Errorf("drpolicy: %v has managed clusters %v which are part of another drpolicy %v",
+						"and at least one of them support Metro DR", match.Name, intersection.List(), drp.Name)
+				}
+			}
+		}
+		if matchSupportsMetro {
+			for _, v := range matchMetroRegions {
+				if sets.NewString(v...).HasAny(intersection.List()...) {
+					return fmt.Errorf("drpolicy: %v has managed clusters %v which are part of another drpolicy %v",
+						"and at least one of them support Metro DR", match.Name, intersection.List(), drp.Name)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func validateManagedClusters(ctx context.Context, apiReader client.Reader, drpolicy *ramen.DRPolicy) error {
+	drpolicies, err := util.GetAllDRPolicies(ctx, apiReader)
+	if err != nil {
+		return err
+	}
+
+	err = hasConflictingDRPolicy(ctx, drpolicy, drpolicies)
+	if err != nil {
+		return fmt.Errorf("drpolicy conflict: %w", err)
+	}
+
+	return nil
 }
 
 func validateS3Profiles(ctx context.Context, apiReader client.Reader,

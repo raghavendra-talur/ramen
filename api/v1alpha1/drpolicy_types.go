@@ -30,6 +30,8 @@ const (
 	ClusterFenceStateManuallyFenced = ClusterFenceState("ManuallyFenced")
 )
 
+type Region string
+
 // Managed cluster information
 type ManagedCluster struct {
 	// Name of this managed cluster as configured in OCM/ACM
@@ -44,6 +46,10 @@ type ManagedCluster struct {
 	// ClusterFence is a string that determines the fencing state of the
 	// cluster.
 	ClusterFence ClusterFenceState `json:"clusterFence,omitempty"`
+
+	// Region of a managed cluster determines it DR group.
+	// All managed clusters in a region are considered to be in a sync group.
+	Region Region `json:"region"`
 
 	// S3 profile name (in Ramen config) to use as a source to restore PV
 	// related cluster state during recovery or relocate actions of applications

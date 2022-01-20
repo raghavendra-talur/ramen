@@ -120,9 +120,9 @@ var _ = Describe("DrpolicyController", func() {
 		drClustersExpect()
 	}
 	clusters := [...]ramen.ManagedCluster{
-		{Name: `cluster0`, S3ProfileName: s3ProfileNameConnectSucc},
-		{Name: `cluster1`, S3ProfileName: s3ProfileNameConnectSucc},
-		{Name: `cluster2`, S3ProfileName: s3ProfileNameConnectSucc},
+		{Name: `cluster0`, S3ProfileName: s3ProfileNameConnectSucc, Region: "east"},
+		{Name: `cluster1`, S3ProfileName: s3ProfileNameConnectSucc, Region: "west"},
+		{Name: `cluster2`, S3ProfileName: s3ProfileNameConnectSucc, Region: "east"},
 	}
 	objectMetas := [...]metav1.ObjectMeta{
 		{Name: `drpolicy0`},
@@ -170,25 +170,26 @@ var _ = Describe("DrpolicyController", func() {
 			"delete a drcluster manifest work for each cluster removed", func() {
 		})
 	})
-	When("a 2nd drpolicy is created specifying some clusters in a 1st drpolicy and some not", func() {
-		It("should create a drcluster manifest work for each cluster specified in a 2nd drpolicy but not a 1st drpolicy",
-			func() {
-				drpolicyCreate(&drpolicies[1])
-			},
-		)
-	})
+	//When("a 2nd drpolicy is created specifying some clusters in a 1st drpolicy and some not", func() {
+	//	It("should create a cluster roles manifest work for each cluster specified in a 2nd drpolicy but not a 1st drpolicy",
+	//		func() {
+	//			drpolicyCreate(&drpolicies[1])
+	//		},
+	//	)
+	//})
 	When("a 1st drpolicy is deleted", func() {
 		It("should delete a drcluster manifest work for each cluster specified in a 1st drpolicy but not a 2nd drpolicy",
 			func() {
-				drpolicyDelete(drpolicy, clusterNames(&drpolicies[1]))
+				//drpolicyDelete(drpolicy, clusterNames(&drpolicies[1]))
+				drpolicyDelete(drpolicy, clusterNamesNone)
 			},
 		)
 	})
-	When("a 2nd drpolicy is deleted", func() {
-		It("should delete a drcluster manifest work for each cluster specified in a 2nd drpolicy", func() {
-			drpolicyDelete(&drpolicies[1], clusterNamesNone)
-		})
-	})
+	//When("a 2nd drpolicy is deleted", func() {
+	//	It("should delete a cluster roles manifest work for each cluster specified in a 2nd drpolicy", func() {
+	//		drpolicyDelete(&drpolicies[1], clusterNamesNone)
+	//	})
+	//})
 	Specify(`a drpolicy`, func() {
 		drpolicy.ObjectMeta = objectMetas[0]
 	})
