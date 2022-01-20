@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	rmn "github.com/ramendr/ramen/api/v1alpha1"
-	"github.com/ramendr/ramen/controllers/util"
 	rmnutil "github.com/ramendr/ramen/controllers/util"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -355,6 +354,17 @@ func (d *DRPCInstance) switchToFailoverCluster() (bool, error) {
 		return done, err
 	}
 
+	if isMetroAction(d.drPolicy, curHomeCluster, d.instance.Spec.FailoverCluster) {
+		fenced, err := d.checkClusterFenced(curHomeCluster)
+		if err != nil {
+			return !done, err
+		}
+
+		if !fenced {
+			return done, fmt.Errorf("current home cluster %s is not fenced", curHomeCluster)
+		}
+	}
+
 	newHomeCluster := d.instance.Spec.FailoverCluster
 
 	const restorePVs = true
@@ -378,6 +388,21 @@ func (d *DRPCInstance) switchToFailoverCluster() (bool, error) {
 	// The failover is complete, but we still need to clean up the failed primary.
 	// hence, returning a NOT done
 	return !done, nil
+}
+
+func (d *DRPCInstance) checkClusterFenced(cluster string) (bool, error) {
+	// return error if the DRPolicy' status for the currentHomeCluster is not found
+	clusterStatus, found := d.drPolicy.Status.DRClusters[cluster]
+	if !found {
+		return false, fmt.Errorf("failed to get the fencing status for the cluster %s", cluster)
+	}
+
+	// return error if the current home cluster is not yet fenced
+	if clusterStatus.Status != rmn.ClusterFenced {
+		return false, nil
+	}
+
+	return true, nil
 }
 
 func (d *DRPCInstance) getCurrentHomeClusterName() string {
@@ -441,7 +466,7 @@ func (d *DRPCInstance) RunRelocate() (bool, error) {
 	}
 
 	// Check if current primary (that is not the preferred cluster), is ready to switch over
-	if homeCluster != "" && homeCluster != preferredCluster && !d.readyToSwitchOver(homeCluster) {
+	if homeCluster != "" && homeCluster != preferredCluster && !d.readyToSwitchOver(homeCluster, preferredCluster) {
 		errMsg := fmt.Sprintf("current cluster (%s) has not completed protection actions", homeCluster)
 		d.setDRPCCondition(&d.instance.Status.Conditions, rmn.ConditionAvailable, d.instance.Generation,
 			d.getConditionStatusForTypeAvailable(), string(d.instance.Status.Phase), errMsg)
@@ -530,9 +555,20 @@ func (d *DRPCInstance) validateRelocation(preferredCluster string) (string, erro
 // readyToSwitchOver checks whether the PV data is ready and the cluster data has been protected.
 // ClusterDataProtected condition indicates whether all PV related cluster data for an App (Managed
 // by this DRPC instance) has been protected (uploaded to the S3 store(s)) or not.
-func (d *DRPCInstance) readyToSwitchOver(homeCluster string) bool {
+func (d *DRPCInstance) readyToSwitchOver(homeCluster string, preferredCluster string) bool {
 	d.log.Info("Checking whether VRG is available", "cluster", homeCluster)
 
+	if isMetroAction(d.drPolicy, homeCluster, preferredCluster) {
+		// check fencing status in the preferredCluster
+		fenced, err := d.checkClusterFenced(preferredCluster)
+		if err != nil {
+			return false
+		}
+
+		if fenced {
+			return false
+		}
+	}
 	// Allow switch over when PV data is ready and the cluster data is protected
 	return d.isVRGConditionDataReady(homeCluster) && d.isVRGConditionClusterDataReady(homeCluster)
 }
@@ -913,10 +949,23 @@ func (d *DRPCInstance) generateVRGSpecAsync() rmn.VRGAsyncSpec {
 }
 
 func dRPolicySupportsRegional(drpolicy *rmn.DRPolicy) bool {
-	if util.DrpolicyRegionNames(drpolicy).Len() > 1 {
-		return true
+	return rmnutil.DrpolicyRegionNames(drpolicy).Len() > 1
+}
+
+func isMetroAction(drpolicy *rmn.DRPolicy, from string, to string) bool {
+	var regionFrom, regionTo rmn.Region
+
+	for _, managedCluster := range drpolicy.Spec.DRClusterSet {
+		if managedCluster.Name == from {
+			regionFrom = managedCluster.Region
+		}
+
+		if managedCluster.Name == to {
+			regionTo = managedCluster.Region
+		}
 	}
-	return false
+
+	return regionFrom == regionTo
 }
 
 func (d *DRPCInstance) ensureNamespaceExistsOnManagedCluster(homeCluster string) error {

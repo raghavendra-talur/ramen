@@ -78,11 +78,25 @@ type DRPolicySpec struct {
 	DRClusterSet []ManagedCluster `json:"drClusterSet"`
 }
 
+// +kubebuilder:validation:Enum=Unfenced;Fenced
+type FenceStatus string
+
+const (
+	ClusterFenced = FenceStatus("Fenced")
+	ClusterUnfenced = FenceStatus("Unfenced")
+)
+
+type ClusterStatus struct {
+	Name string `json:"string,omitempty"`
+	Status FenceStatus `json:"status,omitempty"`
+}
+
 // DRPolicyStatus defines the observed state of DRPolicy
 // INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 // Important: Run "make" to regenerate code after modifying this file
 type DRPolicyStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	DRClusters map[string]ClusterStatus `json:"drClusters,omitempty"`
 }
 
 const (
