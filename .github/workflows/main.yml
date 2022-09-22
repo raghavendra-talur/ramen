@@ -31,5 +31,5 @@ jobs:
         - name: date inside tailscale
           run: ssh root@100.115.208.63 -- date
         - name: ip inside tailscale
-          run: ssh root@100.115.208.63 -- tailscale ip -4
+          run: ssh -o StrictHostKeyChecking=no root@100.115.208.63 -- tailscale ip -4
             
