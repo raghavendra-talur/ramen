@@ -28,6 +28,8 @@ jobs:
             authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
         - name: ip
           run: tailscale ip -4
+        - name: date inside tailscale
+          run: ssh root@100.115.208.63 -- date
         - name: ip inside tailscale
-          run: tailscale-ssh rtalur-ramen-ci
+          run: ssh root@100.115.208.63 -- tailscale ip -4
             
