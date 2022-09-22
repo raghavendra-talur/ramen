@@ -24,7 +24,10 @@ jobs:
         - name: tailscale connect
           uses: tailscale/github-action@v1
           with:
+            version: 1.30
             authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
         - name: ip
           run: tailscale ip -4
+        - name: ip inside tailscale
+          run: tailscale-ssh rtalur-ramen-ci
             
