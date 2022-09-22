@@ -24,7 +24,7 @@ jobs:
         - name: tailscale connect
           uses: tailscale/github-action@v1
           with:
-            version: 1.30
+            version: 1.30.2
             authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
         - name: ip
           run: tailscale ip -4
