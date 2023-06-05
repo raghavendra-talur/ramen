@@ -10,6 +10,11 @@
 ---
 name: "rdr-external"
 
+ramen:
+  hub: hub
+  clusters: [dr1, dr2]
+  topology: regional-dr
+
 templates:
   - name: "dr-cluster"
     driver: $vm
