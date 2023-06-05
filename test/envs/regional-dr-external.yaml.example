@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # This is a starting point for developers that want to use ramen minikube based
-# test environment with extenral storage.
+# test environment with external storage.
 #
 # You need to implement "my-external-storage" component, deploying the external
 # storage drivers in my-external-storage/start hook.
