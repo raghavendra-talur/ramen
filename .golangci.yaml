@@ -182,7 +182,7 @@ linters:
     #  - goimports
     #  - wrapcheck
     #  - varnamelen
-    #  - staticcheck
+    - staticcheck
     #  - nosnakecase
     #  - ireturn
     #  - nilnil
