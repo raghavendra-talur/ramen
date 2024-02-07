@@ -1,77 +1,79 @@
 // SPDX-FileCopyrightText: The RamenDR authors
 // SPDX-License-Identifier: Apache-2.0
 
-// white box testing desired for Recipe/KubeObject conversions
-package controllers //nolint: testpackage
+package controllers
 
 import (
+	"testing"
 	"time"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-
+	"github.com/ramendr/ramen/api/v1alpha1"
 	"github.com/ramendr/ramen/controllers/kubeobjects"
-
+	Recipe "github.com/ramendr/recipe/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	ramen "github.com/ramendr/ramen/api/v1alpha1"
-	Recipe "github.com/ramendr/recipe/api/v1alpha1"
+	"github.com/google/go-cmp/cmp"
 )
 
-var _ = Describe("VRG_KubeObjectProtection", func() {
-	const namespaceName = "my-ns"
+const namespaceName = "my-ns"
 
-	var hook *Recipe.Hook
-	var group *Recipe.Group
+func setup() (*Recipe.Hook, *Recipe.Group, error) {
+	duration, err := time.ParseDuration("30s")
+	if err != nil {
+		return nil, nil, err
+	}
 
-	BeforeEach(func() {
-		duration, err := time.ParseDuration("30s")
-
-		Expect(err).ToNot(HaveOccurred())
-
-		hook = &Recipe.Hook{
-			Namespace: namespaceName,
-			Name:      "hook-single",
-			Type:      "exec",
-			LabelSelector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"myapp": "testapp",
-				},
+	hook := &Recipe.Hook{
+		Namespace: namespaceName,
+		Name:      "hook-single",
+		Type:      "exec",
+		LabelSelector: &metav1.LabelSelector{
+			MatchLabels: map[string]string{
+				"myapp": "testapp",
 			},
-			SinglePodOnly: false,
-			Ops: []*Recipe.Operation{
+		},
+		SinglePodOnly: false,
+		Ops: []*Recipe.Operation{
+			{
+				Name:      "checkpoint",
+				Container: "main",
+				Timeout:   &metav1.Duration{Duration: duration},
+				Command:   []string{"bash", "/scripts/checkpoint.sh"},
+			},
+		},
+		Chks:      []*Recipe.Check{},
+		Essential: new(bool),
+	}
+
+	group := &Recipe.Group{
+		Name:                  "test-group",
+		BackupRef:             "test-backup-ref",
+		Type:                  "resource",
+		IncludedNamespaces:    []string{namespaceName},
+		IncludedResourceTypes: []string{"deployment", "replicaset"},
+		ExcludedResourceTypes: nil,
+		LabelSelector: &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
 				{
-					Name:      "checkpoint",
-					Container: "main",
-					Timeout:   &metav1.Duration{Duration: duration},
-					Command:   []string{"bash", "/scripts/checkpoint.sh"},
+					Key:      "test",
+					Operator: metav1.LabelSelectorOpNotIn,
+					Values:   []string{"empty-on-backup notin", "ignore-on-backup"},
 				},
 			},
-			Chks:      []*Recipe.Check{},
-			Essential: new(bool),
-		}
+		},
+	}
 
-		group = &Recipe.Group{
-			Name:                  "test-group",
-			BackupRef:             "test-backup-ref",
-			Type:                  "resource",
-			IncludedNamespaces:    []string{namespaceName},
-			IncludedResourceTypes: []string{"deployment", "replicaset"},
-			ExcludedResourceTypes: nil,
-			LabelSelector: &metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "test",
-						Operator: metav1.LabelSelectorOpNotIn,
-						Values:   []string{"empty-on-backup notin", "ignore-on-backup"},
-					},
-				},
-			},
-		}
-	})
+	return hook, group, nil
+}
 
-	Context("Conversion", func() {
-		It("Hook to CaptureSpec", func() {
+func TestVRG_KubeObjectProtection(t *testing.T) {
+	hook, group, err := setup()
+	if err != nil {
+		t.Fatalf("Setup failed: %v", err)
+	}
+
+	t.Run("Conversion", func(t *testing.T) {
+		t.Run("Hook to CaptureSpec", func(t *testing.T) {
 			targetCaptureSpec := &kubeobjects.CaptureSpec{
 				Name: hook.Name + "-" + hook.Ops[0].Name,
 				Spec: kubeobjects.Spec{
@@ -95,14 +97,17 @@ var _ = Describe("VRG_KubeObjectProtection", func() {
 				},
 			}
 			converted, err := convertRecipeHookToCaptureSpec(*hook, *hook.Ops[0])
-
-			Expect(err).To(BeNil())
-			Expect(converted).To(Equal(targetCaptureSpec))
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+			if diff := cmp.Diff(targetCaptureSpec, converted); diff != "" {
+				t.Errorf("Hook to CaptureSpec mismatch (-want +got):\n%s", diff)
+			}
 		})
 
-		It("Hook to RecoverSpec", func() {
+		t.Run("Hook to RecoverSpec", func(t *testing.T) {
 			targetRecoverSpec := &kubeobjects.RecoverSpec{
-				BackupName: ramen.ReservedBackupName,
+				BackupName: v1alpha1.ReservedBackupName,
 				Spec: kubeobjects.Spec{
 					KubeResourcesSpec: kubeobjects.KubeResourcesSpec{
 						IncludedNamespaces: []string{namespaceName},
@@ -124,12 +129,15 @@ var _ = Describe("VRG_KubeObjectProtection", func() {
 				},
 			}
 			converted, err := convertRecipeHookToRecoverSpec(*hook, *hook.Ops[0])
-
-			Expect(err).To(BeNil())
-			Expect(converted).To(Equal(targetRecoverSpec))
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+			if diff := cmp.Diff(targetRecoverSpec, converted); diff != "" {
+				t.Errorf("Hook to RecoverSpec mismatch (-want +got):\n%s", diff)
+			}
 		})
 
-		It("Group to CaptureSpec", func() {
+		t.Run("Group to CaptureSpec", func(t *testing.T) {
 			targetCaptureSpec := &kubeobjects.CaptureSpec{
 				Name: group.Name,
 				Spec: kubeobjects.Spec{
@@ -144,12 +152,15 @@ var _ = Describe("VRG_KubeObjectProtection", func() {
 				},
 			}
 			converted, err := convertRecipeGroupToCaptureSpec(*group)
-
-			Expect(err).To(BeNil())
-			Expect(converted).To(Equal(targetCaptureSpec))
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+			if diff := cmp.Diff(targetCaptureSpec, converted); diff != "" {
+				t.Errorf("Group to CaptureSpec mismatch (-want +got):\n%s", diff)
+			}
 		})
 
-		It("Group to RecoverSpec", func() {
+		t.Run("Group to RecoverSpec", func(t *testing.T) {
 			targetRecoverSpec := &kubeobjects.RecoverSpec{
 				BackupName: group.BackupRef,
 				Spec: kubeobjects.Spec{
@@ -164,9 +175,12 @@ var _ = Describe("VRG_KubeObjectProtection", func() {
 				},
 			}
 			converted, err := convertRecipeGroupToRecoverSpec(*group)
-
-			Expect(err).To(BeNil())
-			Expect(converted).To(Equal(targetRecoverSpec))
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+			if diff := cmp.Diff(targetRecoverSpec, converted); diff != "" {
+				t.Errorf("Group to RecoverSpec mismatch (-want +got):\n%s", diff)
+			}
 		})
 	})
-})
+}
