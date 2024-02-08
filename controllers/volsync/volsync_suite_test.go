@@ -5,8 +5,6 @@ package volsync_test
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -14,21 +12,16 @@ import (
 	. "github.com/onsi/gomega"
 
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v4/apis/volumesnapshot/v1"
-	plrulev1 "github.com/stolostron/multicloud-operators-placementrule/pkg/apis/apps/v1"
-	"go.uber.org/zap/zapcore"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
-	cfgpolicyv1 "open-cluster-management.io/config-policy-controller/api/v1"
-	policyv1 "open-cluster-management.io/governance-policy-propagator/api/v1"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metrics "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	volsyncv1alpha1 "github.com/backube/volsync/api/v1alpha1"
+	"github.com/ramendr/ramen/controllers/testutils"
 	"github.com/ramendr/ramen/controllers/util"
 )
 
@@ -36,6 +29,7 @@ var (
 	logger                         logr.Logger
 	k8sClient                      client.Client
 	testEnv                        *envtest.Environment
+	cfg                            *rest.Config
 	cancel                         context.CancelFunc
 	ctx                            context.Context
 	testStorageClassName           = "test.storageclass"
@@ -64,52 +58,15 @@ func TestVolsync(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	logger = zap.New(zap.UseFlagOptions(&zap.Options{
-		Development: true,
-		DestWriter:  GinkgoWriter,
-		TimeEncoder: zapcore.ISO8601TimeEncoder,
-	}))
-	logf.SetLogger(logger)
+	var err error
+	logger = testutils.ConfigureTestLogger()
 
 	ctx, cancel = context.WithCancel(context.TODO())
 
-	By("Setting up KUBEBUILDER_ASSETS for envtest")
-	if _, set := os.LookupEnv("KUBEBUILDER_ASSETS"); !set {
-
-		// read content of the file ../../testbin/testassets.txt
-		// and set the content as the value of KUBEBUILDER_ASSETS
-		// this is to avoid the need to set KUBEBUILDER_ASSETS
-		// when running the test suite
-		content, err := os.ReadFile("../../testbin/testassets.txt")
-		Expect(err).NotTo(HaveOccurred())
-		Expect(os.Setenv("KUBEBUILDER_ASSETS", string(content))).To(Succeed())
-	}
-
-	By("bootstrapping test environment")
-	testEnv = &envtest.Environment{
-		CRDDirectoryPaths: []string{
-			filepath.Join("..", "..", "config", "crd", "bases"),
-			filepath.Join("..", "..", "hack", "test"),
-		},
-	}
-
-	cfg, err := testEnv.Start()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(cfg).NotTo(BeNil())
-
-	err = volsyncv1alpha1.AddToScheme(scheme.Scheme)
+	testEnv, cfg, _, err = testutils.ConfigureSetupEnvTest()
 	Expect(err).NotTo(HaveOccurred())
 
-	err = snapv1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = policyv1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = plrulev1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = cfgpolicyv1.AddToScheme(scheme.Scheme)
+	err = testutils.AddSchemes()
 	Expect(err).NotTo(HaveOccurred())
 
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -219,6 +176,6 @@ var _ = BeforeSuite(func() {
 var _ = AfterSuite(func() {
 	cancel()
 	By("tearing down the test environment")
-	err := testEnv.Stop()
+	err := testutils.CleanupSetupEnvTest(testEnv)
 	Expect(err).NotTo(HaveOccurred())
 })
