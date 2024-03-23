@@ -1,0 +1,117 @@
+---
+metadata:
+  creationTimestamp: null
+  name: apple-namespace
+spec: {}
+status: {}
+
+---
+metadata:
+  creationTimestamp: null
+  name: apple-busybox-deployment-4678-pvc-4336
+  namespace: apple-namespace
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: rook-ceph-block
+status: {}
+
+---
+metadata:
+  creationTimestamp: null
+  name: apple-extra-pvc-0
+  namespace: apple-namespace
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: rook-ceph-block
+status: {}
+
+---
+metadata:
+  creationTimestamp: null
+  name: apple-extra-pvc-1
+  namespace: apple-namespace
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: rook-ceph-block
+status: {}
+
+---
+data:
+  key-0: value-3470
+  key-1: value-7636
+  key-2: value-2000
+  key-3: value-3649
+  key-4: value-1745
+  key-5: value-806
+  key-6: value-9676
+  key-7: value-1226
+  key-8: value-9004
+  key-9: value-6750
+metadata:
+  creationTimestamp: null
+  name: apple-extra-config-0
+  namespace: apple-namespace
+
+---
+data:
+  key-0: value-3470
+  key-1: value-7636
+  key-2: value-2000
+  key-3: value-3649
+  key-4: value-1745
+  key-5: value-806
+  key-6: value-9676
+  key-7: value-1226
+  key-8: value-9004
+  key-9: value-6750
+metadata:
+  creationTimestamp: null
+  name: apple-extra-config-1
+  namespace: apple-namespace
+
+---
+metadata:
+  creationTimestamp: null
+  name: apple-busybox-deployment-4678
+  namespace: apple-namespace
+spec:
+  selector:
+    matchLabels:
+      app: apple-busybox-deployment-4678
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: apple-busybox-deployment-4678
+    spec:
+      containers:
+      - args:
+        - sh
+        - -c
+        - trap exit TERM; while true; do echo $(date) | tee -a /mnt/test/outfile;
+          sync;sleep 10 & wait; done
+        image: quay.io/nirsof/busybox:stable
+        name: busybox
+        resources: {}
+        volumeMounts:
+        - mountPath: /mnt/test
+          name: apple-busybox-deployment-4678-pvc-4336
+      volumes:
+      - name: apple-busybox-deployment-4678-pvc-4336
+        persistentVolumeClaim:
+          claimName: apple-busybox-deployment-4678-pvc-4336
+status: {}
+
