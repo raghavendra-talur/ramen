@@ -14,13 +14,11 @@ ramen:
 
 templates:
   - name: "dr-cluster"
-    driver: "$vm"
+    driver: "podman"
     container_runtime: containerd
     network: "$network"
     cpus: 4
-    memory: "6g"
-    extra_disks: 1
-    disk_size: "50g"
+    memory: "8g"
     addons:
       - volumesnapshots
       - csi-hostpath-driver
@@ -42,11 +40,11 @@ templates:
           - name: minio
           - name: velero
   - name: "hub-cluster"
-    driver: "$vm"
+    driver: "podman"
     container_runtime: containerd
     network: "$network"
-    cpus: 2
-    memory: "4g"
+    cpus: 4
+    memory: "8g"
     workers:
       - addons:
           - name: ocm-hub
