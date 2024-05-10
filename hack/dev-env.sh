@@ -19,9 +19,9 @@ cd "$script_dir"/..
 cd test
 
 if [[ $1 == "create" ]]; then
-    drenv start envs/regional-dr.yaml
+    drenv start envs/rtalur.yaml
 fi
 
 if [[ $1 == "destroy" ]]; then
-    drenv delete envs/regional-dr.yaml
+    drenv delete envs/rtalur.yaml
 fi
