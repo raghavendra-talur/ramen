@@ -16,9 +16,13 @@ templates:
   - name: "dr-cluster"
     driver: "$vm"
     container_runtime: containerd
+    containerd:
+      plugins:
+        io.containerd.grpc.v1.cri:
+          device_ownership_from_security_context: true
     network: "$network"
-    cpus: 4
-    memory: "6g"
+    cpus: 8
+    memory: "16g"
     extra_disks: 1
     disk_size: "50g"
     feature_gates:
@@ -35,18 +39,20 @@ templates:
       - addons:
           - name: ocm-cluster
             args: ["$name", "hub"]
+          - name: cdi
           - name: recipe
       - addons:
           - name: csi-addons
           - name: olm
           - name: minio
           - name: velero
+          - name: kubevirt
   - name: "hub-cluster"
     driver: "$vm"
     container_runtime: containerd
     network: "$network"
-    cpus: 2
-    memory: "4g"
+    cpus: 4
+    memory: "16g"
     workers:
       - addons:
           - name: ocm-hub
