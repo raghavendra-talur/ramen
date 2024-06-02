@@ -14,6 +14,7 @@ ramen:
 
 templates:
   - name: "dr-cluster"
+    external: true
     driver: "$vm"
     container_runtime: containerd
     containerd:
@@ -46,8 +47,8 @@ templates:
           - name: olm
           - name: minio
           - name: velero
-          - name: kubevirt
   - name: "hub-cluster"
+    external: true
     driver: "$vm"
     container_runtime: containerd
     network: "$network"
