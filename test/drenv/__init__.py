@@ -105,7 +105,7 @@ def temporary_kubeconfig(prefix="drenv."):
     """
     with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
         kubeconfig = os.path.join(tmpdir, "kubeconfig")
-        out = kubectl.config("view", "--output=yaml")
+        out = kubectl.config("view", "--output=yaml", "--raw=true")
         with open(kubeconfig, "w") as f:
             f.write(out)
         env = dict(os.environ)
