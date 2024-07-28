@@ -1808,6 +1808,10 @@ func (d *DRPCInstance) cleanupForVolSync(clusterToSkip string) error {
 		return fmt.Errorf("still waiting for peer to be ready")
 	}
 
+	if d.instance.Spec.ProtectedNamespaces != nil && len(*d.instance.Spec.ProtectedNamespaces) > 0 {
+		d.setProgression(rmn.ProgressionWaitOnUserToCleanUp)
+	}
+
 	addOrUpdateCondition(&d.instance.Status.Conditions, rmn.ConditionPeerReady, d.instance.Generation,
 		metav1.ConditionTrue, rmn.ReasonSuccess, "Ready")
 
