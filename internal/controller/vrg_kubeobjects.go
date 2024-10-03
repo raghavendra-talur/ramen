@@ -284,6 +284,13 @@ func (v *VRGInstance) kubeObjectsGroupCapture(
 	labels, annotations map[string]string, requests map[string]kubeobjects.Request,
 	log logr.Logger,
 ) (requestsCompletedCount int) {
+	if captureGroup.Name == "CheckHookAsDelay" {
+		time.Sleep(5 * time.Second)
+		requestsCompletedCount = len(v.s3StoreAccessors)
+
+		return
+	}
+
 	for _, s3StoreAccessor := range v.s3StoreAccessors {
 		requestName := kubeObjectsCaptureName(namePrefix, captureGroup.Name, s3StoreAccessor.S3ProfileName)
 		log1 := log.WithValues("profile", s3StoreAccessor.S3ProfileName)
@@ -592,6 +599,13 @@ func (v *VRGInstance) kubeObjectsRecoveryStartOrResume(
 	requests := make([]kubeobjects.Request, len(groups))
 
 	for groupNumber, recoverGroup := range groups {
+
+		if recoverGroup.BackupName == "CheckHookAsDelay" {
+			time.Sleep(5 * time.Second)
+
+			continue
+		}
+
 		log1 := log.WithValues("group", groupNumber, "name", recoverGroup.BackupName)
 		request, ok, submit, cleanup := v.getRecoverOrProtectRequest(
 			captureRequests, recoverRequests, s3StoreAccessor,
@@ -732,6 +746,9 @@ func getCaptureGroups(recipe Recipe.Recipe) ([]kubeobjects.CaptureSpec, error) {
 			resourceName := resource[resourceType]
 
 			if resourceType == "hook" {
+				cp := &resources[index]
+				cp.Name = "CheckHookAsDelay"
+
 				continue
 			}
 
@@ -770,6 +787,9 @@ func getRecoverGroups(recipe Recipe.Recipe) ([]kubeobjects.RecoverSpec, error) {
 			resourceName := resource[resourceType]
 
 			if resourceType == "hook" {
+				rg := &resources[index]
+				rg.BackupName = "CheckHookAsDelay"
+
 				continue
 			}
 
