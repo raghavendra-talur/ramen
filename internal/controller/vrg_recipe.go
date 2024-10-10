@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -28,7 +29,10 @@ type RecipeElements struct {
 	PvcSelector     PvcSelector
 	CaptureWorkflow []kubeobjects.CaptureSpec
 	RecoverWorkflow []kubeobjects.RecoverSpec
+	checkHookDelay  int
 }
+
+const checkHookDelayAnnotation = "ramendr.openshift.io/check-hook-delay"
 
 func captureWorkflowDefault(vrg ramen.VolumeReplicationGroup, ramenConfig ramen.RamenConfig) []kubeobjects.CaptureSpec {
 	namespaces := []string{vrg.Namespace}
@@ -97,6 +101,7 @@ func RecipeElementsGet(ctx context.Context, reader client.Reader, vrg ramen.Volu
 	)
 }
 
+// nolint: funlen
 func recipeVolumesAndOptionallyWorkflowsGet(ctx context.Context, reader client.Reader, vrg ramen.VolumeReplicationGroup,
 	ramenConfig ramen.RamenConfig, log logr.Logger, recipeElements *RecipeElements,
 	workflowsGet func(recipe.Recipe, *RecipeElements, ramen.VolumeReplicationGroup, ramen.RamenConfig) error,
@@ -129,6 +134,17 @@ func recipeVolumesAndOptionallyWorkflowsGet(ctx context.Context, reader client.R
 		return fmt.Errorf("recipe %v get error: %w", recipeNamespacedName.String(), err)
 	}
 
+	hookDelay := 5
+
+	if val, ok := recipe.Annotations[checkHookDelayAnnotation]; ok {
+		var err error
+
+		hookDelay, err = strconv.Atoi(val)
+		if err != nil {
+			log.Error(err, "Failed to parse checkHookDelay annotation", "value", val)
+		}
+	}
+
 	if err := RecipeParametersExpand(&recipe, vrg.Spec.KubeObjectProtection.RecipeParameters, log); err != nil {
 		return err
 	}
@@ -142,7 +158,8 @@ func recipeVolumesAndOptionallyWorkflowsGet(ctx context.Context, reader client.R
 	}
 
 	*recipeElements = RecipeElements{
-		PvcSelector: selector,
+		PvcSelector:    selector,
+		checkHookDelay: hookDelay,
 	}
 
 	if err := workflowsGet(recipe, recipeElements, vrg, ramenConfig); err != nil {

@@ -483,6 +483,7 @@ type VRGInstance struct {
 	objectStorers        map[string]cachedObjectStorer
 	s3StoreAccessors     []s3StoreAccessor
 	result               ctrl.Result
+	checkHookDelay       int
 }
 
 const (
@@ -546,6 +547,7 @@ func (v *VRGInstance) processVRG() ctrl.Result {
 	}
 
 	v.log.Info("Recipe", "elements", v.recipeElements)
+	v.checkHookDelay = v.recipeElements.checkHookDelay
 
 	if err := v.updatePVCList(); err != nil {
 		return v.invalid(err, "Failed to process list of PVCs to protect", true)
