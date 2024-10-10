@@ -276,6 +276,7 @@ func (v *VRGInstance) kubeObjectsCaptureStartOrResume(
 	)
 }
 
+// nolint: funlen
 func (v *VRGInstance) kubeObjectsGroupCapture(
 	result *ctrl.Result,
 	captureGroup kubeobjects.CaptureSpec,
@@ -285,7 +286,7 @@ func (v *VRGInstance) kubeObjectsGroupCapture(
 	log logr.Logger,
 ) (requestsCompletedCount int) {
 	if captureGroup.Name == "CheckHookAsDelay" {
-		time.Sleep(5 * time.Second)
+		time.Sleep(time.Duration(v.checkHookDelay) * time.Second)
 		requestsCompletedCount = len(v.s3StoreAccessors)
 
 		return
@@ -588,6 +589,7 @@ func (v *VRGInstance) getRecoverOrProtectRequest(
 		}
 }
 
+// nolint: funlen
 func (v *VRGInstance) kubeObjectsRecoveryStartOrResume(
 	result *ctrl.Result, s3StoreAccessor s3StoreAccessor,
 	sourceVrgNamespaceName, sourceVrgName string,
@@ -599,9 +601,8 @@ func (v *VRGInstance) kubeObjectsRecoveryStartOrResume(
 	requests := make([]kubeobjects.Request, len(groups))
 
 	for groupNumber, recoverGroup := range groups {
-
 		if recoverGroup.BackupName == "CheckHookAsDelay" {
-			time.Sleep(5 * time.Second)
+			time.Sleep(time.Duration(v.checkHookDelay) * time.Second)
 
 			continue
 		}
