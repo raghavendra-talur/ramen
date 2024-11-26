@@ -70,12 +70,6 @@ func Exhaustive(t *testing.T) {
 		t.Fatalf("failed to ensure channel: %v", err)
 	}
 
-	t.Cleanup(func() {
-		if err := util.EnsureChannelDeleted(); err != nil {
-			t.Fatalf("failed to ensure channel deleted: %v", err)
-		}
-	})
-
 	generateWorkloads(Workloads)
 
 	for _, deployer := range Deployers {
