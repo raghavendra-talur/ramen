@@ -643,7 +643,7 @@ func (v *VRGInstance) kubeObjectsRecoveryStartOrResume(
 
 		if rg.IsHook {
 			if err := v.executeHook(rg.Hook, log1); err != nil {
-				break
+				return fmt.Errorf("rtalur return error on failed hook: %v", err)
 			}
 		} else {
 			if err := v.executeRecoverGroup(result, s3StoreAccessor, sourceVrgNamespaceName,

@@ -37,7 +37,7 @@ func EvaluateCheckHook(client client.Client, hook *kubeobjects.HookSpec, log log
 		// handle pod type
 		resource := &corev1.Pod{}
 
-		err := WaitUntilResourceExists(client, resource, nsScopedName, time.Duration(timeout)*time.Second)
+		err := WaitUntilResourceExists(client, resource, nsScopedName, time.Duration(timeout)*time.Second, log)
 		if err != nil {
 			return false, err
 		}
@@ -47,7 +47,7 @@ func EvaluateCheckHook(client client.Client, hook *kubeobjects.HookSpec, log log
 		// handle deployment type
 		resource := &appsv1.Deployment{}
 
-		err := WaitUntilResourceExists(client, resource, nsScopedName, time.Duration(timeout)*time.Second)
+		err := WaitUntilResourceExists(client, resource, nsScopedName, time.Duration(timeout)*time.Second, log)
 		if err != nil {
 			return false, err
 		}
@@ -57,7 +57,7 @@ func EvaluateCheckHook(client client.Client, hook *kubeobjects.HookSpec, log log
 		// handle statefulset type
 		resource := &appsv1.StatefulSet{}
 
-		err := WaitUntilResourceExists(client, resource, nsScopedName, time.Duration(timeout)*time.Second)
+		err := WaitUntilResourceExists(client, resource, nsScopedName, time.Duration(timeout)*time.Second, log)
 		if err != nil {
 			return false, err
 		}
@@ -69,7 +69,7 @@ func EvaluateCheckHook(client client.Client, hook *kubeobjects.HookSpec, log log
 }
 
 func WaitUntilResourceExists(client client.Client, obj client.Object, nsScopedName types.NamespacedName,
-	timeout time.Duration,
+	timeout time.Duration, log logr.Logger,
 ) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -83,6 +83,7 @@ func WaitUntilResourceExists(client client.Client, obj client.Object, nsScopedNa
 			return fmt.Errorf("timeout waiting for resource %s to be ready: %w", nsScopedName.Name, ctx.Err())
 		case <-ticker.C:
 			err := client.Get(context.Background(), nsScopedName, obj)
+			log.Info("Waiting for resource to be ready", "resource", nsScopedName, "error", err)
 			if err != nil {
 				if k8serrors.IsNotFound(err) {
 					// Resource not found, continue polling
