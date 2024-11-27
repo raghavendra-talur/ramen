@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/ramendr/ramen/e2e/tests/validation"
 	"github.com/ramendr/ramen/e2e/util"
 	uberzap "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -56,7 +57,7 @@ var Suites = []testDef{
 func TestSuites(t *testing.T) {
 	util.Ctx.Log.Info(t.Name())
 
-	if !t.Run("Validate", Validate) {
+	if !t.Run("Validate", validation.Validate) {
 		t.Fatal("failed to validate the test suite")
 	}
 
