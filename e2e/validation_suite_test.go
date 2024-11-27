@@ -9,7 +9,7 @@ import (
 	"github.com/ramendr/ramen/e2e/util"
 )
 
-func Validate(t *testing.T) {
+func TestValidate(t *testing.T) {
 	t.Helper()
 	t.Run("hub", func(t *testing.T) {
 		err := util.ValidateRamenHubOperator(util.Ctx.Hub.K8sClientSet)

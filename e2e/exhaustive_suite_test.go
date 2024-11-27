@@ -62,7 +62,7 @@ func generateWorkloads([]workloads.Workload) {
 	}
 }
 
-func Exhaustive(t *testing.T) {
+func TestExhaustive(t *testing.T) {
 	t.Helper()
 	t.Parallel()
 
