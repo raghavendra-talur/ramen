@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	defaultTimeoutValue = 300
-	pollInterval        = 100
+	defaultTimeoutValue       = 300
+	pollInterval              = 100
+	expectedNumberOfJSONPaths = 2
 )
 
 func EvaluateCheckHook(client client.Client, hook *kubeobjects.HookSpec, log logr.Logger) (bool, error) {
@@ -37,40 +38,25 @@ func EvaluateCheckHook(client client.Client, hook *kubeobjects.HookSpec, log log
 		// handle pod type
 		resource := &corev1.Pod{}
 
-		err := WaitUntilResourceExists(client, resource, nsScopedName, time.Duration(timeout)*time.Second)
-		if err != nil {
-			return false, err
-		}
-
-		return EvaluateCheckHookExp(hook.Chk.Condition, resource)
+		return EvaluateCheckHookExpWithTimeout(client, resource, nsScopedName, time.Duration(timeout)*time.Second, hook.Chk.Condition, log)
 	case "deployment":
 		// handle deployment type
 		resource := &appsv1.Deployment{}
 
-		err := WaitUntilResourceExists(client, resource, nsScopedName, time.Duration(timeout)*time.Second)
-		if err != nil {
-			return false, err
-		}
-
-		return EvaluateCheckHookExp(hook.Chk.Condition, resource)
+		return EvaluateCheckHookExpWithTimeout(client, resource, nsScopedName, time.Duration(timeout)*time.Second, hook.Chk.Condition, log)
 	case "statefulset":
 		// handle statefulset type
 		resource := &appsv1.StatefulSet{}
 
-		err := WaitUntilResourceExists(client, resource, nsScopedName, time.Duration(timeout)*time.Second)
-		if err != nil {
-			return false, err
-		}
-
-		return EvaluateCheckHookExp(hook.Chk.Condition, resource)
+		return EvaluateCheckHookExpWithTimeout(client, resource, nsScopedName, time.Duration(timeout)*time.Second, hook.Chk.Condition, log)
 	}
 
 	return false, nil
 }
 
-func WaitUntilResourceExists(client client.Client, obj client.Object, nsScopedName types.NamespacedName,
-	timeout time.Duration,
-) error {
+func EvaluateCheckHookExpWithTimeout(client client.Client, obj client.Object, nsScopedName types.NamespacedName,
+	timeout time.Duration, booleanExpression string, log logr.Logger,
+) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -80,19 +66,25 @@ func WaitUntilResourceExists(client client.Client, obj client.Object, nsScopedNa
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for resource %s to be ready: %w", nsScopedName.Name, ctx.Err())
+			return false, fmt.Errorf("timeout waiting for resource %s to be ready", nsScopedName.Name)
 		case <-ticker.C:
 			err := client.Get(context.Background(), nsScopedName, obj)
 			if err != nil {
+				log.Info("Waiting for resource to be ready", "resource", nsScopedName, "error", err)
 				if k8serrors.IsNotFound(err) {
 					// Resource not found, continue polling
 					continue
 				}
-
-				return err // Some other error occurred, return it
+				return false, err // Some other error occurred, return it
 			}
+			fmt.Println("**** ASN, deployment found", nsScopedName)
+			res, err := EvaluateCheckHookExp(booleanExpression, obj)
+			if err != nil {
+				continue // This may mean that expression is not evaluated
+			}
+			fmt.Println("**** ASN, checkhook is executed with boolean exp", booleanExpression, " result is ", res)
 
-			return nil // Resource is ready
+			return res, err // Resource is ready
 		}
 	}
 }
@@ -235,27 +227,27 @@ func compareValues(val1, val2 interface{}, operator string) (bool, error) {
 	case float64:
 		v2, ok := val2.(float64)
 		if !ok {
-			return false, fmt.Errorf("mismatched types")
+			return false, fmt.Errorf("mismatched types %T and %T", val1, val2)
 		}
 
 		return compareFloat(v1, v2, operator)
 	case string:
 		v2, ok := val2.(string)
 		if !ok {
-			return false, fmt.Errorf("mismatched types")
+			return false, fmt.Errorf("mismatched types %T and %T", val1, val2)
 		}
 
 		return compareString(v1, v2, operator)
 	case bool:
 		v2, ok := val2.(bool)
 		if !ok {
-			return false, fmt.Errorf("mismatched types")
+			return false, fmt.Errorf("mismatched types %T and %T", val1, val2)
 		}
 
 		return compareBool(v1, v2, operator)
 	}
 
-	return false, fmt.Errorf("unsupported type or operator")
+	return false, fmt.Errorf("unsupported type or operator, types are %T and %T, operator is %s", val1, val2, operator)
 }
 
 func isKindString(kind reflect.Kind) bool {
@@ -290,7 +282,7 @@ func parseBooleanExpression(booleanExpression string) (op string, jsonPaths []st
 
 		jsonPaths = trimLeadingTrailingWhiteSpace(exprs)
 
-		if len(exprs) == 2 &&
+		if len(exprs) == expectedNumberOfJSONPaths &&
 			IsValidJSONPathExpression(jsonPaths[0]) &&
 			IsValidJSONPathExpression(jsonPaths[1]) {
 			return op, jsonPaths, nil
