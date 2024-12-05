@@ -1992,6 +1992,8 @@ func (v *VRGInstance) restorePVsAndPVCsForVolRep(result *ctrl.Result) (int, erro
 		return 0, fmt.Errorf("%s: %w", errMsg, err)
 	}
 
+	v.kubeObjectsRecover(result, s3StoreProfile, objectStore)
+
 	return count, nil
 }
 
@@ -2046,7 +2048,7 @@ func (v *VRGInstance) restorePVsAndPVCsFromS3(result *ctrl.Result) (int, error) 
 
 		v.log.Info(fmt.Sprintf("Restored %d PVs and %d PVCs using profile %s", pvCount, pvcCount, s3ProfileName))
 
-		return pvCount + pvcCount, v.kubeObjectsRecover(result, s3StoreProfile, objectStore)
+		return pvCount + pvcCount, nil
 	}
 
 	if NoS3 {
