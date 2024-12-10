@@ -1971,6 +1971,30 @@ func (v *VRGInstance) s3KeyPrefix() string {
 	return S3KeyPrefix(v.namespacedName)
 }
 
+func (v *VRGInstance) restoreKubeObjects(result *ctrl.Result) error {
+	v.log.Info("Restoring KubeObjects")
+
+	if len(v.instance.Spec.S3Profiles) == 0 {
+		v.log.Info("No S3 profiles configured")
+
+		result.Requeue = true
+
+		return fmt.Errorf("no S3Profiles configured")
+	}
+
+	v.log.Info(fmt.Sprintf("Restoring KubeObjects to this managed cluster. ProfileList: %v", v.instance.Spec.S3Profiles))
+
+	count, err := v.restoreKubeObjectsFromS3(result)
+	if err != nil {
+		errMsg := fmt.Sprintf("failed to restore PVs and PVCs using profile list (%v)", v.instance.Spec.S3Profiles)
+		v.log.Info(errMsg)
+
+		return 0, fmt.Errorf("%s: %w", errMsg, err)
+	}
+
+	return count, nil
+}
+
 func (v *VRGInstance) restorePVsAndPVCsForVolRep(result *ctrl.Result) (int, error) {
 	v.log.Info("Restoring VolRep PVs and PVCs")
 
