@@ -35,6 +35,12 @@ func EnableProtectionDiscoveredApps(ctx types.Context) error {
 		return err
 	}
 
+	// create recipe
+	recipeName := name + "-recipe"
+	if err := createRecipe(recipeName, appNamespace); err != nil {
+		return err
+	}
+
 	// create drpc
 	drpolicy, err := util.GetDRPolicy(util.Ctx.Hub.Client, drPolicyName)
 	if err != nil {
@@ -51,6 +57,11 @@ func EnableProtectionDiscoveredApps(ctx types.Context) error {
 		return err
 	}
 
+	drpc.Spec.KubeObjectProtection.RecipeRef = &ramen.RecipeRef{
+		Namespace: appNamespace,
+		Name:      recipeName,
+	}
+
 	// wait for drpc ready
 	return waitDRPCReady(ctx, util.Ctx.Hub.Client, managementNamespace, drpcName)
 }
@@ -61,6 +72,7 @@ func DisableProtectionDiscoveredApps(ctx types.Context) error {
 	name := ctx.Name()
 	log := ctx.Logger()
 	managementNamespace := ctx.ManagementNamespace()
+	appNamespace := ctx.AppNamespace()
 
 	// TODO: log cluster namespace for completeness?
 	log.Infof("Unprotecting workload in namespace %q", managementNamespace)
@@ -77,6 +89,10 @@ func DisableProtectionDiscoveredApps(ctx types.Context) error {
 	}
 
 	if err := waitDRPCDeleted(ctx, client, managementNamespace, drpcName); err != nil {
+		return err
+	}
+
+	if err := deleteRecipe(client, name, appNamespace); err != nil {
 		return err
 	}
 
