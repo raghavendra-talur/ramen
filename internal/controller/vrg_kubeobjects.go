@@ -242,9 +242,12 @@ func (v *VRGInstance) kubeObjectsCaptureStartOrResume(
 	log logr.Logger,
 ) {
 	groups := v.recipeElements.CaptureWorkflow
+	failOn := v.recipeElements.CaptureFailOn
 	requestsProcessedCount := 0
 	requestsCompletedCount := 0
 	annotations := map[string]string{vrgGenerationKey: strconv.FormatInt(generation, vrgGenerationNumberBase)}
+	//executionResults := make(map[string]bool)
+	var workflowResult = true
 
 	for groupNumber, captureGroup := range groups {
 		cg := captureGroup
@@ -252,7 +255,20 @@ func (v *VRGInstance) kubeObjectsCaptureStartOrResume(
 
 		if cg.IsHook {
 			if err := v.executeHook(cg.Hook, log1); err != nil {
-				break
+
+				if failOn == anyError {
+					v.kubeObjectsCaptureStatusFalse("KubeObjectsHookExecutionError", err.Error())
+					break
+				} else if failOn == essentialError {
+					if cg.Hook.Essential != nil && *cg.Hook.Essential {
+						v.kubeObjectsCaptureStatusFalse("KubeObjectsHookExecutionError", err.Error())
+						break
+					}
+				} else if failOn == fullError {
+					if cg.Hook.Essential != nil && *cg.Hook.Essential {
+						workflowResult = false
+					}
+				}
 			}
 		} else {
 			requestsCompletedCount += v.kubeObjectsGroupCapture(
@@ -260,6 +276,25 @@ func (v *VRGInstance) kubeObjectsCaptureStartOrResume(
 				captureInProgressStatusUpdate,
 				labels, annotations, requests, log,
 			)
+			// result.Requeue true could be used to determine if error has occured or not
+			if result.Requeue {
+				if failOn == anyError {
+					// mark as backup failed
+					v.kubeObjectsCaptureStatusFalse("KubeObjectsCaptureError", fmt.Errorf(
+						"kube objects group capture failed").Error())
+					break
+				} else if failOn == essentialError {
+					if cg.Spec.KubeResourcesSpec.GroupEssential != nil && *cg.Spec.KubeResourcesSpec.GroupEssential {
+						v.kubeObjectsCaptureStatusFalse("KubeObjectsCaptureError", fmt.Errorf(
+							"kube objects group capture failed").Error())
+						break
+					}
+				} else if failOn == fullError {
+					if cg.Spec.KubeResourcesSpec.GroupEssential != nil && *cg.Spec.KubeResourcesSpec.GroupEssential {
+						workflowResult = false
+					}
+				}
+			}
 
 			requestsProcessedCount += len(v.s3StoreAccessors)
 			if requestsCompletedCount < requestsProcessedCount {
@@ -268,6 +303,11 @@ func (v *VRGInstance) kubeObjectsCaptureStartOrResume(
 				return
 			}
 		}
+	}
+
+	if !workflowResult {
+		v.kubeObjectsCaptureFailed("KubeObjectsCaptureError", "Kube objects capture failed")
+		return
 	}
 
 	request0, ok := requests[kubeObjectsCaptureName(namePrefix, groups[0].Name, v.s3StoreAccessors[0].S3ProfileName)]
@@ -650,6 +690,8 @@ func (v *VRGInstance) kubeObjectsRecoveryStartOrResume(
 
 	groups := v.recipeElements.RecoverWorkflow
 	requests := make([]kubeobjects.Request, len(groups))
+	failOn := v.recipeElements.RestoreFailOn
+	workflowResult := true
 
 	s3StoreAccessor, err := v.findS3StoreAccessor(s3ProfileName)
 	if err != nil {
@@ -662,16 +704,41 @@ func (v *VRGInstance) kubeObjectsRecoveryStartOrResume(
 
 		if rg.IsHook {
 			if err := v.executeHook(rg.Hook, log1); err != nil {
-				return fmt.Errorf("check hook execution failed during restore %s: %v", rg.Hook.Name, err)
+				if failOn == anyError {
+					return fmt.Errorf("check hook execution failed during restore %s: %v", rg.Hook.Name, err)
+				} else if failOn == essentialError {
+					if rg.Hook.Essential != nil && *rg.Hook.Essential {
+						return fmt.Errorf("check hook execution failed during restore %s: %v", rg.Hook.Name, err)
+					}
+				} else if failOn == fullError {
+					if rg.Hook.Essential != nil && *rg.Hook.Essential {
+						workflowResult = false
+					}
+				}
+
 			}
 		} else {
 			if err := v.executeRecoverGroup(result, s3StoreAccessor,
 				captureToRecoverFromIdentifier, captureRequests,
 				recoverRequests, labels, groupNumber, rg,
 				requests, log1); err != nil {
-				return err
+				if failOn == anyError {
+					return err
+				} else if failOn == essentialError {
+					if rg.GroupEssential != nil && *rg.GroupEssential {
+						return err
+					}
+				} else if failOn == fullError {
+					if rg.GroupEssential != nil && *rg.GroupEssential {
+						workflowResult = false
+					}
+				}
 			}
 		}
+	}
+
+	if !workflowResult {
+		return fmt.Errorf("workflow execution failed during restore")
 	}
 
 	startTime := requests[0].StartTime()
@@ -799,7 +866,7 @@ func kubeObjectsRequestsWatch(
 	return b
 }
 
-func getCaptureGroups(recipe Recipe.Recipe) ([]kubeobjects.CaptureSpec, error) {
+func getCaptureGroups(recipe Recipe.Recipe) ([]kubeobjects.CaptureSpec, string, error) {
 	var workflow *Recipe.Workflow
 
 	for _, w := range recipe.Spec.Workflows {
@@ -811,7 +878,7 @@ func getCaptureGroups(recipe Recipe.Recipe) ([]kubeobjects.CaptureSpec, error) {
 	}
 
 	if workflow == nil {
-		return nil, ErrWorkflowNotFound
+		return nil, "", ErrWorkflowNotFound
 	}
 
 	resources := make([]kubeobjects.CaptureSpec, len(workflow.Sequence))
@@ -826,17 +893,17 @@ func getCaptureGroups(recipe Recipe.Recipe) ([]kubeobjects.CaptureSpec, error) {
 					continue
 				}
 
-				return resources, err
+				return resources, workflow.FailOn, err
 			}
 
 			resources[index] = *captureInstance
 		}
 	}
 
-	return resources, nil
+	return resources, workflow.FailOn, nil
 }
 
-func getRecoverGroups(recipe Recipe.Recipe) ([]kubeobjects.RecoverSpec, error) {
+func getRecoverGroups(recipe Recipe.Recipe) ([]kubeobjects.RecoverSpec, string, error) {
 	var workflow *Recipe.Workflow
 
 	for _, w := range recipe.Spec.Workflows {
@@ -848,7 +915,7 @@ func getRecoverGroups(recipe Recipe.Recipe) ([]kubeobjects.RecoverSpec, error) {
 	}
 
 	if workflow == nil {
-		return nil, ErrWorkflowNotFound
+		return nil, "", ErrWorkflowNotFound
 	}
 
 	resources := make([]kubeobjects.RecoverSpec, len(workflow.Sequence))
@@ -864,14 +931,14 @@ func getRecoverGroups(recipe Recipe.Recipe) ([]kubeobjects.RecoverSpec, error) {
 					continue
 				}
 
-				return resources, err
+				return resources, workflow.FailOn, err
 			}
 
 			resources[index] = *captureInstance
 		}
 	}
 
-	return resources, nil
+	return resources, workflow.FailOn, nil
 }
 
 var (
@@ -1046,6 +1113,7 @@ func getChkHookSpec(hook *Recipe.Hook, suffix string) kubeobjects.HookSpec {
 					Name:      suffix,
 					Condition: chk.Condition,
 				},
+				Essential: hook.Essential,
 			}
 		}
 	}
@@ -1056,8 +1124,7 @@ func getChkHookSpec(hook *Recipe.Hook, suffix string) kubeobjects.HookSpec {
 func getOpHookSpec(hook *Recipe.Hook, suffix string) kubeobjects.HookSpec {
 	for _, op := range hook.Ops {
 		if op.Name == suffix {
-			// TODO: There are two timeouts, onErrors one in hooks and other one in
-			// check or operation, which one to consider while running hook?
+
 			return kubeobjects.HookSpec{
 				Name:           hook.Name,
 				Namespace:      hook.Namespace,
@@ -1111,6 +1178,7 @@ func convertRecipeGroupToCaptureSpec(group Recipe.Group) (*kubeobjects.CaptureSp
 				IncludedNamespaces: group.IncludedNamespaces,
 				IncludedResources:  group.IncludedResourceTypes,
 				ExcludedResources:  group.ExcludedResourceTypes,
+				GroupEssential:     group.Essential,
 			},
 			LabelSelector:           group.LabelSelector,
 			OrLabelSelectors:        []*metav1.LabelSelector{},
