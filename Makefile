@@ -143,55 +143,55 @@ drenv-prereqs: ## Check the prerequisites for the drenv tool.
 ##@ Tests
 
 test: generate manifests envtest ## Run all the tests.
-	 go test ./... -coverprofile cover.out
+	 go test ./... -coverprofile coverage.txt
 
 test-pvrgl: generate manifests envtest ## Run ProtectedVolumeReplicationGroupList tests.
-	 go test ./internal/controller -coverprofile cover.out  -ginkgo.focus ProtectedVolumeReplicationGroupList
+	 go test ./internal/controller -coverprofile coverage.txt  -ginkgo.focus ProtectedVolumeReplicationGroupList
 
 test-obj: generate manifests envtest ## Run ObjectStorer tests.
-	 go test ./internal/controller -coverprofile cover.out  -ginkgo.focus FakeObjectStorer
+	 go test ./internal/controller -coverprofile coverage.txt  -ginkgo.focus FakeObjectStorer
 
 test-vs: generate manifests envtest ## Run VolumeSync tests.
-	 go test ./internal/controller/volsync -coverprofile cover.out
+	 go test ./internal/controller/volsync -coverprofile coverage.txt
 
 test-vrg: generate manifests envtest ## Run VolumeReplicationGroup tests.
-	 go test ./internal/controller -coverprofile cover.out  -ginkgo.focus VolumeReplicationGroup
+	 go test ./internal/controller -coverprofile coverage.txt  -ginkgo.focus VolumeReplicationGroup
 
 test-vrg-pvc: generate manifests envtest ## Run VolumeReplicationGroupPVC tests.
-	 go test ./internal/controller -coverprofile cover.out  -ginkgo.focus VolumeReplicationGroupPVC
+	 go test ./internal/controller -coverprofile coverage.txt  -ginkgo.focus VolumeReplicationGroupPVC
 
 test-vrg-vr: generate manifests envtest ## Run VolumeReplicationGroupVolRep tests.
-	 go test ./internal/controller -coverprofile cover.out  -ginkgo.focus VolumeReplicationGroupVolRep
+	 go test ./internal/controller -coverprofile coverage.txt  -ginkgo.focus VolumeReplicationGroupVolRep
 
 test-vrg-vs: generate manifests envtest ## Run VolumeReplicationGroupVolSync tests.
-	 go test ./internal/controller -coverprofile cover.out  -ginkgo.focus VolumeReplicationGroupVolSync
+	 go test ./internal/controller -coverprofile coverage.txt  -ginkgo.focus VolumeReplicationGroupVolSync
 
 test-vrg-recipe: generate manifests envtest ## Run VolumeReplicationGroupRecipe tests.
-	 go test ./internal/controller -coverprofile cover.out  -ginkgo.focus VolumeReplicationGroupRecipe
+	 go test ./internal/controller -coverprofile coverage.txt  -ginkgo.focus VolumeReplicationGroupRecipe
 
 test-vrg-kubeobjects: generate manifests envtest ## Run VolumeReplicationGroupKubeObjects tests.
-	 go test ./internal/controller -coverprofile cover.out  -ginkgo.focus VRG_KubeObjectProtection
+	 go test ./internal/controller -coverprofile coverage.txt  -ginkgo.focus VRG_KubeObjectProtection
 
 test-drpc: generate manifests envtest ## Run DRPlacementControl tests.
-	 go test ./internal/controller -coverprofile cover.out  -ginkgo.focus DRPlacementControl
+	 go test ./internal/controller -coverprofile coverage.txt  -ginkgo.focus DRPlacementControl
 
 test-drcluster: generate manifests envtest ## Run DRCluster tests.
-	 go test ./internal/controller -coverprofile cover.out  -ginkgo.focus DRClusterController
+	 go test ./internal/controller -coverprofile coverage.txt  -ginkgo.focus DRClusterController
 
 test-drpolicy: generate manifests envtest ## Run DRPolicy tests.
-	 go test ./internal/controller -coverprofile cover.out  -ginkgo.focus DRPolicyController
+	 go test ./internal/controller -coverprofile coverage.txt  -ginkgo.focus DRPolicyController
 
 test-drclusterconfig: generate manifests envtest ## Run DRClusterConfig tests.
-	 go test ./internal/controller -coverprofile cover.out  -ginkgo.focus DRClusterConfig
+	 go test ./internal/controller -coverprofile coverage.txt  -ginkgo.focus DRClusterConfig
 
 test-util: generate manifests envtest ## Run util tests.
-	 go test ./internal/controller/util -coverprofile cover.out
+	 go test ./internal/controller/util -coverprofile coverage.txt
 
 test-util-pvc: generate manifests envtest ## Run util-pvc tests.
-	 go test ./internal/controller/util -coverprofile cover.out  -ginkgo.focus PVCS_Util
+	 go test ./internal/controller/util -coverprofile coverage.txt  -ginkgo.focus PVCS_Util
 
 test-kubeobjects: ## Run kubeobjects tests.
-	 go test ./internal/controller/kubeobjects -coverprofile cover.out  -ginkgo.focus Kubeobjects
+	 go test ./internal/controller/kubeobjects -coverprofile coverage.txt  -ginkgo.focus Kubeobjects
 
 test-drenv: ## Run drenv tests.
 	$(MAKE) -C test
@@ -203,7 +203,7 @@ e2e-rdr: generate manifests ## Run rdr-e2e tests.
 	cd e2e && ./run.sh
 
 coverage:
-	go tool cover -html=cover.out
+	go tool cover -html=coverage.txt
 
 .PHONY: venv
 venv:
