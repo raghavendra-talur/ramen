@@ -29,8 +29,8 @@ func delaySetIfLess(result *ctrl.Result, delay time.Duration, log logr.Logger) {
 		return
 	}
 
-	log.Info("Delay set because current delay is zero or more than new delay",
-		"current", result.RequeueAfter, "new", delay)
+	log.Info("setting requeue after to remaining time in the capture interval",
+		"requeuing after", delay)
 
 	result.RequeueAfter = delay
 }

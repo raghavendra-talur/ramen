@@ -1172,6 +1172,12 @@ func (v *VRGInstance) processAsPrimary() ctrl.Result {
 
 	defer v.log.Info("Exiting processing VolumeReplicationGroup")
 
+	// clusterDataProtected looks at the v.kubeObjectsProtected condition
+	// to determine if the cluster data is protected. If it is nil, then it is
+	// considered as success. So we should set it as false here and set it as
+	// true if protection is not required or if protection is successful.
+	v.kubeObjectsCaptureFailed("KubeObjectsCaptureNotStarted", "Kube objects capture has not started")
+
 	if err := v.pvcsDeselectedUnprotect(); err != nil {
 		return v.dataError(err, "PVCs deselected unprotect failed", v.result.Requeue)
 	}
@@ -1198,11 +1204,15 @@ func (v *VRGInstance) processAsPrimary() ctrl.Result {
 			v.log.Info("Kube objects restore failed", "error", err)
 			v.errorConditionLogAndSet(err, "Failed to restore kube objects", setVRGKubeObjectsErrorCondition)
 
-			return v.updateVRGStatus(v.result)
+			return v.updateVRGConditionsAndStatus(v.result)
 		}
 
+		// save status and requeue if kube objects are restored
 		v.log.Info("Kube objects restored")
 		setVRGKubeObjectsReadyCondition(&v.instance.Status.Conditions, v.instance.Generation, "Kube objects restored")
+		v.result.Requeue = true
+
+		return v.updateVRGConditionsAndStatus(v.result)
 	}
 
 	v.kubeObjectsProtectPrimary(&v.result)
