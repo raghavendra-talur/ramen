@@ -5,6 +5,8 @@ SPDX-License-Identifier: Apache-2.0
 
 # Ramen
 
+Dummy commit
+
 Ramen is an [open-cluster-management (OCM)](https://open-cluster-management.io/concepts/architecture/)
 [placement](https://open-cluster-management.io/concepts/placement/) extension
 that provides recovery and relocation services for
