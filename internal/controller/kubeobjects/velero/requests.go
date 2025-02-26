@@ -13,6 +13,7 @@ package velero
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/go-logr/logr"
 	pkgerrors "github.com/pkg/errors"
