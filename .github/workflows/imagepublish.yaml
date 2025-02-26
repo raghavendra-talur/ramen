@@ -1,0 +1,173 @@
+---
+# yamllint disable rule:line-length
+
+name: Talur Publish Image
+
+on:  # yamllint disable-line rule:truthy
+  push:
+
+env:
+  # Values can be overriden by repository variables.
+  IMAGE_TAG_BASE: ${{ vars.IMAGE_TAG_BASE || 'quay.io/raghavendra_talur/ramen' }}
+  IMAGE_REPOSITORY: ${{ vars.IMAGE_REPOSITORY || 'raghavendra_talur' }}
+  IMAGE_NAME: ${{ vars.IMAGE_NAME || 'ramen' }}
+  OPERATOR_SUGGESTED_NAMESPACE: ${{ vars.OPERATOR_SUGGESTED_NAMESPACE || 'ramen-system' }}
+  # Constants
+  GO_VERSION: "1.22"
+  IMAGE_REGISTRY: "quay.io"
+  IMAGE_TAG: "latest"
+  DOCKERCMD: "podman"
+  DRIVER: "container"
+defaults:
+  run:
+    shell: bash
+jobs:
+  lint:
+    name: Linters
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install prereqs
+        run: |
+          echo 'APT::Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/80-retries
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip ruby
+          sudo gem install mdl
+          sudo pip3 install yamllint
+      - name: Run linters
+        run: ./hack/pre-commit.sh
+
+      - name: Check that generated files were not modified
+        run: |
+          make generate
+          make manifests
+          go mod tidy
+          git --no-pager diff
+          git diff-index --quiet HEAD
+  golangci:
+    name: Golangci Lint
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        directory: [., api]
+        # golangci-lint has a limitation that it doesn't lint subdirectories if
+        # they are a different module.
+        # see https://github.com/golangci/golangci-lint/issues/828
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup go
+        uses: actions/setup-go@v5
+        with:
+          # when the files to be extracted are already present,
+          # tar extraction in Golangci Lint fails with the "File exists"
+          # errors. These files appear to be present because of
+          # cache in setup-go, on disabling the cache we are no more seeing
+          # such error. Cache is to be enabled once the fix is available for
+          # this issue.
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: GolangCI Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.55.2
+          working-directory: ${{ matrix.directory }}
+
+  unit-test:
+    name: Unit tests
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run unit tests
+        run: make test
+
+  build-image:
+    name: Build image
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: update image tag
+        run: |
+          echo "IMAGE_TAG=$(date +'%Y%m%d')-${{ github.sha }}" >> $GITHUB_ENV
+      - name: Build image
+        run: make docker-build
+
+      - name: Export image
+        run: ${{env.DOCKERCMD}} save -o /tmp/ramen-operator.tar ${IMAGE_TAG_BASE}-operator:${{ env.IMAGE_TAG }}
+
+      - name: Save image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ramen-operator
+          path: /tmp/ramen-operator.tar
+          retention-days: 1
+
+  publish-image:
+    name: Publish built image
+    needs: [lint, golangci, unit-test, build-image]
+    if: >
+      (vars.PUBLISH_IMAGES == 'true') &&
+      (github.event_name == 'push')
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ramen-operator
+          path: /tmp
+
+      - name: Load image artifact
+        run: |
+          ${{env.DOCKERCMD}} load -i /tmp/ramen-operator.tar
+      - name: update image tag
+        run: |
+          echo "IMAGE_TAG=$(date +'%Y%m%d')-${{ github.sha }}" >> $GITHUB_ENV
+      - name: Login to Quay
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_ROBOT_TOKEN }}
+
+      - name: Push operator image to Quay
+        run: |
+          ${{env.DOCKERCMD}} push "${IMAGE_TAG_BASE}-operator:${{ env.IMAGE_TAG }}"
+      # TODO: We do not need to build bundles and catalogs each time, fix once we reach alpha
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build and push bundle images to Quay
+        run: |
+          IMAGE_TAG="${{ env.IMAGE_TAG }}" make bundle-build bundle-push
+      - name: Build and push catalog image to Quay
+        run: |
+          IMAGE_TAG="${{ env.IMAGE_TAG }}" make catalog-build catalog-push
+      # TODO: Test built bundles and catalog based install
