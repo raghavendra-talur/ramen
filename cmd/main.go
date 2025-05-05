@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -23,6 +24,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ocmv1 "open-cluster-management.io/api/cluster/v1"
@@ -47,9 +49,11 @@ import (
 )
 
 var (
-	scheme     = runtime.NewScheme()
-	setupLog   = ctrl.Log.WithName("setup")
-	configFile string
+	scheme          = runtime.NewScheme()
+	setupLog        = ctrl.Log.WithName("setup")
+	configFile      string
+	reconcileObject string
+	podNS           string
 )
 
 func init() {
@@ -79,6 +83,15 @@ func bindFlags(bindfuncs ...func(*flag.FlagSet)) {
 		"The controller will load its initial configuration from this file. "+
 			"Omit this flag to use the default configuration values. "+
 			"Command-line flags override configuration from this file.")
+
+	flag.StringVar(&reconcileObject, "reconcile-object", "",
+		"Reconcile only the specified object specified as objectkind/namespace/name. "+
+			"Example: vrg/test-busybox/test-busybox. "+
+			"Note: this is only for testing purposes and should not be used in production.")
+
+	flag.StringVar(&podNS, "pod-ns", "",
+		"Namespace of the pod that is running this controller. "+
+			"Required when using the reconcile-object flag.")
 
 	for _, f := range bindfuncs {
 		f(flag.CommandLine)
@@ -139,17 +152,31 @@ func newManager(options *ctrl.Options) (ctrl.Manager, error) {
 	return mgr, nil
 }
 
-func setupReconcilers(mgr ctrl.Manager, ramenConfig *ramendrv1alpha1.RamenConfig) {
+func setupReconcilers(mgr ctrl.Manager, ramenConfig *ramendrv1alpha1.RamenConfig) (
+	vrg *controllers.VolumeReplicationGroupReconciler,
+	pvrgl *controllers.ProtectedVolumeReplicationGroupListReconciler,
+	drcc *controllers.DRClusterConfigReconciler,
+	rgd *controllers.ReplicationGroupDestinationReconciler,
+	rgs *controllers.ReplicationGroupSourceReconciler,
+) {
 	if controllers.ControllerType == ramendrv1alpha1.DRHubType {
 		setupReconcilersHub(mgr)
 	}
 
 	if controllers.ControllerType == ramendrv1alpha1.DRClusterType {
-		setupReconcilersCluster(mgr, ramenConfig)
+		vrg, pvrgl, drcc, rgd, rgs = setupReconcilersCluster(mgr, ramenConfig)
 	}
+
+	return
 }
 
-func setupReconcilersCluster(mgr ctrl.Manager, ramenConfig *ramendrv1alpha1.RamenConfig) {
+func setupReconcilersCluster(mgr ctrl.Manager, ramenConfig *ramendrv1alpha1.RamenConfig) (
+	vrg *controllers.VolumeReplicationGroupReconciler,
+	pvrgl *controllers.ProtectedVolumeReplicationGroupListReconciler,
+	drcc *controllers.DRClusterConfigReconciler,
+	rgd *controllers.ReplicationGroupDestinationReconciler,
+	rgs *controllers.ReplicationGroupSourceReconciler,
+) {
 	if err := (&controllers.ProtectedVolumeReplicationGroupListReconciler{
 		Client:         mgr.GetClient(),
 		Scheme:         mgr.GetScheme(),
@@ -167,13 +194,15 @@ func setupReconcilersCluster(mgr ctrl.Manager, ramenConfig *ramendrv1alpha1.Rame
 		os.Exit(1)
 	}
 
-	if err := (&controllers.VolumeReplicationGroupReconciler{
+	vrg = &controllers.VolumeReplicationGroupReconciler{
 		Client:         mgr.GetClient(),
 		APIReader:      mgr.GetAPIReader(),
 		Log:            ctrl.Log.WithName("vrg"),
 		ObjStoreGetter: controllers.S3ObjectStoreGetter(),
 		Scheme:         mgr.GetScheme(),
-	}).SetupWithManager(mgr, ramenConfig); err != nil {
+	}
+
+	if err := vrg.SetupWithManager(mgr, ramenConfig); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "VolumeReplicationGroup")
 		os.Exit(1)
 	}
@@ -209,6 +238,8 @@ func setupReconcilersCluster(mgr ctrl.Manager, ramenConfig *ramendrv1alpha1.Rame
 			os.Exit(1)
 		}
 	}
+
+	return
 }
 
 func setupReconcilersHub(mgr ctrl.Manager) {
@@ -279,7 +310,42 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupReconcilers(mgr, ramenConfig)
+	vrg, _, _, _, _ := setupReconcilers(mgr, ramenConfig)
+
+	if reconcileObject != "" {
+		if podNS == "" {
+			setupLog.Error(fmt.Errorf("pod-ns not set"), "need pod-ns flag set", "ramen pod namespace", podNS)
+			os.Exit(1)
+		}
+
+		setupLog.Info("Reconcile only the specified object", "object", reconcileObject)
+		parts := strings.Split(reconcileObject, "/")
+
+		if len(parts) != len(strings.Split(("kind/namespace/name"), "/")) {
+			setupLog.Error(fmt.Errorf("invalid reconcile object format"), "incorrect number of parts", "object", reconcileObject)
+			os.Exit(1)
+		}
+
+		kind := parts[0]
+		if kind != "vrg" {
+			setupLog.Error(fmt.Errorf("invalid reconcile object kind"), "invalid kind", "object", reconcileObject)
+			os.Exit(1)
+		}
+
+		namespace := parts[1]
+		name := parts[2]
+
+		res, err := vrg.Reconcile(context.Background(), ctrl.Request{
+			NamespacedName: types.NamespacedName{
+				Namespace: namespace,
+				Name:      name,
+			},
+		})
+
+		setupLog.Info("Reconcile result", "object", reconcileObject, "result", res, "error", err)
+
+		os.Exit(0)
+	}
 
 	// +kubebuilder:scaffold:builder
 	if err := mgr.AddHealthzCheck("health", healthz.Ping); err != nil {

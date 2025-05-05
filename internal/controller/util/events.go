@@ -120,6 +120,10 @@ func NewEventReporter(recorder record.EventRecorder) *EventReporter {
 func ReportIfNotPresent(recorder *EventReporter, instance runtime.Object,
 	eventType, eventReason, msg string,
 ) {
+	if recorder == nil {
+		return
+	}
+
 	nameSpacedName, err := getNameSpacedName(instance)
 	if err != nil {
 		return
