@@ -23,13 +23,17 @@ type Request interface {
 	Name() string
 	StartTime() metav1.Time
 	EndTime() metav1.Time
-	Status(logr.Logger) error
+	Status(logr.Logger) (BackupRestoreStatus, error)
 	Deallocate(context.Context, client.Writer, logr.Logger) error
 }
 
 type Requests interface {
 	Count() int
 	Get(i int) Request
+}
+
+type BackupRestoreStatus struct {
+	ItemCount int
 }
 
 func RequestsMapKeyedByName(requestsStruct Requests) map[string]Request {

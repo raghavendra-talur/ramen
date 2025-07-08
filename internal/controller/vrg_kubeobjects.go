@@ -306,6 +306,8 @@ func (v *VRGInstance) executeCaptureSteps(result *ctrl.Result, pathName, capture
 	requestsCompletedCount := 0
 	labels := util.OwnerLabels(v.instance)
 	labels[util.VeleroKubevirtMetadataOnlyBackupLabel] = "true"
+	var backupStatuses []kubeobjects.BackupRestoreStatus
+	var ItemsBackedUp int
 
 	for groupNumber, captureGroup := range captureSteps {
 		var err error
@@ -334,7 +336,7 @@ func (v *VRGInstance) executeCaptureSteps(result *ctrl.Result, pathName, capture
 
 		if !cg.IsHook {
 			isEssentialStep = cg.GroupEssential != nil && *cg.GroupEssential
-			loopCount, err = v.kubeObjectsGroupCapture(
+			backupStatuses, loopCount, err = v.kubeObjectsGroupCapture(
 				result, cg, pathName, capturePathName, namePrefix, veleroNamespaceName,
 				captureInProgressStatusUpdate,
 				labels, annotations, requests, log,
@@ -361,6 +363,12 @@ func (v *VRGInstance) executeCaptureSteps(result *ctrl.Result, pathName, capture
 		}
 
 		if !cg.IsHook {
+			if len(backupStatuses) == 0 {
+				ItemsBackedUp = 0
+			} else {
+				ItemsBackedUp += backupStatuses[0].ItemCount
+			}
+
 			requestsProcessedCount += len(v.s3StoreAccessors)
 			if requestsCompletedCount < requestsProcessedCount {
 				log.Info("Kube objects group capturing", "complete", requestsCompletedCount, "total", requestsProcessedCount)
@@ -369,6 +377,8 @@ func (v *VRGInstance) executeCaptureSteps(result *ctrl.Result, pathName, capture
 			}
 		}
 	}
+
+	log.Info("items backed up", "items", ItemsBackedUp)
 
 	if essentialStepsCount == 0 {
 		allEssentialStepsFailed = false
@@ -384,7 +394,7 @@ func (v *VRGInstance) kubeObjectsGroupCapture(
 	captureInProgressStatusUpdate captureInProgressStatusUpdate,
 	labels, annotations map[string]string, requests map[string]kubeobjects.Request,
 	log logr.Logger,
-) (requestsCompletedCount int, reqErr error) {
+) (backupStatuses []kubeobjects.BackupRestoreStatus, requestsCompletedCount int, reqErr error) {
 	for _, s3StoreAccessor := range v.s3StoreAccessors {
 		requestName := kubeObjectsCaptureName(namePrefix, captureGroup.Name, s3StoreAccessor.S3ProfileName)
 		log1 := log.WithValues("profile", s3StoreAccessor.S3ProfileName)
@@ -409,9 +419,11 @@ func (v *VRGInstance) kubeObjectsGroupCapture(
 			captureInProgressStatusUpdate()
 			log1.Info("Kube objects group capture request submitted")
 		} else {
-			err := request.Status(v.log)
+			backupStatus, err := request.Status(v.log)
 			if err == nil {
 				requestsCompletedCount++
+
+				backupStatuses = append(backupStatuses, backupStatus)
 
 				continue
 			}
@@ -433,7 +445,7 @@ func (v *VRGInstance) kubeObjectsGroupCapture(
 		}
 	}
 
-	return requestsCompletedCount, reqErr
+	return backupStatuses, requestsCompletedCount, reqErr
 }
 
 func (v *VRGInstance) kubeObjectsCaptureAndCaptureRequestDelete(
@@ -771,6 +783,8 @@ func (v *VRGInstance) executeRecoverSteps(result *ctrl.Result, s3StoreAccessor s
 	allEssentialStepsFailed := true
 	essentialStepsCount := 0
 	labels := util.OwnerLabels(v.instance)
+	stepRecoverStatus := kubeobjects.BackupRestoreStatus{}
+	itemsRestored := 0
 
 	recoverSteps := v.recipeElements.RecoverWorkflow
 	for groupNumber, recoverGroup := range recoverSteps {
@@ -798,7 +812,7 @@ func (v *VRGInstance) executeRecoverSteps(result *ctrl.Result, s3StoreAccessor s
 
 		if !rg.IsHook {
 			isEssentialStep = rg.GroupEssential != nil && *rg.GroupEssential
-			err = v.executeRecoverGroup(result, s3StoreAccessor,
+			stepRecoverStatus, err = v.executeRecoverGroup(result, s3StoreAccessor,
 				captureToRecoverFromIdentifier, captureRequests,
 				recoverRequests, labels, groupNumber, rg,
 				requests, log1)
@@ -814,12 +828,16 @@ func (v *VRGInstance) executeRecoverSteps(result *ctrl.Result, s3StoreAccessor s
 			continue
 		}
 
+		itemsRestored += stepRecoverStatus.ItemCount
+
 		if isEssentialStep {
 			// shows that at least one essential step has succeeded
 			allEssentialStepsFailed = false
 			essentialStepsCount++
 		}
 	}
+
+	log.Info("Kube objects recovered", "items", itemsRestored)
 
 	if essentialStepsCount == 0 {
 		allEssentialStepsFailed = false
@@ -848,7 +866,7 @@ func (v *VRGInstance) executeRecoverGroup(result *ctrl.Result, s3StoreAccessor s
 	captureRequests, recoverRequests map[string]kubeobjects.Request,
 	labels map[string]string, groupNumber int,
 	rg kubeobjects.RecoverSpec, requests []kubeobjects.Request, log1 logr.Logger,
-) error {
+) (kubeobjects.BackupRestoreStatus, error) {
 	sourceVrgName := v.instance.Name
 	sourceVrgNamespaceName := v.instance.Namespace
 	request, ok, submit, cleanup := v.getRecoverOrProtectRequest(
@@ -860,27 +878,29 @@ func (v *VRGInstance) executeRecoverGroup(result *ctrl.Result, s3StoreAccessor s
 
 	var err error
 
+	restoreStatus := kubeobjects.BackupRestoreStatus{}
+
 	if !ok {
 		_, err = submit()
 		if err == nil {
 			log1.Info("Kube objects group recover request submitted")
 
-			return errors.New("kube objects group recover request submitted")
+			return restoreStatus, errors.New("kube objects group recover request submitted")
 		}
 	} else {
-		err = request.Status(v.log)
+		restoreStatus, err := request.Status(v.log)
 		if err == nil {
 			log1.Info("Kube objects group recovered", "start", request.StartTime(), "end", request.EndTime())
 			requests[groupNumber] = request
 
-			return nil
+			return restoreStatus, nil
 		}
 	}
 
 	if errors.Is(err, kubeobjects.RequestProcessingError{}) {
 		log1.Info("Kube objects group recovering", "state", err.Error())
 
-		return err
+		return restoreStatus, err
 	}
 
 	log1.Error(err, "Kube objects group recover error")
@@ -891,7 +911,7 @@ func (v *VRGInstance) executeRecoverGroup(result *ctrl.Result, s3StoreAccessor s
 
 	result.Requeue = true
 
-	return err
+	return restoreStatus, err
 }
 
 func (v *VRGInstance) kubeObjectsRecoverRequestsDelete(

@@ -36,16 +36,21 @@ type (
 	RestoreRequest struct{ restore *velero.Restore }
 )
 
-func (r BackupRequest) Object() client.Object         { return r.backup }
-func (r RestoreRequest) Object() client.Object        { return r.restore }
-func (r BackupRequest) Name() string                  { return r.backup.Name }
-func (r RestoreRequest) Name() string                 { return r.restore.Name }
-func (r BackupRequest) StartTime() metav1.Time        { return *r.backup.Status.StartTimestamp }
-func (r RestoreRequest) StartTime() metav1.Time       { return *r.restore.Status.StartTimestamp }
-func (r BackupRequest) EndTime() metav1.Time          { return *r.backup.Status.CompletionTimestamp }
-func (r RestoreRequest) EndTime() metav1.Time         { return *r.restore.Status.CompletionTimestamp }
-func (r BackupRequest) Status(log logr.Logger) error  { return backupRealStatusProcess(r.backup, log) }
-func (r RestoreRequest) Status(log logr.Logger) error { return restoreStatusProcess(r.restore, log) }
+func (r BackupRequest) Object() client.Object   { return r.backup }
+func (r RestoreRequest) Object() client.Object  { return r.restore }
+func (r BackupRequest) Name() string            { return r.backup.Name }
+func (r RestoreRequest) Name() string           { return r.restore.Name }
+func (r BackupRequest) StartTime() metav1.Time  { return *r.backup.Status.StartTimestamp }
+func (r RestoreRequest) StartTime() metav1.Time { return *r.restore.Status.StartTimestamp }
+func (r BackupRequest) EndTime() metav1.Time    { return *r.backup.Status.CompletionTimestamp }
+func (r RestoreRequest) EndTime() metav1.Time   { return *r.restore.Status.CompletionTimestamp }
+func (r BackupRequest) Status(log logr.Logger) (kubeobjects.BackupRestoreStatus, error) {
+	return backupRealStatusProcess(r.backup, log)
+}
+
+func (r RestoreRequest) Status(log logr.Logger) (kubeobjects.BackupRestoreStatus, error) {
+	return restoreStatusProcess(r.restore, log)
+}
 
 type (
 	BackupRequests  struct{ backups *velero.BackupList }
@@ -278,25 +283,29 @@ func backupRestore(
 func restoreStatusProcess(
 	restore *velero.Restore,
 	log logr.Logger,
-) error {
+) (kubeobjects.BackupRestoreStatus, error) {
 	restoreStatusLog(restore, log)
+
+	vs := kubeobjects.BackupRestoreStatus{
+		ItemCount: restore.Status.Progress.TotalItems,
+	}
 
 	switch restore.Status.Phase {
 	case velero.RestorePhaseCompleted:
-		return nil
+		return vs, nil
 	case velero.RestorePhaseNew,
 		velero.RestorePhaseInProgress,
 		velero.RestorePhaseWaitingForPluginOperations,
 		velero.RestorePhaseWaitingForPluginOperationsPartiallyFailed,
 		velero.RestorePhaseFinalizing,
 		velero.RestorePhaseFinalizingPartiallyFailed:
-		return kubeobjects.RequestProcessingErrorCreate("restore" + string(restore.Status.Phase))
+		return vs, kubeobjects.RequestProcessingErrorCreate("restore" + string(restore.Status.Phase))
 	case velero.RestorePhaseFailed,
 		velero.RestorePhaseFailedValidation,
 		velero.RestorePhasePartiallyFailed:
-		return errors.New("restore" + string(restore.Status.Phase))
+		return vs, errors.New("restore" + string(restore.Status.Phase))
 	default:
-		return kubeobjects.RequestProcessingErrorCreate("restore.status.phase absent")
+		return vs, kubeobjects.RequestProcessingErrorCreate("restore.status.phase absent")
 	}
 }
 
@@ -409,12 +418,16 @@ func getBackupSpecFromObjectsSpec(objectsSpec kubeobjects.Spec) velero.BackupSpe
 func backupRealStatusProcess(
 	backup *velero.Backup,
 	log logr.Logger,
-) error {
+) (kubeobjects.BackupRestoreStatus, error) {
 	backupStatusLog(backup, log)
+
+	vs := kubeobjects.BackupRestoreStatus{
+		ItemCount: backup.Status.Progress.TotalItems,
+	}
 
 	switch backup.Status.Phase {
 	case velero.BackupPhaseCompleted:
-		return nil
+		return vs, nil
 	case velero.BackupPhaseNew,
 		velero.BackupPhaseInProgress,
 		velero.BackupPhaseWaitingForPluginOperations,
@@ -422,13 +435,13 @@ func backupRealStatusProcess(
 		velero.BackupPhaseDeleting,
 		velero.BackupPhaseFinalizing,
 		velero.BackupPhaseFinalizingPartiallyFailed:
-		return kubeobjects.RequestProcessingErrorCreate("backup" + string(backup.Status.Phase))
+		return vs, kubeobjects.RequestProcessingErrorCreate("backup" + string(backup.Status.Phase))
 	case velero.BackupPhaseFailedValidation,
 		velero.BackupPhasePartiallyFailed,
 		velero.BackupPhaseFailed:
-		return errors.New("backup" + string(backup.Status.Phase))
+		return vs, errors.New("backup" + string(backup.Status.Phase))
 	default:
-		return kubeobjects.RequestProcessingErrorCreate("backup.status.phase absent")
+		return vs, kubeobjects.RequestProcessingErrorCreate("backup.status.phase absent")
 	}
 }
 
