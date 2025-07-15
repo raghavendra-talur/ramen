@@ -65,6 +65,7 @@ func TestDR(dt *testing.T) {
 		}
 
 		ctx := test.NewContext(&Ctx, workload, deployer)
+
 		t.Run(ctx.Name(), func(dt *testing.T) {
 			t := test.WithLog(dt, ctx.Logger())
 			t.Parallel()

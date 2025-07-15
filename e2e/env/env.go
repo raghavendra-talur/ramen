@@ -40,8 +40,8 @@ func init() {
 	utilruntime.Must(subscription.AddToScheme(scheme.Scheme))
 	utilruntime.Must(argocdv1alpha1hack.AddToScheme(scheme.Scheme))
 	utilruntime.Must(ramen.AddToScheme(scheme.Scheme))
-	utilruntime.Must(recipe.AddToScheme(scheme.Scheme))
 	utilruntime.Must(virtv1.AddToScheme(scheme.Scheme))
+	utilruntime.Must(recipe.AddToScheme(scheme.Scheme))
 }
 
 func New(ctx context.Context, clusters map[string]config.Cluster, log *zap.SugaredLogger) (*types.Env, error) {

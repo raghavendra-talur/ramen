@@ -15,6 +15,13 @@ import (
 
 func EnableProtectionDiscoveredApps(ctx types.TestContext) error {
 	w := ctx.Workload()
+	d := ctx.Deployer()
+
+	disapp, ok := d.(*deployers.DiscoveredApp)
+	if !ok {
+		return fmt.Errorf("deployer is not a DiscoveredApp: %T", d)
+	}
+
 	name := ctx.Name()
 	log := ctx.Logger()
 	config := ctx.Config()
@@ -25,6 +32,22 @@ func EnableProtectionDiscoveredApps(ctx types.TestContext) error {
 	appname := w.GetAppName()
 	placementName := name
 	drpcName := name
+
+	var recipeRef *ramen.RecipeRef
+	if disapp.DeployerSpec.Recipe != nil {
+		switch disapp.DeployerSpec.Recipe.Type {
+		case "generate", "workload":
+			recipeRef = &ramen.RecipeRef{
+				Name:      appname + "-recipe",
+				Namespace: appNamespace,
+			}
+		case "vm":
+			recipeRef = &ramen.RecipeRef{
+				Name:      "vm-recipe",
+				Namespace: managementNamespace,
+			}
+		}
+	}
 
 	cluster, err := findProtectCluster(ctx)
 	if err != nil {
@@ -39,7 +62,8 @@ func EnableProtectionDiscoveredApps(ctx types.TestContext) error {
 	}
 
 	drpc := generateDRPCDiscoveredApps(
-		name, managementNamespace, cluster.Name, drPolicyName, placementName, appname, appNamespace)
+		cluster.Name, drPolicyName, appname, ctx, recipeRef)
+
 	if err := createDRPC(ctx, drpc); err != nil {
 		return err
 	}
