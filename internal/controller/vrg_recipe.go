@@ -285,6 +285,8 @@ func recipeWorkflowsGet(recipe recipev1.Recipe, recipeElements *util.RecipeEleme
 		recipeElements.RestoreFailOn = WorkflowAnyError
 	}
 
+	// TODO: Add a capture and restore workflow element at the first index to capture and restore the recipe
+
 	return nil
 }
 

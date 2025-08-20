@@ -175,6 +175,8 @@ func (d *DRPCInstance) RunInitialDeployment() (bool, error) {
 		return !done, err
 	}
 
+	// TODO: create application namespace on secondary cluster
+
 	// If we get here, the deployment is successful
 	err = d.EnsureSecondaryReplicationSetup(homeCluster)
 	if err != nil {
