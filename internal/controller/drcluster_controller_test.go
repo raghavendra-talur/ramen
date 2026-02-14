@@ -22,6 +22,7 @@ import (
 
 	ramen "github.com/ramendr/ramen/api/v1alpha1"
 	controllers "github.com/ramendr/ramen/internal/controller"
+	"github.com/ramendr/ramen/internal/controller/testutils"
 	"github.com/ramendr/ramen/internal/controller/util"
 )
 
@@ -217,39 +218,20 @@ var _ = Describe("DRClusterController", func() {
 	drclusters := []ramen.DRCluster{}
 	populateDRClusters := func() {
 		drclusters = nil
+		// Use testutils builders for cleaner DRCluster creation
 		drclusters = append(drclusters,
-			ramen.DRCluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "drc-cluster0",
-					Annotations: map[string]string{
-						"drcluster.ramendr.openshift.io/storage-secret-name":      "tmp",
-						"drcluster.ramendr.openshift.io/storage-secret-namespace": "tmp",
-						"drcluster.ramendr.openshift.io/storage-clusterid":        "tmp",
-						"drcluster.ramendr.openshift.io/storage-driver":           "tmp.storage.com",
-					},
-				},
-				Spec: ramen.DRClusterSpec{
-					S3ProfileName: s3Profiles[0].S3ProfileName,
-					CIDRs:         cidrs[0],
-					Region:        "east",
-				},
-			},
-			ramen.DRCluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "drc-cluster1",
-					Annotations: map[string]string{
-						"drcluster.ramendr.openshift.io/storage-secret-name":      "tmp",
-						"drcluster.ramendr.openshift.io/storage-secret-namespace": "tmp",
-						"drcluster.ramendr.openshift.io/storage-clusterid":        "tmp",
-						"drcluster.ramendr.openshift.io/storage-driver":           "tmp.storage.com",
-					},
-				},
-				Spec: ramen.DRClusterSpec{
-					S3ProfileName: s3Profiles[0].S3ProfileName,
-					CIDRs:         cidrs[2],
-					Region:        "east",
-				},
-			},
+			*testutils.NewDRClusterBuilder("drc-cluster0").
+				WithS3Profile(s3Profiles[0].S3ProfileName).
+				WithCIDRs(cidrs[0]).
+				WithRegion("east").
+				WithDefaultStorageAnnotations().
+				Build(),
+			*testutils.NewDRClusterBuilder("drc-cluster1").
+				WithS3Profile(s3Profiles[0].S3ProfileName).
+				WithCIDRs(cidrs[2]).
+				WithRegion("east").
+				WithDefaultStorageAnnotations().
+				Build(),
 		)
 	}
 
@@ -265,10 +247,8 @@ var _ = Describe("DRClusterController", func() {
 
 	createDRClusterNamespaces := func() {
 		for _, drcluster := range drclusters {
-			Expect(k8sClient.Create(
-				context.TODO(),
-				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: drcluster.Name}},
-			)).To(Succeed())
+			err := testutils.CreateNamespace(context.TODO(), k8sClient, drcluster.Name)
+			Expect(err).NotTo(HaveOccurred())
 		}
 	}
 
@@ -293,10 +273,8 @@ var _ = Describe("DRClusterController", func() {
 			return
 		}
 		for _, drcluster := range drclusters {
-			Expect(k8sClient.Delete(
-				context.TODO(),
-				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: drcluster.Name}},
-			)).To(Succeed())
+			err := testutils.DeleteNamespace(context.TODO(), k8sClient, drcluster.Name)
+			Expect(err).NotTo(HaveOccurred())
 		}
 		for i := range drclusters {
 			namespaceDeletionConfirm(drclusters[i].Name)

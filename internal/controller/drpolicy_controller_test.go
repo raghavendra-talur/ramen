@@ -22,6 +22,7 @@ import (
 
 	ramen "github.com/ramendr/ramen/api/v1alpha1"
 	controllers "github.com/ramendr/ramen/internal/controller"
+	"github.com/ramendr/ramen/internal/controller/testutils"
 	"github.com/ramendr/ramen/internal/controller/util"
 )
 
@@ -155,27 +156,28 @@ var _ = Describe("DRPolicyController", func() {
 	drClusters := []ramen.DRCluster{}
 	populateDRClusters := func() {
 		drClusters = nil
+		// Use testutils builders for cleaner DRCluster creation
 		drClusters = append(drClusters,
-			ramen.DRCluster{
-				ObjectMeta: metav1.ObjectMeta{Name: "drp-cluster0"},
-				Spec:       ramen.DRClusterSpec{S3ProfileName: s3Profiles[0].S3ProfileName, Region: "east"},
-			},
-			ramen.DRCluster{
-				ObjectMeta: metav1.ObjectMeta{Name: "drp-cluster1"},
-				Spec:       ramen.DRClusterSpec{S3ProfileName: s3Profiles[0].S3ProfileName, Region: "west"},
-			},
-			ramen.DRCluster{
-				ObjectMeta: metav1.ObjectMeta{Name: "drp-cluster2"},
-				Spec:       ramen.DRClusterSpec{S3ProfileName: s3Profiles[0].S3ProfileName, Region: "east"},
-			},
-			ramen.DRCluster{
-				ObjectMeta: metav1.ObjectMeta{Name: "drp-cluster-late-create-0"},
-				Spec:       ramen.DRClusterSpec{S3ProfileName: s3Profiles[0].S3ProfileName, Region: "east"},
-			},
-			ramen.DRCluster{
-				ObjectMeta: metav1.ObjectMeta{Name: "drp-cluster-late-create-1"},
-				Spec:       ramen.DRClusterSpec{S3ProfileName: s3Profiles[0].S3ProfileName, Region: "west"},
-			},
+			*testutils.NewDRClusterBuilder("drp-cluster0").
+				WithS3Profile(s3Profiles[0].S3ProfileName).
+				WithRegion("east").
+				Build(),
+			*testutils.NewDRClusterBuilder("drp-cluster1").
+				WithS3Profile(s3Profiles[0].S3ProfileName).
+				WithRegion("west").
+				Build(),
+			*testutils.NewDRClusterBuilder("drp-cluster2").
+				WithS3Profile(s3Profiles[0].S3ProfileName).
+				WithRegion("east").
+				Build(),
+			*testutils.NewDRClusterBuilder("drp-cluster-late-create-0").
+				WithS3Profile(s3Profiles[0].S3ProfileName).
+				WithRegion("east").
+				Build(),
+			*testutils.NewDRClusterBuilder("drp-cluster-late-create-1").
+				WithS3Profile(s3Profiles[0].S3ProfileName).
+				WithRegion("west").
+				Build(),
 		)
 	}
 
@@ -188,10 +190,8 @@ var _ = Describe("DRPolicyController", func() {
 	createDRClusters := func(from, to int) {
 		for idx := range drClusters[from:to] {
 			drcluster := &drClusters[idx+from]
-			Expect(k8sClient.Create(
-				context.TODO(),
-				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: drcluster.Name}},
-			)).To(Succeed())
+			err := testutils.CreateNamespace(context.TODO(), k8sClient, drcluster.Name)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Create(context.TODO(), drcluster)).To(Succeed())
 			updateDRClusterManifestWorkStatus(k8sClient, apiReader, drcluster.Name)
 			updateDRClusterConfigMWStatus(k8sClient, apiReader, drcluster.Name)

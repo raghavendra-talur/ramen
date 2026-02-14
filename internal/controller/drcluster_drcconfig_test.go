@@ -28,6 +28,7 @@ import (
 
 	ramen "github.com/ramendr/ramen/api/v1alpha1"
 	ramencontrollers "github.com/ramendr/ramen/internal/controller"
+	"github.com/ramendr/ramen/internal/controller/testutils"
 )
 
 var _ = Describe("DRCluster-DRClusterConfigTests", Ordered, func() {
@@ -76,13 +77,11 @@ var _ = Describe("DRCluster-DRClusterConfigTests", Ordered, func() {
 
 		By("Creating namespaces")
 
-		Expect(k8sClient.Create(context.TODO(),
-			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ramenNamespace}})).To(Succeed())
+		err = testutils.CreateNamespace(context.TODO(), k8sClient, ramenNamespace)
+		Expect(err).NotTo(HaveOccurred())
 
-		Expect(k8sClient.Create(
-			context.TODO(),
-			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: drCluster1Name}},
-		)).To(Succeed())
+		err = testutils.CreateNamespace(context.TODO(), k8sClient, drCluster1Name)
+		Expect(err).NotTo(HaveOccurred())
 
 		By("Defining a ramen configuration")
 
@@ -146,11 +145,11 @@ var _ = Describe("DRCluster-DRClusterConfigTests", Ordered, func() {
 
 		By("creating the initial API resources")
 
-		// Initialize --- DRCluster
-		drCluster1 = &ramen.DRCluster{
-			ObjectMeta: metav1.ObjectMeta{Name: drCluster1Name},
-			Spec:       ramen.DRClusterSpec{S3ProfileName: "NoS3", Region: "east"},
-		}
+		// Initialize --- DRCluster using testutils builder
+		drCluster1 = testutils.NewDRClusterBuilder(drCluster1Name).
+			WithS3Profile("NoS3").
+			WithRegion("east").
+			Build()
 
 		Expect(k8sClient.Create(context.TODO(), drCluster1)).To(Succeed())
 		updateDRClusterManifestWorkStatus(k8sClient, apiReader, drCluster1Name)

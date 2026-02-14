@@ -29,6 +29,7 @@ import (
 
 	rmn "github.com/ramendr/ramen/api/v1alpha1"
 	ramencontrollers "github.com/ramendr/ramen/internal/controller"
+	"github.com/ramendr/ramen/internal/controller/testutils"
 	"github.com/ramendr/ramen/internal/controller/util"
 )
 
@@ -83,20 +84,16 @@ var _ = Describe("DRClusterMModeTests", Ordered, func() {
 
 		By("Creating namespaces")
 
-		Expect(k8sClient.Create(context.TODO(),
-			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ramenNamespace}})).To(Succeed())
+		err = testutils.CreateNamespace(context.TODO(), k8sClient, ramenNamespace)
+		Expect(err).NotTo(HaveOccurred())
 
-		Expect(k8sClient.Create(
-			context.TODO(),
-			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "drcluster1"}},
-		)).To(Succeed())
+		err = testutils.CreateNamespace(context.TODO(), k8sClient, "drcluster1")
+		Expect(err).NotTo(HaveOccurred())
 
 		ensureManagedCluster(k8sClient, "drcluster1")
 
-		Expect(k8sClient.Create(
-			context.TODO(),
-			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "drcluster2"}},
-		)).To(Succeed())
+		err = testutils.CreateNamespace(context.TODO(), k8sClient, "drcluster2")
+		Expect(err).NotTo(HaveOccurred())
 
 		ensureManagedCluster(k8sClient, "drcluster2")
 
@@ -271,14 +268,15 @@ var _ = Describe("DRClusterMModeTests", Ordered, func() {
 		failoverDRPC2.Status = baseDRPC.Status
 		Expect(k8sClient.Status().Update(context.TODO(), failoverDRPC2)).To(Succeed())
 
-		// Initialize --- DRCluster
-		drCluster1 = &rmn.DRCluster{
-			ObjectMeta: metav1.ObjectMeta{Name: "drcluster1"},
-			Spec:       rmn.DRClusterSpec{S3ProfileName: "fake", Region: "east"},
-		}
-		drCluster2 = drCluster1.DeepCopy()
-		drCluster2.ObjectMeta.Name = "drcluster2"
-		drCluster2.Spec.Region = "west"
+		// Initialize --- DRCluster using testutils builder
+		drCluster1 = testutils.NewDRClusterBuilder("drcluster1").
+			WithS3Profile("fake").
+			WithRegion("east").
+			Build()
+		drCluster2 = testutils.NewDRClusterBuilder("drcluster2").
+			WithS3Profile("fake").
+			WithRegion("west").
+			Build()
 
 		Expect(k8sClient.Create(context.TODO(), drCluster1)).To(Succeed())
 		updateDRClusterManifestWorkStatus(k8sClient, k8sManager.GetAPIReader(), drCluster1.GetName())
