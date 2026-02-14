@@ -124,11 +124,16 @@ It("should validate DRCluster", func() {
 internal/controller/testutils/
 ├── doc.go                    # Package documentation
 ├── ginkgo.go                 # Only Ginkgo configuration helper
-├── fixtures.go               # Builder patterns for test objects
+├── fixtures.go               # Builder patterns for test objects (DRCluster, DRPolicy, etc.)
 ├── fixtures_test.go          # Standard Go tests for fixtures
 ├── k8s_helpers.go            # K8s client operations (return errors)
+├── vrg_helpers.go            # VRG-specific builders and CRUD helpers
+├── vrg_helpers_test.go       # Tests for VRG helpers
+├── drpc_helpers.go           # DRPC-specific builders and CRUD helpers
+├── drpc_helpers_test.go      # Tests for DRPC helpers
 ├── conditions.go             # Condition checking utilities
 ├── conditions_test.go        # Standard Go tests for conditions
+├── object_helpers.go         # Generic object helpers
 └── REFACTORING_GUIDE.md      # This guide
 ```
 
@@ -139,6 +144,93 @@ internal/controller/testutils/
 3. Update test files to handle errors explicitly
 4. Move utilities to appropriate file in testutils package
 5. Run tests to verify behavior unchanged
+
+## Available Builders
+
+### DRCluster
+```go
+drcluster := testutils.NewDRClusterBuilder("cluster1").
+    WithS3Profile("profile1").
+    WithRegion("us-east-1").
+    WithCIDRs([]string{"10.0.0.0/8"}).
+    WithDefaultStorageAnnotations().  // Common storage annotations
+    Build()
+```
+
+### DRPolicy
+```go
+drpolicy := testutils.NewDRPolicyBuilder("policy1").
+    WithDRClusters([]string{"cluster1", "cluster2"}).
+    WithSchedulingInterval("5m").
+    Build()
+```
+
+### VRG (VolumeReplicationGroup)
+```go
+vrg := testutils.NewVRGBuilder("vrg1", "namespace1").
+    WithReplicationState(ramen.Primary).
+    WithS3Profiles([]string{"profile1"}).
+    WithAsyncSpec("5m").
+    Build()
+
+// Build status separately
+status := testutils.NewVRGStatusBuilder().
+    WithState(ramen.PrimaryState).
+    WithCondition("DataReady", metav1.ConditionTrue, "Ready", "Data is ready").
+    WithProtectedPVC("pvc1", "ns1", "sc1", true).
+    Build()
+```
+
+### DRPC (DRPlacementControl)
+```go
+drpc := testutils.NewDRPCBuilder("drpc1", "namespace1").
+    WithDRPolicyRef("policy1").
+    WithPlacementRef("placement1").
+    WithPreferredCluster("cluster1").
+    Build()
+
+// Build status separately  
+status := testutils.NewDRPCStatusBuilder().
+    WithPhase(ramen.Deployed).
+    WithPreferredDecision("cluster1").
+    Build()
+```
+
+### ManagedCluster
+```go
+mc := testutils.NewManagedClusterBuilder("cluster1").
+    WithHubAcceptsClient(true).
+    WithJoined(true).
+    WithClusterID("cluster-id-123").
+    Build()
+```
+
+## CRUD Helpers
+
+All CRUD helpers return errors instead of using Expect():
+
+```go
+// Create with status
+mc, err := testutils.CreateManagedClusterWithStatus(ctx, k8sClient, "cluster1",
+    testutils.DefaultManagedClusterOptions())
+Expect(err).NotTo(HaveOccurred())
+
+// Get
+drcluster, err := testutils.GetDRCluster(ctx, apiReader, "cluster1")
+Expect(err).NotTo(HaveOccurred())
+
+// Update with retry on conflict
+vrg, err := testutils.UpdateVRGSpec(ctx, k8sClient, apiReader, "vrg1", "ns1",
+    func(v *ramen.VolumeReplicationGroup) {
+        v.Spec.ReplicationState = ramen.Secondary
+    })
+Expect(err).NotTo(HaveOccurred())
+
+// Wait for condition
+drcluster, err := testutils.WaitForDRClusterCondition(ctx, apiReader, "cluster1",
+    ramen.DRClusterValidated, metav1.ConditionTrue, testutils.DefaultWaitCondition())
+Expect(err).NotTo(HaveOccurred())
+```
 
 ## Benefits
 
