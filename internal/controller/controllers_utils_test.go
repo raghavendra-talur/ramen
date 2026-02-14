@@ -13,6 +13,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	ocmv1 "open-cluster-management.io/api/cluster/v1"
 	workv1 "open-cluster-management.io/api/work/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -35,14 +36,27 @@ func ensureManagedCluster(k8sClient client.Client, cluster string) {
 }
 
 // createManagedCluster creates a ManagedCluster without status update.
-func createManagedCluster(k8sClient client.Client, cluster string) {
-	_, err := testutils.CreateManagedCluster(
+func createManagedCluster(k8sClient client.Client, cluster string) *ocmv1.ManagedCluster {
+	mc, err := testutils.CreateManagedCluster(
 		context.TODO(),
 		k8sClient,
 		cluster,
 		testutils.DefaultManagedClusterOptions(),
 	)
 	Expect(err).NotTo(HaveOccurred(), "failed to create ManagedCluster %s", cluster)
+
+	return mc
+}
+
+// updateManagedClusterStatus updates the status of a ManagedCluster to indicate it's joined.
+func updateManagedClusterStatus(k8sClient client.Client, mc *ocmv1.ManagedCluster) {
+	err := testutils.UpdateManagedClusterStatus(
+		context.TODO(),
+		k8sClient,
+		mc,
+		testutils.DefaultManagedClusterOptions().ClusterID,
+	)
+	Expect(err).NotTo(HaveOccurred(), "failed to update ManagedCluster status %s", mc.Name)
 }
 
 // getLatestDRCluster retrieves the latest DRCluster.
