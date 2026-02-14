@@ -22,6 +22,14 @@ const (
 	StorageIDLabel = "ramendr.openshift.io/storageid"
 )
 
+// DRCluster annotation keys for storage configuration.
+const (
+	DRClusterStorageSecretNameAnnotation      = "drcluster.ramendr.openshift.io/storage-secret-name"
+	DRClusterStorageSecretNamespaceAnnotation = "drcluster.ramendr.openshift.io/storage-secret-namespace"
+	DRClusterStorageClusterIDAnnotation       = "drcluster.ramendr.openshift.io/storage-clusterid"
+	DRClusterStorageDriverAnnotation          = "drcluster.ramendr.openshift.io/storage-driver"
+)
+
 // DRClusterBuilder builds DRCluster test fixtures.
 type DRClusterBuilder struct {
 	name          string
@@ -29,13 +37,17 @@ type DRClusterBuilder struct {
 	region        string
 	cidrs         []string
 	clusterFence  ramen.ClusterFenceState
+	annotations   map[string]string
+	labels        map[string]string
 }
 
 // NewDRClusterBuilder creates a new DRClusterBuilder with defaults.
 func NewDRClusterBuilder(name string) *DRClusterBuilder {
 	return &DRClusterBuilder{
-		name:   name,
-		region: "us-east-1",
+		name:        name,
+		region:      "us-east-1",
+		annotations: make(map[string]string),
+		labels:      make(map[string]string),
 	}
 }
 
@@ -67,10 +79,58 @@ func (b *DRClusterBuilder) WithClusterFence(state ramen.ClusterFenceState) *DRCl
 	return b
 }
 
+// WithAnnotation adds a single annotation.
+func (b *DRClusterBuilder) WithAnnotation(key, value string) *DRClusterBuilder {
+	b.annotations[key] = value
+
+	return b
+}
+
+// WithAnnotations sets multiple annotations.
+func (b *DRClusterBuilder) WithAnnotations(annotations map[string]string) *DRClusterBuilder {
+	for k, v := range annotations {
+		b.annotations[k] = v
+	}
+
+	return b
+}
+
+// WithLabel adds a single label.
+func (b *DRClusterBuilder) WithLabel(key, value string) *DRClusterBuilder {
+	b.labels[key] = value
+
+	return b
+}
+
+// WithStorageAnnotations adds the common storage configuration annotations.
+// This is a convenience method for tests that need storage-related annotations.
+func (b *DRClusterBuilder) WithStorageAnnotations(secretName, secretNamespace, clusterID, driver string) *DRClusterBuilder {
+	b.annotations[DRClusterStorageSecretNameAnnotation] = secretName
+	b.annotations[DRClusterStorageSecretNamespaceAnnotation] = secretNamespace
+	b.annotations[DRClusterStorageClusterIDAnnotation] = clusterID
+	b.annotations[DRClusterStorageDriverAnnotation] = driver
+
+	return b
+}
+
+// WithDefaultStorageAnnotations adds default storage annotations (useful for basic tests).
+func (b *DRClusterBuilder) WithDefaultStorageAnnotations() *DRClusterBuilder {
+	return b.WithStorageAnnotations("tmp", "tmp", "tmp", "tmp.storage.com")
+}
+
 // Build creates the DRCluster.
 func (b *DRClusterBuilder) Build() *ramen.DRCluster {
+	objMeta := metav1.ObjectMeta{Name: b.name}
+	if len(b.annotations) > 0 {
+		objMeta.Annotations = b.annotations
+	}
+
+	if len(b.labels) > 0 {
+		objMeta.Labels = b.labels
+	}
+
 	return &ramen.DRCluster{
-		ObjectMeta: metav1.ObjectMeta{Name: b.name},
+		ObjectMeta: objMeta,
 		Spec: ramen.DRClusterSpec{
 			S3ProfileName: b.s3ProfileName,
 			Region:        ramen.Region(b.region),

@@ -42,6 +42,49 @@ func TestDRClusterBuilder(t *testing.T) {
 	}
 }
 
+func TestDRClusterBuilderWithAnnotations(t *testing.T) {
+	// Test custom annotations
+	drcluster := NewDRClusterBuilder("test-cluster").
+		WithAnnotation("custom-key", "custom-value").
+		WithLabel("env", "test").
+		Build()
+
+	if drcluster.Annotations["custom-key"] != "custom-value" {
+		t.Errorf("expected annotation 'custom-key=custom-value', got '%s'", drcluster.Annotations["custom-key"])
+	}
+
+	if drcluster.Labels["env"] != "test" {
+		t.Errorf("expected label 'env=test', got '%s'", drcluster.Labels["env"])
+	}
+
+	// Test storage annotations helper
+	drclusterWithStorage := NewDRClusterBuilder("storage-cluster").
+		WithStorageAnnotations("secret-name", "secret-ns", "cluster-id", "csi.driver.com").
+		Build()
+
+	expectedAnnotations := map[string]string{
+		DRClusterStorageSecretNameAnnotation:      "secret-name",
+		DRClusterStorageSecretNamespaceAnnotation: "secret-ns",
+		DRClusterStorageClusterIDAnnotation:       "cluster-id",
+		DRClusterStorageDriverAnnotation:          "csi.driver.com",
+	}
+
+	for key, expected := range expectedAnnotations {
+		if drclusterWithStorage.Annotations[key] != expected {
+			t.Errorf("expected annotation '%s=%s', got '%s'", key, expected, drclusterWithStorage.Annotations[key])
+		}
+	}
+
+	// Test default storage annotations
+	drclusterDefault := NewDRClusterBuilder("default-storage-cluster").
+		WithDefaultStorageAnnotations().
+		Build()
+
+	if drclusterDefault.Annotations[DRClusterStorageSecretNameAnnotation] != "tmp" {
+		t.Error("expected default storage secret name annotation to be 'tmp'")
+	}
+}
+
 func TestDRPolicyBuilder(t *testing.T) {
 	drpolicy := NewDRPolicyBuilder("test-policy").
 		WithDRClusters([]string{"cluster1", "cluster2"}).
