@@ -80,6 +80,11 @@ func (v *VRGInstance) kubeObjectsProtect(
 		return
 	}
 
+	// Validate KubeVirt Velero plugin configuration if KubeVirt is installed
+	if !v.validateKubeVirtVeleroPluginConfiguration(result) {
+		return
+	}
+
 	// TODO tolerate and remove
 	if len(v.s3StoreAccessors) == 0 {
 		v.log.Info("Kube objects capture store list empty")
@@ -904,6 +909,47 @@ func (v *VRGInstance) veleroNamespaceName() string {
 	}
 
 	return VeleroNamespaceNameDefault
+}
+
+// validateKubeVirtVeleroPluginConfiguration checks if KubeVirt CRDs are installed
+// and if so, validates that the kubevirt-velero-plugin is properly configured in Velero.
+// This ensures VM resources can be backed up and restored correctly.
+// Returns true if validation passes (or KubeVirt is not installed), false if validation fails.
+func (v *VRGInstance) validateKubeVirtVeleroPluginConfiguration(result *ctrl.Result) bool {
+	veleroNamespace := v.veleroNamespaceName()
+
+	validationResult := util.ValidateKubeVirtVeleroPlugin(
+		v.ctx,
+		v.reconciler.Client,
+		v.reconciler.APIReader,
+		veleroNamespace,
+		v.log,
+	)
+
+	if validationResult.ValidationError != nil {
+		v.log.Error(validationResult.ValidationError, "KubeVirt Velero plugin validation error")
+		v.kubeObjectsCaptureStatusFalse(
+			"KubeVirtVeleroPluginValidationError",
+			validationResult.Message,
+		)
+
+		result.Requeue = true
+
+		return false
+	}
+
+	if !validationResult.IsValid() {
+		v.log.Info("KubeVirt Velero plugin validation warning",
+			"kubeVirtInstalled", validationResult.KubeVirtInstalled,
+			"veleroPluginInstalled", validationResult.VeleroPluginInstalled,
+			"message", validationResult.Message)
+
+		// Log a warning but allow the operation to continue
+		// The backup may still succeed for non-VM resources
+		v.log.Info("WARNING: " + validationResult.Message)
+	}
+
+	return true
 }
 
 func (v *VRGInstance) kubeObjectProtectionDisabled(caller string) bool {
