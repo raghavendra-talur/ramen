@@ -256,6 +256,10 @@ func RamenOperatorNamespace() string {
 	return os.Getenv("POD_NAMESPACE")
 }
 
+func RamenControllerType() ramendrv1alpha1.ControllerType {
+	return ramendrv1alpha1.ControllerType(os.Getenv("RAMEN_CONTROLLER_TYPE"))
+}
+
 func RamenOperandsNamespace(config ramendrv1alpha1.RamenConfig) string {
 	return config.RamenOpsNamespace
 }

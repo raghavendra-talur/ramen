@@ -11,5 +11,6 @@ leaderElection:
   # leaderElect: true // enable during in cluster execution
   leaderElect: false
   resourceName: hub.ramendr.openshift.io
-ramenControllerType: "dr-hub"
+# Note: Controller type is now configured via RAMEN_CONTROLLER_TYPE environment variable
+# Set RAMEN_CONTROLLER_TYPE=dr-hub when running this config
 maxConcurrentReconciles: 50

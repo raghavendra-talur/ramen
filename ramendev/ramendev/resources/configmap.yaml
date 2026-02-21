@@ -21,7 +21,7 @@ data:
     leaderElection:
       leaderElect: true
       resourceName: hub.ramendr.openshift.io
-    ramenControllerType: dr-hub
+    # Note: Controller type is configured via RAMEN_CONTROLLER_TYPE environment variable in deployment
     maxConcurrentReconciles: 50
     drClusterOperator:
       deploymentAutomationEnabled: $auto_deploy

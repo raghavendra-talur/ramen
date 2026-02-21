@@ -123,7 +123,9 @@ type RamenConfig struct {
 	// +optional
 	Health ControllerHealth `json:"health,omitempty"`
 	// RamenControllerType defines the type of controller to run
-	RamenControllerType ControllerType `json:"ramenControllerType"`
+	// Deprecated: This field is now read from the RAMEN_CONTROLLER_TYPE environment variable
+	// +optional
+	RamenControllerType ControllerType `json:"ramenControllerType,omitempty"`
 
 	// Map of S3 store profiles
 	S3StoreProfiles []S3StoreProfile `json:"s3StoreProfiles,omitempty"`

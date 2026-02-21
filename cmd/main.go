@@ -95,11 +95,17 @@ func buildOptions() (*ctrl.Options, *ramendrv1alpha1.RamenConfig) {
 }
 
 func configureController(ramenConfig *ramendrv1alpha1.RamenConfig) error {
-	controllers.ControllerType = ramenConfig.RamenControllerType
+	// Read controller type from environment variable
+	controllers.ControllerType = controllers.RamenControllerType()
+
+	if controllers.ControllerType == "" {
+		return fmt.Errorf("RAMEN_CONTROLLER_TYPE environment variable must be set to '%s' or '%s'",
+			ramendrv1alpha1.DRHubType, ramendrv1alpha1.DRClusterType)
+	}
 
 	if !(controllers.ControllerType == ramendrv1alpha1.DRClusterType ||
 		controllers.ControllerType == ramendrv1alpha1.DRHubType) {
-		return fmt.Errorf("invalid controller type specified (%s), should be one of [%s|%s]",
+		return fmt.Errorf("invalid controller type '%s': must be '%s' or '%s'",
 			controllers.ControllerType, ramendrv1alpha1.DRHubType, ramendrv1alpha1.DRClusterType)
 	}
 

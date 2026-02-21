@@ -1,0 +1,14 @@
+# This patch sets the RAMEN_CONTROLLER_TYPE environment variable for the hub operator
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: operator
+  namespace: system
+spec:
+  template:
+    spec:
+      containers:
+      - name: manager
+        env:
+        - name: RAMEN_CONTROLLER_TYPE
+          value: dr-hub

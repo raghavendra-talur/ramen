@@ -9,7 +9,6 @@ webhook:
 leaderElection:
   leaderElect: true
   resourceName: hub.ramendr.openshift.io
-ramenControllerType: dr-hub
 maxConcurrentReconciles: 50
 volSync:
   destinationCopyMethod: Direct

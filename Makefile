@@ -236,10 +236,10 @@ build: generate manifests  ## Build manager binary.
 
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run-hub: generate manifests ## Run DR Orchestrator controller from your host.
-	go run ./cmd/main.go --config=examples/dr_hub_config.yaml
+	RAMEN_CONTROLLER_TYPE=dr-hub go run ./cmd/main.go --config=examples/dr_hub_config.yaml
 
 run-dr-cluster: generate manifests ## Run DR manager controller from your host.
-	go run ./cmd/main.go --config=examples/dr_cluster_config.yaml
+	RAMEN_CONTROLLER_TYPE=dr-cluster go run ./cmd/main.go --config=examples/dr_cluster_config.yaml
 
 docker-build: ## Build docker image with the manager.
 	$(DOCKERCMD) build -t ${IMG} .
