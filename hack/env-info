@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+Extract cluster information from drenv environment files.
+
+Usage:
+    env-info <envfile> hub        # Print hub cluster name
+    env-info <envfile> clusters   # Print space-separated DR cluster names
+    env-info <envfile> topology   # Print topology type
+"""
+
+import sys
+import yaml
+
+
+def main():
+    if len(sys.argv) != 3:
+        print(f"Usage: {sys.argv[0]} <envfile> <field>", file=sys.stderr)
+        print("Fields: hub, clusters, topology", file=sys.stderr)
+        sys.exit(1)
+
+    envfile = sys.argv[1]
+    field = sys.argv[2]
+
+    with open(envfile) as f:
+        env = yaml.safe_load(f)
+
+    ramen = env.get("ramen")
+    if ramen is None:
+        print(f"Error: no 'ramen' section in {envfile}", file=sys.stderr)
+        sys.exit(1)
+
+    if field == "hub":
+        hub = ramen.get("hub", "")
+        if hub:
+            print(hub)
+    elif field == "clusters":
+        clusters = ramen.get("clusters", [])
+        print(" ".join(clusters))
+    elif field == "topology":
+        print(ramen.get("topology", ""))
+    else:
+        print(f"Error: unknown field '{field}'", file=sys.stderr)
+        print("Fields: hub, clusters, topology", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

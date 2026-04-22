@@ -92,6 +92,13 @@ endif
 
 DOCKERCMD ?= podman
 
+# Environment file from drenv/ramendev - defines cluster names and topology.
+# Usage: make install ENVFILE=test/envs/regional-dr.yaml
+ENVFILE ?= test/envs/regional-dr.yaml
+VENV_PYTHON ?= $(HOME)/.venv/ramen/bin/python3
+HUB_CLUSTER = $(shell $(VENV_PYTHON) hack/env-info $(ENVFILE) hub)
+DR_CLUSTERS = $(shell $(VENV_PYTHON) hack/env-info $(ENVFILE) clusters)
+
 all: build
 
 ##@ General
@@ -239,12 +246,19 @@ venv:
 build: generate manifests  ## Build manager binary.
 	go build -o bin/manager cmd/main.go
 
-# Run against the configured Kubernetes cluster in ~/.kube/config
-run-hub: generate manifests ## Run DR Orchestrator controller from your host.
-	go run ./cmd/main.go --config=examples/dr_hub_config.yaml
+# Run ramen controllers locally against clusters defined in ENVFILE.
+run: run-hub run-dr-clusters ## Run all ramen controllers locally.
 
-run-dr-cluster: generate manifests ## Run DR manager controller from your host.
-	go run ./cmd/main.go --config=examples/dr_cluster_config.yaml
+run-hub: ## Run DR Orchestrator controller locally against the hub cluster.
+	hack/ramen --config examples/dr_hub_config.yaml --context $(HUB_CLUSTER)
+
+run-dr-cluster: ## Run DR manager controller locally against a single DR cluster (set CLUSTER=<name>).
+	hack/ramen --config examples/dr_cluster_config.yaml --context $(CLUSTER)
+
+run-dr-clusters: ## Run DR manager controller locally against all DR clusters.
+	@for cluster in $(DR_CLUSTERS); do \
+		hack/ramen --config examples/dr_cluster_config.yaml --context $$cluster; \
+	done
 
 docker-build: ## Build docker image with the manager.
 	$(DOCKERCMD) build --platform linux/$(PLATFORM) -t ${IMG} .
@@ -256,43 +270,67 @@ docker-push: ## Push docker image with the manager.
 
 resources: manifests hub-config dr-cluster-config ## Prepare resources for deployment
 
-install: install-hub install-dr-cluster ## Install hub and dr-cluster CRDs into the K8s cluster specified in ~/.kube/config.
+install: install-hub install-dr-clusters ## Install CRDs on all clusters defined in ENVFILE.
 
-uninstall: uninstall-hub uninstall-dr-cluster ## Uninstall hub and dr-cluster CRDs from the K8s cluster specified in ~/.kube/config.
+uninstall: uninstall-hub uninstall-dr-clusters ## Uninstall CRDs from all clusters defined in ENVFILE.
 
-deploy: deploy-hub deploy-dr-cluster ## Deploy hub and dr-cluster controller to the K8s cluster specified in ~/.kube/config.
+deploy: deploy-hub deploy-dr-clusters ## Deploy controllers to all clusters defined in ENVFILE.
 
-undeploy: undeploy-hub undeploy-dr-cluster ## Undeploy hub and dr-cluster controller from the K8s cluster specified in ~/.kube/config.
+undeploy: undeploy-hub undeploy-dr-clusters ## Undeploy controllers from all clusters defined in ENVFILE.
 
-install-hub: manifests kustomize ## Install hub CRDs into the K8s cluster specified in ~/.kube/config.
-	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/hub/crd | kubectl apply -f -
+install-hub: manifests kustomize ## Install hub CRDs on the hub cluster.
+	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/hub/crd | kubectl --context $(HUB_CLUSTER) apply -f -
 
-uninstall-hub: manifests kustomize ## Uninstall hub CRDs from the K8s cluster specified in ~/.kube/config.
-	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/hub/crd | kubectl delete -f -
+install-dr-cluster: manifests kustomize ## Install dr-cluster CRDs on a single cluster (set CLUSTER=<name>).
+	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/dr-cluster/crd | kubectl --context $(CLUSTER) apply -f -
+
+install-dr-clusters: manifests kustomize ## Install dr-cluster CRDs on all DR clusters.
+	@for cluster in $(DR_CLUSTERS); do \
+		echo "Installing dr-cluster CRDs on $$cluster..."; \
+		$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/dr-cluster/crd | kubectl --context $$cluster apply -f -; \
+	done
+
+uninstall-hub: manifests kustomize ## Uninstall hub CRDs from the hub cluster.
+	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/hub/crd | kubectl --context $(HUB_CLUSTER) delete -f -
+
+uninstall-dr-cluster: manifests kustomize ## Uninstall dr-cluster CRDs from a single cluster (set CLUSTER=<name>).
+	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/dr-cluster/crd | kubectl --context $(CLUSTER) delete -f -
+
+uninstall-dr-clusters: manifests kustomize ## Uninstall dr-cluster CRDs from all DR clusters.
+	@for cluster in $(DR_CLUSTERS); do \
+		echo "Uninstalling dr-cluster CRDs from $$cluster..."; \
+		$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/dr-cluster/crd | kubectl --context $$cluster delete -f -; \
+	done
 
 hub-config: kustomize
 	cd config/hub/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 
-deploy-hub: manifests kustomize hub-config ## Deploy hub controller to the K8s cluster specified in ~/.kube/config.
-	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/hub/default/$(DISTRO) | kubectl apply -f -
+deploy-hub: manifests kustomize hub-config ## Deploy hub controller to the hub cluster.
+	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/hub/default/$(DISTRO) | kubectl --context $(HUB_CLUSTER) apply -f -
 
-undeploy-hub: kustomize ## Undeploy hub controller from the K8s cluster specified in ~/.kube/config.
-	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/hub/default/$(DISTRO) | kubectl delete -f - --ignore-not-found
+deploy-dr-cluster: manifests kustomize dr-cluster-config ## Deploy dr-cluster controller to a single cluster (set CLUSTER=<name>).
+	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/dr-cluster/default | kubectl --context $(CLUSTER) apply -f -
 
-install-dr-cluster: manifests kustomize ## Install dr-cluster CRDs into the K8s cluster specified in ~/.kube/config.
-	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/dr-cluster/crd | kubectl apply -f -
+deploy-dr-clusters: manifests kustomize dr-cluster-config ## Deploy dr-cluster controller to all DR clusters.
+	@for cluster in $(DR_CLUSTERS); do \
+		echo "Deploying dr-cluster controller on $$cluster..."; \
+		$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/dr-cluster/default | kubectl --context $$cluster apply -f -; \
+	done
 
-uninstall-dr-cluster: manifests kustomize ## Uninstall dr-cluster CRDs from the K8s cluster specified in ~/.kube/config.
-	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/dr-cluster/crd | kubectl delete -f -
+undeploy-hub: kustomize ## Undeploy hub controller from the hub cluster.
+	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/hub/default/$(DISTRO) | kubectl --context $(HUB_CLUSTER) delete -f - --ignore-not-found
+
+undeploy-dr-cluster: kustomize ## Undeploy dr-cluster controller from a single cluster (set CLUSTER=<name>).
+	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/dr-cluster/default | kubectl --context $(CLUSTER) delete -f - --ignore-not-found
+
+undeploy-dr-clusters: kustomize ## Undeploy dr-cluster controller from all DR clusters.
+	@for cluster in $(DR_CLUSTERS); do \
+		echo "Undeploying dr-cluster controller from $$cluster..."; \
+		$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/dr-cluster/default | kubectl --context $$cluster delete -f - --ignore-not-found; \
+	done
 
 dr-cluster-config: kustomize
 	cd config/dr-cluster/manager && $(KUSTOMIZE) edit set image controller=${IMG}
-
-deploy-dr-cluster: manifests kustomize dr-cluster-config ## Deploy dr-cluster controller to the K8s cluster specified in ~/.kube/config.
-	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/dr-cluster/default | kubectl apply -f -
-
-undeploy-dr-cluster: kustomize ## Undeploy dr-cluster controller from the K8s cluster specified in ~/.kube/config.
-	$(KUSTOMIZE) build --load-restrictor LoadRestrictionsNone config/dr-cluster/default | kubectl delete -f - --ignore-not-found
 
 ##@ Tools
 
