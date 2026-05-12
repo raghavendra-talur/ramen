@@ -145,16 +145,28 @@ func configure(root string, clusters []cluster) {
 			fatal("[%s] %s failed: %v", c.name, target, err)
 		}
 
-		fmt.Printf("[%s] creating S3 secrets...\n", c.name)
+		fmt.Printf("[%s] creating secrets...\n", c.name)
 		kubectl(c.kubeconfig, "apply", "-f",
 			filepath.Join(root, "helper", "ramen-s3-secret-dr1.yaml"))
 		kubectl(c.kubeconfig, "apply", "-f",
 			filepath.Join(root, "helper", "ramen-s3-secret-dr2.yaml"))
+		kubectl(c.kubeconfig, "apply", "-f",
+			filepath.Join(root, "helper", "cloud-credentials-secret.yaml"))
 
 		fmt.Printf("[%s] creating ramen config...\n", c.name)
 		configFile := filepath.Join(cfgDir, c.name+".yaml")
 		applyResolvedConfig(c.kubeconfig, configFile, dr1URL, dr2URL)
 	}
+
+	hubKC := clusters[0].kubeconfig
+
+	fmt.Println("[hub] creating DRPolicy and DRClusters...")
+	kubectl(hubKC, "apply", "-f",
+		filepath.Join(root, "helper", "managedclustersetbinding.yaml"))
+	kubectl(hubKC, "apply", "-f",
+		filepath.Join(root, "helper", "dr-clusters.yaml"))
+	kubectl(hubKC, "apply", "-f",
+		filepath.Join(root, "helper", "dr-policy.yaml"))
 
 	fmt.Println("Configuration complete.")
 }
