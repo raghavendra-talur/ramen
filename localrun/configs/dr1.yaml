@@ -15,30 +15,10 @@ data:
     health:
       healthProbeBindAddress: ":9420"
     metrics:
-      bindAddress: "127.0.0.1:9320"
+      bindAddress: ":9320"
     leaderElection:
       leaderElect: false
       resourceName: dr-cluster.ramendr.openshift.io
-    ramenControllerType: dr-cluster
-    maxConcurrentReconciles: 50
-    volSync:
-      destinationCopyMethod: Direct
-      disabled: false
-    kubeObjectProtection:
-      veleroNamespaceName: velero
-    multiNamespace:
-      FeatureEnabled: true
-      volsyncSupported: true
-    drClusterOperator:
-      deploymentAutomationEnabled: true
-      s3SecretDistributionEnabled: true
-      channelName: alpha
-      packageName: ramen-dr-cluster-operator
-      namespaceName: ramen-system
-      catalogSourceName: ramen-catalog
-      catalogSourceNamespaceName: ramen-system
-      clusterServiceVersionName: ramen-dr-cluster-operator.v0.0.1
-    ramenOpsNamespace: ramen-ops
     s3StoreProfiles:
     - s3ProfileName: minio-on-dr1
       s3Bucket: bucket
