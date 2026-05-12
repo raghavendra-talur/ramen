@@ -1,14 +1,13 @@
 // SPDX-FileCopyrightText: The RamenDR authors
 // SPDX-License-Identifier: Apache-2.0
 
-// localrun builds and runs the ramen manager locally against 3 drenv clusters.
-// Usage: go run ./localrun [flags]
+// localrun builds and runs the ramen manager locally against drenv clusters.
+// Usage: go run ./localrun [command] [flags]
 package main
 
 import (
 	"bufio"
 	"context"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +18,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/spf13/cobra"
+	"sigs.k8s.io/yaml"
 )
 
 type cluster struct {
@@ -27,65 +29,124 @@ type cluster struct {
 	hub        bool
 }
 
+type envFile struct {
+	Name  string `json:"name"`
+	Ramen struct {
+		Hub      string   `json:"hub"`
+		Clusters []string `json:"clusters"`
+	} `json:"ramen"`
+}
+
 func main() {
+	root := repoRoot()
+
+	var envfilePath string
+
+	rootCmd := &cobra.Command{
+		Use:   "localrun",
+		Short: "Build and run ramen managers locally against drenv clusters",
+	}
+
+	rootCmd.PersistentFlags().StringVar(&envfilePath, "envfile",
+		filepath.Join(root, "test", "envs", "regional-dr.yaml"),
+		"path to drenv environment file")
+
+	runCmd := &cobra.Command{
+		Use:   "run",
+		Short: "Build and start ramen managers",
+		Run: func(cmd *cobra.Command, args []string) {
+			clusters := loadClusters(envfilePath)
+			skipBuild, _ := cmd.Flags().GetBool("skip-build")
+
+			bin := filepath.Join(root, "localrun", "bin", "manager")
+
+			if !skipBuild {
+				build(root, bin)
+			}
+
+			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+			defer stop()
+
+			fmt.Println("Starting ramen managers (Ctrl-C to stop)...")
+
+			var wg sync.WaitGroup
+
+			for _, c := range clusters {
+				wg.Add(1)
+
+				go func() {
+					defer wg.Done()
+					runManager(ctx, bin, c)
+				}()
+			}
+
+			wg.Wait()
+
+			fmt.Println("All managers stopped.")
+		},
+	}
+
+	runCmd.Flags().Bool("skip-build", false, "skip building the manager binary")
+
+	configureCmd := &cobra.Command{
+		Use:   "configure",
+		Short: "Install CRDs, create namespaces, S3 secrets, and config",
+		Run: func(cmd *cobra.Command, args []string) {
+			clusters := loadClusters(envfilePath)
+			configure(root, clusters)
+		},
+	}
+
+	rootCmd.AddCommand(runCmd, configureCmd)
+
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func loadClusters(envfilePath string) []cluster {
+	data, err := os.ReadFile(envfilePath)
+	if err != nil {
+		fatal("cannot read envfile %s: %v", envfilePath, err)
+	}
+
+	var env envFile
+	if err := yaml.Unmarshal(data, &env); err != nil {
+		fatal("cannot parse envfile %s: %v", envfilePath, err)
+	}
+
+	if env.Name == "" {
+		fatal("envfile %s: missing 'name' field", envfilePath)
+	}
+
+	if env.Ramen.Hub == "" {
+		fatal("envfile %s: missing 'ramen.hub' field", envfilePath)
+	}
+
+	if len(env.Ramen.Clusters) == 0 {
+		fatal("envfile %s: missing 'ramen.clusters' field", envfilePath)
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fatal("cannot get home directory: %v", err)
 	}
 
-	kcDir := filepath.Join(home, ".config", "drenv", "rdr", "kubeconfigs")
-	root := repoRoot()
-
-	var (
-		hubKC       = flag.String("hub-kubeconfig", filepath.Join(kcDir, "hub"), "hub kubeconfig")
-		dr1KC       = flag.String("dr1-kubeconfig", filepath.Join(kcDir, "dr1"), "dr1 kubeconfig")
-		dr2KC       = flag.String("dr2-kubeconfig", filepath.Join(kcDir, "dr2"), "dr2 kubeconfig")
-		noBuild     = flag.Bool("skip-build", false, "skip building the manager binary")
-		doConfigure = flag.Bool("configure", false, "install CRDs, create namespaces, S3 secrets, and config, then exit")
-	)
-
-	flag.Parse()
+	kcDir := filepath.Join(home, ".config", "drenv", env.Name, "kubeconfigs")
 
 	clusters := []cluster{
-		{"hub", *hubKC, true},
-		{"dr1", *dr1KC, false},
-		{"dr2", *dr2KC, false},
+		{env.Ramen.Hub, filepath.Join(kcDir, env.Ramen.Hub), true},
+	}
+
+	for _, name := range env.Ramen.Clusters {
+		clusters = append(clusters, cluster{name, filepath.Join(kcDir, name), false})
 	}
 
 	for _, c := range clusters {
 		checkFile(c.kubeconfig, "kubeconfig")
 	}
 
-	if *doConfigure {
-		configure(root, clusters)
-		return
-	}
-
-	bin := filepath.Join(root, "localrun", "bin", "manager")
-
-	if !*noBuild {
-		build(root, bin)
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	fmt.Println("Starting ramen managers (Ctrl-C to stop)...")
-
-	var wg sync.WaitGroup
-
-	for _, c := range clusters {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-			run(ctx, bin, c)
-		}()
-	}
-
-	wg.Wait()
-
-	fmt.Println("All managers stopped.")
+	return clusters
 }
 
 func minioServiceURL(clusterContext string) string {
@@ -117,8 +178,19 @@ func minioServiceURL(clusterContext string) string {
 func configure(root string, clusters []cluster) {
 	fmt.Println("Configuring clusters...")
 
-	dr1URL := minioServiceURL("dr1")
-	dr2URL := minioServiceURL("dr2")
+	var drClusters []cluster
+
+	for _, c := range clusters {
+		if !c.hub {
+			drClusters = append(drClusters, c)
+		}
+	}
+
+	drURLs := make(map[string]string, len(drClusters))
+
+	for _, c := range drClusters {
+		drURLs[c.name] = minioServiceURL(c.name)
+	}
 
 	cfgDir := filepath.Join(root, "localrun", "configs")
 
@@ -145,25 +217,39 @@ func configure(root string, clusters []cluster) {
 		}
 
 		fmt.Printf("[%s] creating S3 secrets...\n", c.name)
-		applyS3Secret(c.kubeconfig, "dr1")
-		applyS3Secret(c.kubeconfig, "dr2")
+
+		for _, dc := range drClusters {
+			applyS3Secret(c.kubeconfig, dc.name)
+		}
 
 		fmt.Printf("[%s] creating ramen config...\n", c.name)
 		configFile := filepath.Join(cfgDir, c.name+".yaml")
-		applyResolvedConfig(c.kubeconfig, configFile, dr1URL, dr2URL)
+		applyResolvedConfig(c.kubeconfig, configFile, drURLs)
 	}
 
-	hubKC := clusters[0].kubeconfig
+	var hubKC string
+
+	for _, c := range clusters {
+		if c.hub {
+			hubKC = c.kubeconfig
+
+			break
+		}
+	}
 
 	fmt.Println("[hub] creating ManagedClusterSetBinding...")
 	applyManagedClusterSetBinding(hubKC)
 
 	fmt.Println("[hub] creating DRClusters...")
-	applyDRClusters(hubKC)
+
+	for _, dc := range drClusters {
+		applyDRCluster(hubKC, dc.name)
+	}
 
 	fmt.Println("[hub] creating DRPolicies...")
+
 	for _, interval := range []string{"1m", "5m"} {
-		applyDRPolicy(hubKC, interval)
+		applyDRPolicy(hubKC, drClusters, interval)
 	}
 
 	fmt.Println("Configuration complete.")
@@ -193,37 +279,34 @@ stringData:
 	applyManifest(kubeconfig, manifest)
 }
 
-func applyDRClusters(kubeconfig string) {
-	manifest := `apiVersion: ramendr.openshift.io/v1alpha1
+func applyDRCluster(kubeconfig, name string) {
+	manifest := fmt.Sprintf(`apiVersion: ramendr.openshift.io/v1alpha1
 kind: DRCluster
 metadata:
-  name: dr1
+  name: %s
 spec:
-  s3ProfileName: minio-on-dr1
----
-apiVersion: ramendr.openshift.io/v1alpha1
-kind: DRCluster
-metadata:
-  name: dr2
-spec:
-  s3ProfileName: minio-on-dr2
-`
+  s3ProfileName: minio-on-%s
+`, name, name)
 	applyManifest(kubeconfig, manifest)
 }
 
-func applyDRPolicy(kubeconfig, interval string) {
+func applyDRPolicy(kubeconfig string, drClusters []cluster, interval string) {
+	var clusterLines string
+
+	for _, dc := range drClusters {
+		clusterLines += fmt.Sprintf("  - %s\n", dc.name)
+	}
+
 	manifest := fmt.Sprintf(`apiVersion: ramendr.openshift.io/v1alpha1
 kind: DRPolicy
 metadata:
   name: dr-policy-%s
 spec:
   drClusters:
-  - dr1
-  - dr2
-  schedulingInterval: %s
+%s  schedulingInterval: %s
   replicationClassSelector: {}
   volumeSnapshotClassSelector: {}
-`, interval, interval)
+`, interval, clusterLines, interval)
 	applyManifest(kubeconfig, manifest)
 }
 
@@ -239,14 +322,18 @@ spec:
 	applyManifest(kubeconfig, manifest)
 }
 
-func applyResolvedConfig(kubeconfig, configPath, dr1URL, dr2URL string) {
+func applyResolvedConfig(kubeconfig, configPath string, drURLs map[string]string) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		fatal("cannot read config %s: %v", configPath, err)
 	}
 
-	resolved := strings.ReplaceAll(string(data), "http://CHANGE_ME_DR1_IP:30000", dr1URL)
-	resolved = strings.ReplaceAll(resolved, "http://CHANGE_ME_DR2_IP:30000", dr2URL)
+	resolved := string(data)
+
+	for name, url := range drURLs {
+		placeholder := fmt.Sprintf("http://CHANGE_ME_%s_IP:30000", strings.ToUpper(name))
+		resolved = strings.ReplaceAll(resolved, placeholder, url)
+	}
 
 	cmd := exec.Command("kubectl", "--kubeconfig="+kubeconfig, "apply", "-f", "-")
 	cmd.Stdin = strings.NewReader(resolved)
@@ -304,7 +391,7 @@ func build(root, out string) {
 	fmt.Println("Build complete.")
 }
 
-func run(ctx context.Context, bin string, c cluster) {
+func runManager(ctx context.Context, bin string, c cluster) {
 	cmd := exec.CommandContext(ctx, bin,
 		"--kubeconfig="+c.kubeconfig,
 	)
@@ -386,7 +473,7 @@ func repoRoot() string {
 	}
 }
 
-func fatal(f string, a ...interface{}) {
+func fatal(f string, a ...any) {
 	fmt.Fprintf(os.Stderr, f+"\n", a...)
 	os.Exit(1)
 }
