@@ -24,7 +24,6 @@ import (
 type cluster struct {
 	name       string
 	kubeconfig string
-	config     string
 	hub        bool
 }
 
@@ -36,25 +35,21 @@ func main() {
 
 	kcDir := filepath.Join(home, ".config", "drenv", "rdr", "kubeconfigs")
 	root := repoRoot()
-	cfgDir := filepath.Join(root, "localrun", "configs")
 
 	var (
-		hubKC   = flag.String("hub-kubeconfig", filepath.Join(kcDir, "hub"), "hub kubeconfig")
-		dr1KC   = flag.String("dr1-kubeconfig", filepath.Join(kcDir, "dr1"), "dr1 kubeconfig")
-		dr2KC   = flag.String("dr2-kubeconfig", filepath.Join(kcDir, "dr2"), "dr2 kubeconfig")
-		hubCfg  = flag.String("hub-config", filepath.Join(cfgDir, "hub.yaml"), "hub ramen config")
-		dr1Cfg  = flag.String("dr1-config", filepath.Join(cfgDir, "dr1.yaml"), "dr1 ramen config")
-		dr2Cfg  = flag.String("dr2-config", filepath.Join(cfgDir, "dr2.yaml"), "dr2 ramen config")
-		noBuild   = flag.Bool("skip-build", false, "skip building the manager binary")
-		doConfigure = flag.Bool("configure", false, "install CRDs, create namespaces and S3 secrets, then exit")
+		hubKC       = flag.String("hub-kubeconfig", filepath.Join(kcDir, "hub"), "hub kubeconfig")
+		dr1KC       = flag.String("dr1-kubeconfig", filepath.Join(kcDir, "dr1"), "dr1 kubeconfig")
+		dr2KC       = flag.String("dr2-kubeconfig", filepath.Join(kcDir, "dr2"), "dr2 kubeconfig")
+		noBuild     = flag.Bool("skip-build", false, "skip building the manager binary")
+		doConfigure = flag.Bool("configure", false, "install CRDs, create namespaces, S3 secrets, and config, then exit")
 	)
 
 	flag.Parse()
 
 	clusters := []cluster{
-		{"hub", *hubKC, *hubCfg, true},
-		{"dr1", *dr1KC, *dr1Cfg, false},
-		{"dr2", *dr2KC, *dr2Cfg, false},
+		{"hub", *hubKC, true},
+		{"dr1", *dr1KC, false},
+		{"dr2", *dr2KC, false},
 	}
 
 	for _, c := range clusters {
@@ -64,33 +59,6 @@ func main() {
 	if *doConfigure {
 		configure(root, clusters)
 		return
-	}
-
-	for _, c := range clusters {
-		checkFile(c.config, "config")
-	}
-
-	// Discover minio S3 endpoints from dr1 and dr2 clusters and generate
-	// config files with the real URLs substituted for placeholders.
-	dr1URL := minioServiceURL("dr1")
-	dr2URL := minioServiceURL("dr2")
-
-	var tmpFiles []string
-
-	defer func() {
-		for _, f := range tmpFiles {
-			os.Remove(f)
-		}
-	}()
-
-	for i := range clusters {
-		resolved, err := resolveConfig(clusters[i].config, dr1URL, dr2URL)
-		if err != nil {
-			fatal("[%s] config resolution failed: %v", clusters[i].name, err)
-		}
-
-		tmpFiles = append(tmpFiles, resolved)
-		clusters[i].config = resolved
 	}
 
 	bin := filepath.Join(root, "localrun", "bin", "manager")
@@ -146,34 +114,13 @@ func minioServiceURL(clusterContext string) string {
 	return url
 }
 
-func resolveConfig(configPath, dr1URL, dr2URL string) (string, error) {
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return "", err
-	}
-
-	resolved := strings.ReplaceAll(string(data), "http://CHANGE_ME_DR1_IP:30000", dr1URL)
-	resolved = strings.ReplaceAll(resolved, "http://CHANGE_ME_DR2_IP:30000", dr2URL)
-
-	f, err := os.CreateTemp("", "ramen-config-*.yaml")
-	if err != nil {
-		return "", err
-	}
-
-	if _, err := f.WriteString(resolved); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-
-		return "", err
-	}
-
-	f.Close()
-
-	return f.Name(), nil
-}
-
 func configure(root string, clusters []cluster) {
 	fmt.Println("Configuring clusters...")
+
+	dr1URL := minioServiceURL("dr1")
+	dr2URL := minioServiceURL("dr2")
+
+	cfgDir := filepath.Join(root, "localrun", "configs")
 
 	for _, c := range clusters {
 		fmt.Printf("[%s] creating namespaces...\n", c.name)
@@ -203,9 +150,32 @@ func configure(root string, clusters []cluster) {
 			filepath.Join(root, "helper", "ramen-s3-secret-dr1.yaml"))
 		kubectl(c.kubeconfig, "apply", "-f",
 			filepath.Join(root, "helper", "ramen-s3-secret-dr2.yaml"))
+
+		fmt.Printf("[%s] creating ramen config...\n", c.name)
+		configFile := filepath.Join(cfgDir, c.name+".yaml")
+		applyResolvedConfig(c.kubeconfig, configFile, dr1URL, dr2URL)
 	}
 
 	fmt.Println("Configuration complete.")
+}
+
+func applyResolvedConfig(kubeconfig, configPath, dr1URL, dr2URL string) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		fatal("cannot read config %s: %v", configPath, err)
+	}
+
+	resolved := strings.ReplaceAll(string(data), "http://CHANGE_ME_DR1_IP:30000", dr1URL)
+	resolved = strings.ReplaceAll(resolved, "http://CHANGE_ME_DR2_IP:30000", dr2URL)
+
+	cmd := exec.Command("kubectl", "--kubeconfig="+kubeconfig, "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(resolved)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		fatal("kubectl apply config failed: %v", err)
+	}
 }
 
 func createNamespace(kubeconfig, ns string) {
@@ -268,7 +238,6 @@ func build(root, out string) {
 
 func run(ctx context.Context, bin string, c cluster) {
 	cmd := exec.CommandContext(ctx, bin,
-		"--config="+c.config,
 		"--kubeconfig="+c.kubeconfig,
 	)
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
@@ -286,7 +255,7 @@ func run(ctx context.Context, bin string, c cluster) {
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 
-	fmt.Printf("[%s] starting (kubeconfig=%s config=%s)\n", c.name, c.kubeconfig, c.config)
+	fmt.Printf("[%s] starting (kubeconfig=%s)\n", c.name, c.kubeconfig)
 
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "[%s] start failed: %v\n", c.name, err)

@@ -1,49 +1,56 @@
-# Ramen dr-cluster config for dr1 (local development).
+# Ramen dr-cluster ConfigMap for dr1 (local development).
 #
 # The CHANGE_ME placeholders in s3CompatibleEndpoint are resolved
-# automatically at runtime by localrun via kubectl.
+# automatically by localrun --configure via kubectl.
 ---
-apiVersion: ramendr.openshift.io/v1alpha1
-kind: RamenConfig
-health:
-  healthProbeBindAddress: ":9420"
-metrics:
-  bindAddress: "127.0.0.1:9320"
-leaderElection:
-  leaderElect: false
-  resourceName: dr-cluster.ramendr.openshift.io
-ramenControllerType: dr-cluster
-maxConcurrentReconciles: 50
-volSync:
-  destinationCopyMethod: Direct
-  disabled: false
-kubeObjectProtection:
-  veleroNamespaceName: velero
-multiNamespace:
-  FeatureEnabled: true
-  volsyncSupported: true
-drClusterOperator:
-  deploymentAutomationEnabled: true
-  s3SecretDistributionEnabled: true
-  channelName: alpha
-  packageName: ramen-dr-cluster-operator
-  namespaceName: ramen-system
-  catalogSourceName: ramen-catalog
-  catalogSourceNamespaceName: ramen-system
-  clusterServiceVersionName: ramen-dr-cluster-operator.v0.0.1
-ramenOpsNamespace: ramen-ops
-s3StoreProfiles:
-- s3ProfileName: minio-on-dr1
-  s3Bucket: bucket
-  s3CompatibleEndpoint: "http://CHANGE_ME_DR1_IP:30000"
-  s3Region: us-west-1
-  s3SecretRef:
-    name: ramen-s3-secret-dr1
-    namespace: ramen-system
-- s3ProfileName: minio-on-dr2
-  s3Bucket: bucket
-  s3CompatibleEndpoint: "http://CHANGE_ME_DR2_IP:30000"
-  s3Region: us-east-1
-  s3SecretRef:
-    name: ramen-s3-secret-dr2
-    namespace: ramen-system
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ramen-dr-cluster-operator-config
+  namespace: ramen-system
+data:
+  ramen_manager_config.yaml: |
+    apiVersion: ramendr.openshift.io/v1alpha1
+    kind: RamenConfig
+    health:
+      healthProbeBindAddress: ":9420"
+    metrics:
+      bindAddress: "127.0.0.1:9320"
+    leaderElection:
+      leaderElect: false
+      resourceName: dr-cluster.ramendr.openshift.io
+    ramenControllerType: dr-cluster
+    maxConcurrentReconciles: 50
+    volSync:
+      destinationCopyMethod: Direct
+      disabled: false
+    kubeObjectProtection:
+      veleroNamespaceName: velero
+    multiNamespace:
+      FeatureEnabled: true
+      volsyncSupported: true
+    drClusterOperator:
+      deploymentAutomationEnabled: true
+      s3SecretDistributionEnabled: true
+      channelName: alpha
+      packageName: ramen-dr-cluster-operator
+      namespaceName: ramen-system
+      catalogSourceName: ramen-catalog
+      catalogSourceNamespaceName: ramen-system
+      clusterServiceVersionName: ramen-dr-cluster-operator.v0.0.1
+    ramenOpsNamespace: ramen-ops
+    s3StoreProfiles:
+    - s3ProfileName: minio-on-dr1
+      s3Bucket: bucket
+      s3CompatibleEndpoint: "http://CHANGE_ME_DR1_IP:30000"
+      s3Region: us-west-1
+      s3SecretRef:
+        name: ramen-s3-secret-dr1
+        namespace: ramen-system
+    - s3ProfileName: minio-on-dr2
+      s3Bucket: bucket
+      s3CompatibleEndpoint: "http://CHANGE_ME_DR2_IP:30000"
+      s3Region: us-east-1
+      s3SecretRef:
+        name: ramen-s3-secret-dr2
+        namespace: ramen-system
