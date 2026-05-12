@@ -125,8 +125,7 @@ func configure(root string, clusters []cluster) {
 	for _, c := range clusters {
 		fmt.Printf("[%s] creating namespaces...\n", c.name)
 		createNamespace(c.kubeconfig, "ramen-system")
-		kubectl(c.kubeconfig, "apply", "-f",
-			filepath.Join(root, "helper", "ramenops-ns.yaml"))
+		createNamespace(c.kubeconfig, "ramen-ops")
 
 		target := "install-dr-cluster"
 		if c.hub {
@@ -145,13 +144,9 @@ func configure(root string, clusters []cluster) {
 			fatal("[%s] %s failed: %v", c.name, target, err)
 		}
 
-		fmt.Printf("[%s] creating secrets...\n", c.name)
-		kubectl(c.kubeconfig, "apply", "-f",
-			filepath.Join(root, "helper", "ramen-s3-secret-dr1.yaml"))
-		kubectl(c.kubeconfig, "apply", "-f",
-			filepath.Join(root, "helper", "ramen-s3-secret-dr2.yaml"))
-		kubectl(c.kubeconfig, "apply", "-f",
-			filepath.Join(root, "helper", "cloud-credentials-secret.yaml"))
+		fmt.Printf("[%s] creating S3 secrets...\n", c.name)
+		applyS3Secret(c.kubeconfig, "dr1")
+		applyS3Secret(c.kubeconfig, "dr2")
 
 		fmt.Printf("[%s] creating ramen config...\n", c.name)
 		configFile := filepath.Join(cfgDir, c.name+".yaml")
@@ -160,15 +155,88 @@ func configure(root string, clusters []cluster) {
 
 	hubKC := clusters[0].kubeconfig
 
-	fmt.Println("[hub] creating DRPolicy and DRClusters...")
-	kubectl(hubKC, "apply", "-f",
-		filepath.Join(root, "helper", "managedclustersetbinding.yaml"))
-	kubectl(hubKC, "apply", "-f",
-		filepath.Join(root, "helper", "dr-clusters.yaml"))
-	kubectl(hubKC, "apply", "-f",
-		filepath.Join(root, "helper", "dr-policy.yaml"))
+	fmt.Println("[hub] creating ManagedClusterSetBinding...")
+	applyManagedClusterSetBinding(hubKC)
+
+	fmt.Println("[hub] creating DRClusters...")
+	applyDRClusters(hubKC)
+
+	fmt.Println("[hub] creating DRPolicies...")
+	for _, interval := range []string{"1m", "5m"} {
+		applyDRPolicy(hubKC, interval)
+	}
 
 	fmt.Println("Configuration complete.")
+}
+
+func applyManifest(kubeconfig, manifest string) {
+	cmd := exec.Command("kubectl", "--kubeconfig="+kubeconfig, "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(manifest)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		fatal("kubectl apply failed: %v", err)
+	}
+}
+
+func applyS3Secret(kubeconfig, clusterName string) {
+	manifest := fmt.Sprintf(`apiVersion: v1
+kind: Secret
+metadata:
+  name: ramen-s3-secret-%s
+  namespace: ramen-system
+stringData:
+  AWS_ACCESS_KEY_ID: minio
+  AWS_SECRET_ACCESS_KEY: minio123
+`, clusterName)
+	applyManifest(kubeconfig, manifest)
+}
+
+func applyDRClusters(kubeconfig string) {
+	manifest := `apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRCluster
+metadata:
+  name: dr1
+spec:
+  s3ProfileName: minio-on-dr1
+---
+apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRCluster
+metadata:
+  name: dr2
+spec:
+  s3ProfileName: minio-on-dr2
+`
+	applyManifest(kubeconfig, manifest)
+}
+
+func applyDRPolicy(kubeconfig, interval string) {
+	manifest := fmt.Sprintf(`apiVersion: ramendr.openshift.io/v1alpha1
+kind: DRPolicy
+metadata:
+  name: dr-policy-%s
+spec:
+  drClusters:
+  - dr1
+  - dr2
+  schedulingInterval: %s
+  replicationClassSelector: {}
+  volumeSnapshotClassSelector: {}
+`, interval, interval)
+	applyManifest(kubeconfig, manifest)
+}
+
+func applyManagedClusterSetBinding(kubeconfig string) {
+	manifest := `apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSetBinding
+metadata:
+  name: default
+  namespace: ramen-ops
+spec:
+  clusterSet: default
+`
+	applyManifest(kubeconfig, manifest)
 }
 
 func applyResolvedConfig(kubeconfig, configPath, dr1URL, dr2URL string) {
@@ -216,18 +284,6 @@ func createNamespace(kubeconfig, ns string) {
 
 	if err := apply.Wait(); err != nil {
 		fatal("kubectl apply namespace %s failed: %v", ns, err)
-	}
-}
-
-func kubectl(kubeconfig string, args ...string) {
-	args = append([]string{"--kubeconfig=" + kubeconfig}, args...)
-
-	cmd := exec.Command("kubectl", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		fatal("kubectl %s failed: %v", strings.Join(args, " "), err)
 	}
 }
 
