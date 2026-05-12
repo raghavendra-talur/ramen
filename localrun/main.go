@@ -273,7 +273,15 @@ func run(ctx context.Context, bin string, c cluster) {
 	)
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 	cmd.WaitDelay = 10 * time.Second
-	cmd.Env = append(os.Environ(), "POD_NAMESPACE=ramen-system")
+	controllerType := "dr-cluster"
+	if c.hub {
+		controllerType = "dr-hub"
+	}
+
+	cmd.Env = append(os.Environ(),
+		"POD_NAMESPACE=ramen-system",
+		"RAMEN_CONTROLLER_TYPE="+controllerType,
+	)
 
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
