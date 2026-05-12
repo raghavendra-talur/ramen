@@ -25,6 +25,7 @@ type cluster struct {
 	name       string
 	kubeconfig string
 	config     string
+	hub        bool
 }
 
 func main() {
@@ -44,19 +45,28 @@ func main() {
 		hubCfg  = flag.String("hub-config", filepath.Join(cfgDir, "hub.yaml"), "hub ramen config")
 		dr1Cfg  = flag.String("dr1-config", filepath.Join(cfgDir, "dr1.yaml"), "dr1 ramen config")
 		dr2Cfg  = flag.String("dr2-config", filepath.Join(cfgDir, "dr2.yaml"), "dr2 ramen config")
-		noBuild = flag.Bool("skip-build", false, "skip building the manager binary")
+		noBuild   = flag.Bool("skip-build", false, "skip building the manager binary")
+		doConfigure = flag.Bool("configure", false, "install CRDs, create namespaces and S3 secrets, then exit")
 	)
 
 	flag.Parse()
 
 	clusters := []cluster{
-		{"hub", *hubKC, *hubCfg},
-		{"dr1", *dr1KC, *dr1Cfg},
-		{"dr2", *dr2KC, *dr2Cfg},
+		{"hub", *hubKC, *hubCfg, true},
+		{"dr1", *dr1KC, *dr1Cfg, false},
+		{"dr2", *dr2KC, *dr2Cfg, false},
 	}
 
 	for _, c := range clusters {
 		checkFile(c.kubeconfig, "kubeconfig")
+	}
+
+	if *doConfigure {
+		configure(root, clusters)
+		return
+	}
+
+	for _, c := range clusters {
 		checkFile(c.config, "config")
 	}
 
@@ -160,6 +170,83 @@ func resolveConfig(configPath, dr1URL, dr2URL string) (string, error) {
 	f.Close()
 
 	return f.Name(), nil
+}
+
+func configure(root string, clusters []cluster) {
+	fmt.Println("Configuring clusters...")
+
+	for _, c := range clusters {
+		fmt.Printf("[%s] creating namespaces...\n", c.name)
+		createNamespace(c.kubeconfig, "ramen-system")
+		kubectl(c.kubeconfig, "apply", "-f",
+			filepath.Join(root, "helper", "ramenops-ns.yaml"))
+
+		target := "install-dr-cluster"
+		if c.hub {
+			target = "install-hub"
+		}
+
+		fmt.Printf("[%s] installing CRDs (%s)...\n", c.name, target)
+
+		cmd := exec.Command("make", target)
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "KUBECONFIG="+c.kubeconfig)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Run(); err != nil {
+			fatal("[%s] %s failed: %v", c.name, target, err)
+		}
+
+		fmt.Printf("[%s] creating S3 secrets...\n", c.name)
+		kubectl(c.kubeconfig, "apply", "-f",
+			filepath.Join(root, "helper", "ramen-s3-secret-dr1.yaml"))
+		kubectl(c.kubeconfig, "apply", "-f",
+			filepath.Join(root, "helper", "ramen-s3-secret-dr2.yaml"))
+	}
+
+	fmt.Println("Configuration complete.")
+}
+
+func createNamespace(kubeconfig, ns string) {
+	create := exec.Command("kubectl", "--kubeconfig="+kubeconfig,
+		"create", "namespace", ns, "--dry-run=client", "-o", "yaml")
+	apply := exec.Command("kubectl", "--kubeconfig="+kubeconfig, "apply", "-f", "-")
+
+	var err error
+
+	apply.Stdin, err = create.StdoutPipe()
+	if err != nil {
+		fatal("pipe failed: %v", err)
+	}
+
+	apply.Stdout = os.Stdout
+	apply.Stderr = os.Stderr
+	create.Stderr = os.Stderr
+
+	if err := apply.Start(); err != nil {
+		fatal("kubectl apply failed to start: %v", err)
+	}
+
+	if err := create.Run(); err != nil {
+		fatal("kubectl create namespace %s failed: %v", ns, err)
+	}
+
+	if err := apply.Wait(); err != nil {
+		fatal("kubectl apply namespace %s failed: %v", ns, err)
+	}
+}
+
+func kubectl(kubeconfig string, args ...string) {
+	args = append([]string{"--kubeconfig=" + kubeconfig}, args...)
+
+	cmd := exec.Command("kubectl", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		fatal("kubectl %s failed: %v", strings.Join(args, " "), err)
+	}
 }
 
 func build(root, out string) {
