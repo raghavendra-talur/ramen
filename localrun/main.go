@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -59,6 +60,29 @@ func main() {
 		checkFile(c.config, "config")
 	}
 
+	// Discover minio S3 endpoints from dr1 and dr2 clusters and generate
+	// config files with the real URLs substituted for placeholders.
+	dr1URL := minioServiceURL("dr1")
+	dr2URL := minioServiceURL("dr2")
+
+	var tmpFiles []string
+
+	defer func() {
+		for _, f := range tmpFiles {
+			os.Remove(f)
+		}
+	}()
+
+	for i := range clusters {
+		resolved, err := resolveConfig(clusters[i].config, dr1URL, dr2URL)
+		if err != nil {
+			fatal("[%s] config resolution failed: %v", clusters[i].name, err)
+		}
+
+		tmpFiles = append(tmpFiles, resolved)
+		clusters[i].config = resolved
+	}
+
 	bin := filepath.Join(root, "localrun", "bin", "manager")
 
 	if !*noBuild {
@@ -84,6 +108,58 @@ func main() {
 	wg.Wait()
 
 	fmt.Println("All managers stopped.")
+}
+
+func minioServiceURL(clusterContext string) string {
+	hostIP, err := exec.Command("kubectl", "get", "pod",
+		"--selector=component=minio",
+		"--namespace=minio",
+		"--context="+clusterContext,
+		"--output=jsonpath={.items[0].status.hostIP}",
+	).Output()
+	if err != nil {
+		fatal("[%s] cannot get minio pod hostIP: %v", clusterContext, err)
+	}
+
+	nodePort, err := exec.Command("kubectl", "get", "service/minio",
+		"--namespace=minio",
+		"--context="+clusterContext,
+		"--output=jsonpath={.spec.ports[0].nodePort}",
+	).Output()
+	if err != nil {
+		fatal("[%s] cannot get minio service nodePort: %v", clusterContext, err)
+	}
+
+	url := fmt.Sprintf("http://%s:%s", strings.TrimSpace(string(hostIP)), strings.TrimSpace(string(nodePort)))
+	fmt.Printf("[%s] minio endpoint: %s\n", clusterContext, url)
+
+	return url
+}
+
+func resolveConfig(configPath, dr1URL, dr2URL string) (string, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return "", err
+	}
+
+	resolved := strings.ReplaceAll(string(data), "http://CHANGE_ME_DR1_IP:30000", dr1URL)
+	resolved = strings.ReplaceAll(resolved, "http://CHANGE_ME_DR2_IP:30000", dr2URL)
+
+	f, err := os.CreateTemp("", "ramen-config-*.yaml")
+	if err != nil {
+		return "", err
+	}
+
+	if _, err := f.WriteString(resolved); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+
+		return "", err
+	}
+
+	f.Close()
+
+	return f.Name(), nil
 }
 
 func build(root, out string) {

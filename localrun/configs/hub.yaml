@@ -1,8 +1,7 @@
 # Ramen hub config for local development.
 #
-# Update the s3CompatibleEndpoint values with your drenv cluster IPs:
-#   minikube ip --profile dr1
-#   minikube ip --profile dr2
+# The CHANGE_ME placeholders in s3CompatibleEndpoint are resolved
+# automatically at runtime by localrun via kubectl.
 ---
 apiVersion: ramendr.openshift.io/v1alpha1
 kind: RamenConfig
