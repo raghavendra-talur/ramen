@@ -142,6 +142,7 @@ func (h *volumeGroupSourceHandler) CreateOrUpdateVolumeGroupSnapshot(
 		}
 
 		util.AddLabel(volumeGroupSnapshot, util.CreatedByRamenLabel, "true")
+		util.AddLabel(volumeGroupSnapshot, util.ExcludeFromVeleroBackup, "true")
 		util.AddLabel(volumeGroupSnapshot, util.RGSOwnerLabel, owner.GetName())
 		util.AddAnnotation(volumeGroupSnapshot, volsync.OwnerNameAnnotation, owner.GetName())
 		util.AddAnnotation(volumeGroupSnapshot, volsync.OwnerNamespaceAnnotation, owner.GetNamespace())
@@ -387,6 +388,7 @@ func (h *volumeGroupSourceHandler) RestoreVolumesFromSnapshot(
 		}
 
 		util.AddLabel(restoredPVC, util.CreatedByRamenLabel, "true")
+		util.AddLabel(restoredPVC, util.ExcludeFromVeleroBackup, "true")
 		util.AddLabel(restoredPVC, util.RGSOwnerLabel, owner.GetName())
 		util.AddAnnotation(restoredPVC, volsync.OwnerNameAnnotation, owner.GetName())
 		util.AddAnnotation(restoredPVC, volsync.OwnerNamespaceAnnotation, owner.GetNamespace())
@@ -527,11 +529,15 @@ func (h *volumeGroupSourceHandler) CreateOrUpdateReplicationSourceForRestoredPVC
 			}
 
 			moverConfigVal := util.GetRSMoverConfig(originalPVCName, replicationSourceNamespace, vrg.Spec.VolSync.MoverConfig)
+			replicationSource.Spec.RsyncTLS.MoverConfig = volsyncv1alpha1.MoverConfig{
+				MoverPodLabels: map[string]string{
+					util.CreatedByRamenLabel:     "true",
+					util.ExcludeFromVeleroBackup: "true",
+				},
+			}
 			if moverConfigVal != nil {
-				replicationSource.Spec.RsyncTLS.MoverConfig = volsyncv1alpha1.MoverConfig{
-					MoverSecurityContext: moverConfigVal.MoverSecurityContext,
-					MoverServiceAccount:  moverConfigVal.MoverServiceAccount,
-				}
+				replicationSource.Spec.RsyncTLS.MoverConfig.MoverSecurityContext = moverConfigVal.MoverSecurityContext
+				replicationSource.Spec.RsyncTLS.MoverConfig.MoverServiceAccount = moverConfigVal.MoverServiceAccount
 			}
 
 			return nil

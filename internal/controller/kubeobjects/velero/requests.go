@@ -625,6 +625,7 @@ func (w objectWriter) bslCreateOrUpdate(s3Url string,
 			Credential: secretKeyRef,
 		}
 		util.AddLabel(backupLocation, util.CreatedByRamenLabel, "true")
+		util.AddLabel(backupLocation, util.ExcludeFromVeleroBackup, "true")
 
 		return nil
 	})
@@ -724,7 +725,7 @@ func backupRequest(namespaceName, name string, spec velero.BackupSpec,
 	labels map[string]string,
 	annotations map[string]string,
 ) *velero.Backup {
-	return &velero.Backup{
+	backup := &velero.Backup{
 		TypeMeta: backupTypeMeta(),
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:   namespaceName,
@@ -734,6 +735,11 @@ func backupRequest(namespaceName, name string, spec velero.BackupSpec,
 		},
 		Spec: spec,
 	}
+
+	util.AddLabel(backup, util.CreatedByRamenLabel, "true")
+	util.AddLabel(backup, util.ExcludeFromVeleroBackup, "true")
+
+	return backup
 }
 
 func restore(
@@ -750,7 +756,7 @@ func restore(
 		includeClusterResources = &falseValue
 	}
 
-	return &velero.Restore{
+	restoreObj := &velero.Restore{
 		TypeMeta: restoreTypeMeta(),
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: requestNamespaceName,
@@ -772,6 +778,11 @@ func restore(
 			// TODO: preserveNodePorts?
 		},
 	}
+
+	util.AddLabel(restoreObj, util.CreatedByRamenLabel, "true")
+	util.AddLabel(restoreObj, util.ExcludeFromVeleroBackup, "true")
+
+	return restoreObj
 }
 
 func backupStatusLog(backup *velero.Backup, log logr.Logger) {

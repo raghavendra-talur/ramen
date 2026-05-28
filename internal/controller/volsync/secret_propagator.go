@@ -262,6 +262,7 @@ func (sp *secretPropagator) reconcileSecretPropagationPlacementRule() error {
 	}
 
 	util.AddLabel(placementRule, util.CreatedByRamenLabel, "true")
+	util.AddLabel(placementRule, util.ExcludeFromVeleroBackup, "true")
 
 	clustersToApply := make([]plrulev1.GenericClusterReference, 0, len(sp.DestClusters))
 	for _, clusterName := range sp.DestClusters {
@@ -309,6 +310,7 @@ func (sp *secretPropagator) reconcileSecretPropagationPlacementBinding() error {
 	}
 
 	util.AddLabel(placementBinding, util.CreatedByRamenLabel, "true")
+	util.AddLabel(placementBinding, util.ExcludeFromVeleroBackup, "true")
 
 	op, err := ctrlutil.CreateOrUpdate(sp.Context, sp.Client, placementBinding, func() error {
 		if err := ctrl.SetControllerReference(sp.Owner, placementBinding, sp.Client.Scheme()); err != nil {

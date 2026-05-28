@@ -46,6 +46,7 @@ func (v *VSHandler) CreateCurrentStateSnapshot(
 
 	_, err = ctrlutil.CreateOrUpdate(v.ctx, v.client, snap, func() error {
 		util.AddLabel(snap, util.CreatedByRamenLabel, "true")
+		util.AddLabel(snap, util.ExcludeFromVeleroBackup, "true")
 		util.AddLabel(snap, util.VRGOwnerNameLabel, v.owner.GetName())
 		util.AddLabel(snap, util.VRGOwnerNamespaceLabel, v.owner.GetNamespace())
 
@@ -162,6 +163,7 @@ func (v *VSHandler) ReconcileDiffLocalRD(
 
 	op, err := ctrlutil.CreateOrUpdate(v.ctx, v.client, lrd, func() error {
 		util.AddLabel(lrd, util.CreatedByRamenLabel, "true")
+		util.AddLabel(lrd, util.ExcludeFromVeleroBackup, "true")
 		util.AddLabel(lrd, util.VRGOwnerNameLabel, v.owner.GetName())
 		util.AddLabel(lrd, util.VRGOwnerNamespaceLabel, v.owner.GetNamespace())
 		util.AddLabel(lrd, VolSyncDoNotDeleteLabel, VolSyncDoNotDeleteLabelVal)
@@ -230,6 +232,7 @@ func (v *VSHandler) ReconcileDiffLocalRS(
 
 	op, err := ctrlutil.CreateOrUpdate(v.ctx, v.client, lrs, func() error {
 		util.AddLabel(lrs, util.CreatedByRamenLabel, "true")
+		util.AddLabel(lrs, util.ExcludeFromVeleroBackup, "true")
 		util.AddLabel(lrs, util.VRGOwnerNameLabel, v.owner.GetName())
 		util.AddLabel(lrs, util.VRGOwnerNamespaceLabel, v.owner.GetNamespace())
 

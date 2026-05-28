@@ -144,6 +144,22 @@ func (v *VSHandler) SetWorkloadStatus(status string) {
 	v.workloadStatus = status
 }
 
+func buildMoverConfig(moverConfigSpec *ramendrv1alpha1.MoverConfig) volsyncv1alpha1.MoverConfig {
+	mc := volsyncv1alpha1.MoverConfig{
+		MoverPodLabels: map[string]string{
+			util.CreatedByRamenLabel:     "true",
+			util.ExcludeFromVeleroBackup: "true",
+		},
+	}
+
+	if moverConfigSpec != nil {
+		mc.MoverSecurityContext = moverConfigSpec.MoverSecurityContext
+		mc.MoverServiceAccount = moverConfigSpec.MoverServiceAccount
+	}
+
+	return mc
+}
+
 // returns replication destination only if create/update is successful and the RD is considered available.
 // Callers should assume getting a nil replication destination back means they should retry/requeue.
 //
@@ -391,6 +407,7 @@ func (v *VSHandler) createOrUpdateRD(
 	}
 
 	util.AddLabel(rd, util.CreatedByRamenLabel, "true")
+	util.AddLabel(rd, util.ExcludeFromVeleroBackup, "true")
 
 	op, err := ctrlutil.CreateOrUpdate(v.ctx, v.client, rd, func() error {
 		util.AddLabel(rd, util.VRGOwnerNameLabel, v.owner.GetName())
@@ -398,14 +415,7 @@ func (v *VSHandler) createOrUpdateRD(
 		util.AddAnnotation(rd, OwnerNameAnnotation, v.owner.GetName())
 		util.AddAnnotation(rd, OwnerNamespaceAnnotation, v.owner.GetNamespace())
 
-		moverConfig := volsyncv1alpha1.MoverConfig{}
-
-		if moverConfigSpec != nil {
-			moverConfig = volsyncv1alpha1.MoverConfig{
-				MoverSecurityContext: moverConfigSpec.MoverSecurityContext,
-				MoverServiceAccount:  moverConfigSpec.MoverServiceAccount,
-			}
-		}
+		moverConfig := buildMoverConfig(moverConfigSpec)
 
 		if util.IsDiffSyncEnabled(v.owner.GetAnnotations()) {
 			params := map[string]string{
@@ -655,6 +665,7 @@ func (v *VSHandler) createOrUpdateRS(rsSpec ramendrv1alpha1.VolSyncReplicationSo
 	}
 
 	util.AddLabel(rs, util.CreatedByRamenLabel, "true")
+	util.AddLabel(rs, util.ExcludeFromVeleroBackup, "true")
 
 	// Handle final sync by retaining the PV and creating a tmpPVC used for final sync
 	stop := v.setupForFinalSync(&rsSpec, runFinalSync)
@@ -674,13 +685,7 @@ func (v *VSHandler) createOrUpdateRS(rsSpec ramendrv1alpha1.VolSyncReplicationSo
 			return err
 		}
 
-		moverConfig := &volsyncv1alpha1.MoverConfig{}
-		if moverConfigSpec != nil {
-			moverConfig = &volsyncv1alpha1.MoverConfig{
-				MoverSecurityContext: moverConfigSpec.MoverSecurityContext,
-				MoverServiceAccount:  moverConfigSpec.MoverServiceAccount,
-			}
-		}
+		moverConfig := buildMoverConfig(moverConfigSpec)
 
 		if util.IsDiffSyncEnabled(v.owner.GetAnnotations()) {
 			rs.Spec.External = &volsyncv1alpha1.ReplicationSourceExternalSpec{
@@ -708,7 +713,7 @@ func (v *VSHandler) createOrUpdateRS(rsSpec ramendrv1alpha1.VolSyncReplicationSo
 					StorageClassName:        rsSpec.ProtectedPVC.StorageClassName,
 					AccessModes:             rsSpec.ProtectedPVC.AccessModes,
 				},
-				MoverConfig: *moverConfig,
+				MoverConfig: moverConfig,
 			}
 		}
 
@@ -948,7 +953,7 @@ func (v *VSHandler) createTmpPVCForFinalSync(pvcNamespacedName types.NamespacedN
 		// want the tmpPVC to be selected by any label selectors that may have been used
 		// to select the original PVC (e.g. VRG PVC label selector)
 		// We only need the CG label if it exists.
-		tmpPVC.ObjectMeta.Labels = map[string]string{util.CreatedByRamenLabel: "true"}
+		tmpPVC.ObjectMeta.Labels = map[string]string{util.CreatedByRamenLabel: "true", util.ExcludeFromVeleroBackup: "true"}
 		if cgVal, ok := pvc.GetLabels()[util.ConsistencyGroupLabel]; ok {
 			tmpPVC.ObjectMeta.Labels[util.ConsistencyGroupLabel] = cgVal
 		}
@@ -2167,6 +2172,7 @@ func (v *VSHandler) ensurePVCFromSnapshot(rdSpec ramendrv1alpha1.VolSyncReplicat
 	}
 
 	util.AddLabel(pvc, util.CreatedByRamenLabel, "true")
+	util.AddLabel(pvc, util.ExcludeFromVeleroBackup, "true")
 
 	pvcRequestedCapacity := rdSpec.ProtectedPVC.Resources.Requests.Storage()
 	if snapRestoreSize != nil {
@@ -2693,6 +2699,7 @@ func (v *VSHandler) reconcileLocalRD(rdSpec ramendrv1alpha1.VolSyncReplicationDe
 
 	op, err := ctrlutil.CreateOrUpdate(v.ctx, v.client, lrd, func() error {
 		util.AddLabel(lrd, util.CreatedByRamenLabel, "true")
+		util.AddLabel(lrd, util.ExcludeFromVeleroBackup, "true")
 		util.AddLabel(lrd, util.VRGOwnerNameLabel, v.owner.GetName())
 		util.AddLabel(lrd, util.VRGOwnerNamespaceLabel, v.owner.GetNamespace())
 		util.AddLabel(lrd, VolSyncDoNotDeleteLabel, VolSyncDoNotDeleteLabelVal)
@@ -2702,13 +2709,7 @@ func (v *VSHandler) reconcileLocalRD(rdSpec ramendrv1alpha1.VolSyncReplicationDe
 			pvcAccessModes = rdSpec.ProtectedPVC.AccessModes
 		}
 
-		moverConfig := &volsyncv1alpha1.MoverConfig{}
-		if moverConfigSpec != nil {
-			moverConfig = &volsyncv1alpha1.MoverConfig{
-				MoverSecurityContext: moverConfigSpec.MoverSecurityContext,
-				MoverServiceAccount:  moverConfigSpec.MoverServiceAccount,
-			}
-		}
+		moverConfig := buildMoverConfig(moverConfigSpec)
 
 		lrd.Spec.External = nil
 		lrd.Spec.RsyncTLS = &volsyncv1alpha1.ReplicationDestinationRsyncTLSSpec{
@@ -2722,7 +2723,7 @@ func (v *VSHandler) reconcileLocalRD(rdSpec ramendrv1alpha1.VolSyncReplicationDe
 				AccessModes:      pvcAccessModes,
 				DestinationPVC:   &rdSpec.ProtectedPVC.Name,
 			},
-			MoverConfig: *moverConfig,
+			MoverConfig: moverConfig,
 		}
 
 		return nil
@@ -2770,6 +2771,7 @@ func (v *VSHandler) reconcileLocalRS(rd *volsyncv1alpha1.ReplicationDestination,
 
 	op, err := ctrlutil.CreateOrUpdate(v.ctx, v.client, lrs, func() error {
 		util.AddLabel(lrs, util.CreatedByRamenLabel, "true")
+		util.AddLabel(lrs, util.ExcludeFromVeleroBackup, "true")
 		util.AddLabel(lrs, util.VRGOwnerNameLabel, v.owner.GetName())
 		util.AddLabel(lrs, util.VRGOwnerNamespaceLabel, v.owner.GetNamespace())
 
@@ -2780,13 +2782,7 @@ func (v *VSHandler) reconcileLocalRS(rd *volsyncv1alpha1.ReplicationDestination,
 
 		lrs.Spec.SourcePVC = pvc.GetName()
 
-		moverConfig := &volsyncv1alpha1.MoverConfig{}
-		if moverConfigSpec != nil {
-			moverConfig = &volsyncv1alpha1.MoverConfig{
-				MoverSecurityContext: moverConfigSpec.MoverSecurityContext,
-				MoverServiceAccount:  moverConfigSpec.MoverServiceAccount,
-			}
-		}
+		moverConfig := buildMoverConfig(moverConfigSpec)
 
 		lrs.Spec.External = nil
 		lrs.Spec.RsyncTLS = &volsyncv1alpha1.ReplicationSourceRsyncTLSSpec{
@@ -2796,7 +2792,7 @@ func (v *VSHandler) reconcileLocalRS(rd *volsyncv1alpha1.ReplicationDestination,
 			ReplicationSourceVolumeOptions: volsyncv1alpha1.ReplicationSourceVolumeOptions{
 				CopyMethod: volsyncv1alpha1.CopyMethodDirect,
 			},
-			MoverConfig: *moverConfig,
+			MoverConfig: moverConfig,
 		}
 
 		return nil
@@ -2983,6 +2979,7 @@ func (v *VSHandler) createPVCFromSnapshot(rd *volsyncv1alpha1.ReplicationDestina
 	}
 
 	util.AddLabel(pvc, util.CreatedByRamenLabel, "true")
+	util.AddLabel(pvc, util.ExcludeFromVeleroBackup, "true")
 
 	pvcRequestedCapacity := v.resolveCapacity(rd, rdSpec, snapRestoreSize)
 
@@ -3590,6 +3587,7 @@ func (v *VSHandler) createOrUpdateMountJob(pvcNamespacedName types.NamespacedNam
 	job := prepareJobMetadata(pvcNamespacedName)
 
 	util.AddLabel(job, util.CreatedByRamenLabel, "true")
+	util.AddLabel(job, util.ExcludeFromVeleroBackup, "true")
 	util.AddLabel(job, util.VRGOwnerNameLabel, v.owner.GetName())
 	util.AddLabel(job, util.VRGOwnerNamespaceLabel, v.owner.GetNamespace())
 

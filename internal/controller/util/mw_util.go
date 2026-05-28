@@ -390,8 +390,14 @@ func (mwu *MWUtil) CreateOrUpdateNamespaceManifest(
 
 func Namespace(name string) *corev1.Namespace {
 	return &corev1.Namespace{
-		TypeMeta:   metav1.TypeMeta{Kind: "Namespace", APIVersion: "v1"},
-		ObjectMeta: metav1.ObjectMeta{Name: name},
+		TypeMeta: metav1.TypeMeta{Kind: "Namespace", APIVersion: "v1"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+			Labels: map[string]string{
+				CreatedByRamenLabel:     "true",
+				ExcludeFromVeleroBackup: "true",
+			},
+		},
 	}
 }
 
@@ -429,6 +435,9 @@ func prepareRecipeForMW(recipe *recipev1.Recipe) *recipev1.Recipe {
 		ObjectMeta: ObjectMetaEmbedded(&recipe.ObjectMeta),
 	}
 	recipeCopy.Spec = recipe.Spec
+
+	AddLabel(recipeCopy, CreatedByRamenLabel, "true")
+	AddLabel(recipeCopy, ExcludeFromVeleroBackup, "true")
 
 	return recipeCopy
 }
@@ -537,6 +546,8 @@ var (
 			Name: "open-cluster-management:klusterlet-work-sa:agent:volrepgroup-edit",
 			Labels: map[string]string{
 				ClusterRoleAggregateLabel: "true",
+				CreatedByRamenLabel:       "true",
+				ExcludeFromVeleroBackup:   "true",
 			},
 		},
 		Rules: []rbacv1.PolicyRule{
@@ -554,6 +565,8 @@ var (
 			Name: "open-cluster-management:klusterlet-work-sa:agent:mmode-edit",
 			Labels: map[string]string{
 				ClusterRoleAggregateLabel: "true",
+				CreatedByRamenLabel:       "true",
+				ExcludeFromVeleroBackup:   "true",
 			},
 		},
 		Rules: []rbacv1.PolicyRule{
@@ -571,6 +584,8 @@ var (
 			Name: "open-cluster-management:klusterlet-work-sa:agent:drclusterconfig-edit",
 			Labels: map[string]string{
 				ClusterRoleAggregateLabel: "true",
+				CreatedByRamenLabel:       "true",
+				ExcludeFromVeleroBackup:   "true",
 			},
 		},
 		Rules: []rbacv1.PolicyRule{
@@ -588,6 +603,8 @@ var (
 			Name: "open-cluster-management:klusterlet-work-sa:agent:networkfence-edit",
 			Labels: map[string]string{
 				ClusterRoleAggregateLabel: "true",
+				CreatedByRamenLabel:       "true",
+				ExcludeFromVeleroBackup:   "true",
 			},
 		},
 		Rules: []rbacv1.PolicyRule{
@@ -605,6 +622,8 @@ var (
 			Name: "open-cluster-management:klusterlet-work-sa:agent:recipe-edit",
 			Labels: map[string]string{
 				ClusterRoleAggregateLabel: "true",
+				CreatedByRamenLabel:       "true",
+				ExcludeFromVeleroBackup:   "true",
 			},
 		},
 		Rules: []rbacv1.PolicyRule{
@@ -646,6 +665,7 @@ func (mwu *MWUtil) newManifestWork(name string, mcNamespace string,
 	}
 
 	AddLabel(mw, CreatedByRamenLabel, "true")
+	AddLabel(mw, ExcludeFromVeleroBackup, "true")
 
 	if annotations != nil {
 		mw.ObjectMeta.Annotations = annotations
