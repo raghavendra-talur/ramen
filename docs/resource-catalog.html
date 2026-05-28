@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ramen Operator Resource Catalog</title>
+<style>
+  :root {
+    --bg: #f5f6fa;
+    --card: #ffffff;
+    --border: #e1e4e8;
+    --text: #24292e;
+    --text-secondary: #586069;
+    --accent: #0366d6;
+    --accent-light: #e8f0fe;
+    --tag-hub: #1a7f37;
+    --tag-hub-bg: #dafbe1;
+    --tag-dr: #8250df;
+    --tag-dr-bg: #ede8f5;
+    --tag-both: #bf8700;
+    --tag-both-bg: #fff8c5;
+    --tag-transitive: #cf222e;
+    --tag-transitive-bg: #ffebe9;
+    --tag-direct: #0550ae;
+    --tag-direct-bg: #ddf4ff;
+    --sidebar-width: 280px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  header {
+    background: #24292e;
+    color: #fff;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  header h1 { font-size: 20px; font-weight: 600; }
+  header .subtitle { color: #8b949e; font-size: 13px; }
+  .layout {
+    display: flex;
+    min-height: calc(100vh - 56px);
+  }
+  .sidebar {
+    width: var(--sidebar-width);
+    min-width: var(--sidebar-width);
+    background: var(--card);
+    border-right: 1px solid var(--border);
+    padding: 16px;
+    overflow-y: auto;
+    position: sticky;
+    top: 56px;
+    height: calc(100vh - 56px);
+  }
+  .sidebar h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    margin: 16px 0 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar h3:first-child { margin-top: 0; }
+  .filter-group label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+    font-size: 13px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .filter-group label:hover { color: var(--accent); }
+  .filter-group input[type="checkbox"] {
+    accent-color: var(--accent);
+    width: 14px;
+    height: 14px;
+  }
+  .filter-count {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-secondary);
+    background: var(--bg);
+    padding: 0 6px;
+    border-radius: 10px;
+    min-width: 20px;
+    text-align: center;
+  }
+  .main {
+    flex: 1;
+    padding: 20px 24px;
+    overflow-x: auto;
+  }
+  .stats {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    min-width: 120px;
+    text-align: center;
+  }
+  .stat-card .number {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .stat-card .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+  }
+  .search-bar {
+    margin-bottom: 16px;
+    position: relative;
+  }
+  .search-bar input {
+    width: 100%;
+    padding: 10px 14px 10px 36px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 14px;
+    outline: none;
+    background: var(--card);
+  }
+  .search-bar input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(3,102,214,0.1); }
+  .search-bar svg {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-secondary);
+  }
+  .results-info {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 13px;
+  }
+  thead { background: #f6f8fa; }
+  th {
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--text-secondary);
+    border-bottom: 2px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  th:hover { color: var(--accent); }
+  th .sort-arrow { font-size: 10px; margin-left: 4px; opacity: 0.4; }
+  th.sorted .sort-arrow { opacity: 1; color: var(--accent); }
+  td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #f6f8fa; }
+  .tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 1px 8px;
+    border-radius: 12px;
+    white-space: nowrap;
+  }
+  .tag-hub { background: var(--tag-hub-bg); color: var(--tag-hub); }
+  .tag-dr-cluster { background: var(--tag-dr-bg); color: var(--tag-dr); }
+  .tag-both { background: var(--tag-both-bg); color: var(--tag-both); }
+  .tag-transitive { background: var(--tag-transitive-bg); color: var(--tag-transitive); }
+  .tag-direct { background: var(--tag-direct-bg); color: var(--tag-direct); }
+  .tag-cluster { background: #ffeef0; color: #9a2c00; }
+  .tag-namespaced { background: #e8f5e9; color: #1b5e20; }
+  .category-tag {
+    display: inline-block;
+    font-size: 11px;
+    padding: 1px 8px;
+    border-radius: 12px;
+    white-space: nowrap;
+  }
+  .cat-ocm { background: #e3f2fd; color: #1565c0; }
+  .cat-ramen-crd { background: #f3e5f5; color: #7b1fa2; }
+  .cat-volsync { background: #e8f5e9; color: #2e7d32; }
+  .cat-csi-replication { background: #fff3e0; color: #e65100; }
+  .cat-snapshot { background: #fce4ec; color: #c62828; }
+  .cat-velero { background: #e0f2f1; color: #00695c; }
+  .cat-core-kubernetes { background: #f5f5f5; color: #424242; }
+  .cat-rbac { background: #fff8e1; color: #f57f17; }
+  .cat-multicluster-networking { background: #e1f5fe; color: #01579b; }
+  .cat-cephfs-consistency-group { background: #fce4ec; color: #880e4f; }
+  .cat-olm { background: #ede7f6; color: #4527a0; }
+  .cat-csi-addons { background: #fff3e0; color: #bf360c; }
+  .source-file {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 11px;
+    color: var(--accent);
+    word-break: break-all;
+  }
+  .purpose { max-width: 300px; }
+  .notes { max-width: 250px; font-size: 12px; color: var(--text-secondary); }
+  .clear-filters {
+    display: inline-block;
+    font-size: 12px;
+    color: var(--accent);
+    cursor: pointer;
+    margin-top: 12px;
+    padding: 4px 8px;
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    background: none;
+  }
+  .clear-filters:hover { background: var(--accent-light); }
+  .expand-btn {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 4px;
+  }
+  .expand-btn:hover { text-decoration: underline; }
+  .detail-row { display: none; }
+  .detail-row.open { display: table-row; }
+  .detail-row td {
+    background: #f6f8fa;
+    padding: 12px 20px;
+    font-size: 12px;
+  }
+  .detail-grid {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 4px 12px;
+  }
+  .detail-label { font-weight: 600; color: var(--text-secondary); }
+  .label-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 10px;
+    white-space: nowrap;
+  }
+  .label-yes { background: #dafbe1; color: #1a7f37; }
+  .label-no { background: #ffebe9; color: #cf222e; }
+  .label-moverPodLabels { background: #fff8c5; color: #9a6700; }
+  .label-no-api { background: #eaeef2; color: #656d76; }
+  .label-implicit { background: #ddf4ff; color: #0550ae; }
+  .label-na { background: #eaeef2; color: #656d76; }
+  @media (max-width: 900px) {
+    .sidebar { display: none; }
+    .main { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Ramen Operator Resource Catalog</h1>
+    <div class="subtitle">Comprehensive inventory of all Kubernetes/OpenShift resources created by the Ramen DR operator</div>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main class="main">
+    <div class="stats" id="stats"></div>
+    <div class="search-bar">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M11.5 7a4.499 4.499 0 11-8.998 0A4.499 4.499 0 0111.5 7zm-.82 4.74a6 6 0 111.06-1.06l3.04 3.04a.75.75 0 11-1.06 1.06l-3.04-3.04z"/></svg>
+      <input type="text" id="search" placeholder="Search resources by name, kind, API group, purpose, creator...">
+    </div>
+    <div class="results-info" id="results-info"></div>
+    <table>
+      <thead id="thead"></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </main>
+</div>
+
+<script>
+const DATA = {"metadata": {"title": "Ramen Operator Resource Catalog", "description": "Comprehensive catalog of all Kubernetes/OpenShift resources created by the Ramen DR operator", "generatedDate": "2026-05-28", "operatorRepo": "github.com/ramendr/ramen"}, "resources": [{"name": "ManifestWork (VRG)", "kind": "ManifestWork", "apiGroup": "work.open-cluster-management.io", "apiVersion": "v1", "creator": "DRPlacementControlReconciler", "operatorMode": "hub", "clusterLocation": "hub", "category": "OCM", "purpose": "Wraps VolumeReplicationGroup for deployment on managed clusters via OCM", "sourceFile": "internal/controller/util/mw_util.go", "creationMethod": "CreateOrUpdateVRGManifestWork", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Name format: {drpc-name}-{drpc-namespace}-vrg-mw", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ManifestWork (Namespace)", "kind": "ManifestWork", "apiGroup": "work.open-cluster-management.io", "apiVersion": "v1", "creator": "DRPlacementControlReconciler", "operatorMode": "hub", "clusterLocation": "hub", "category": "OCM", "purpose": "Wraps Namespace resource for creation on managed clusters; uses Orphan delete policy", "sourceFile": "internal/controller/util/mw_util.go", "creationMethod": "CreateOrUpdateNamespaceManifest", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Name format: {drpc-name}-{namespace}-ns-mw. Delete policy is Orphan to preserve namespace.", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ManifestWork (Recipe)", "kind": "ManifestWork", "apiGroup": "work.open-cluster-management.io", "apiVersion": "v1", "creator": "DRPlacementControlReconciler", "operatorMode": "hub", "clusterLocation": "hub", "category": "OCM", "purpose": "Wraps Recipe resource for kube object protection workflow on managed clusters", "sourceFile": "internal/controller/util/mw_util.go", "creationMethod": "CreateOrUpdateRecipeManifestWork", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Name format: {drpc-name}-{drpc-namespace}-recipe-mw. Delete policy is Orphan.", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ManifestWork (DRClusterConfig)", "kind": "ManifestWork", "apiGroup": "work.open-cluster-management.io", "apiVersion": "v1", "creator": "DRClusterReconciler", "operatorMode": "hub", "clusterLocation": "hub", "category": "OCM", "purpose": "Wraps DRClusterConfig for detecting storage/replication classes on managed clusters", "sourceFile": "internal/controller/util/mw_util.go", "creationMethod": "CreateOrUpdateDRCConfigManifestWork", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ManifestWork (NetworkFence)", "kind": "ManifestWork", "apiGroup": "work.open-cluster-management.io", "apiVersion": "v1", "creator": "DRClusterReconciler", "operatorMode": "hub", "clusterLocation": "hub", "category": "OCM", "purpose": "Wraps NetworkFence for network isolation during MetroDR failover on managed clusters", "sourceFile": "internal/controller/drcluster_controller.go", "creationMethod": "CreateOrUpdateNFManifestWork", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Name format: {cluster-name}-{cluster-namespace}-nf-mw", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ManifestWork (MaintenanceMode)", "kind": "ManifestWork", "apiGroup": "work.open-cluster-management.io", "apiVersion": "v1", "creator": "DRClusterReconciler", "operatorMode": "hub", "clusterLocation": "hub", "category": "OCM", "purpose": "Wraps MaintenanceMode to notify storage backends of failover actions on managed clusters", "sourceFile": "internal/controller/util/mw_util.go", "creationMethod": "CreateOrUpdateMModeManifestWork", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ManifestWork (DR-Cluster Operator Deploy)", "kind": "ManifestWork", "apiGroup": "work.open-cluster-management.io", "apiVersion": "v1", "creator": "DRClusterReconciler", "operatorMode": "hub", "clusterLocation": "hub", "category": "OCM", "purpose": "Wraps Namespace, ClusterRole, OperatorGroup, ConfigMap, and Subscription for automated dr-cluster operator deployment", "sourceFile": "internal/controller/drclusters.go", "creationMethod": "CreateOrUpdateDrClusterManifestWork", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Only created when DeploymentAutomationEnabled is true. Contains multiple wrapped resources.", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ManagedClusterView", "kind": "ManagedClusterView", "apiGroup": "view.open-cluster-management.io", "apiVersion": "v1beta1", "creator": "DRPlacementControlReconciler", "operatorMode": "hub", "clusterLocation": "hub", "category": "OCM", "purpose": "Queries status of VRG, Namespace, and other resources on managed clusters via OCM", "sourceFile": "internal/controller/util/mcv_util.go", "creationMethod": "CreateOrUpdateManagedClusterView", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Used for VRG status, Namespace status, StorageClass, VolumeSnapshotClass, VolumeGroupSnapshotClass, NetworkFenceClass, DRClusterConfig views", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ManagedClusterAddOn (VolSync)", "kind": "ManagedClusterAddOn", "apiGroup": "addon.open-cluster-management.io", "apiVersion": "v1alpha1", "creator": "DRClusterReconciler", "operatorMode": "hub", "clusterLocation": "hub", "category": "OCM", "purpose": "Deploys VolSync operator to managed clusters via ACM addon framework", "sourceFile": "internal/controller/volsync/deploy_volsync.go", "creationMethod": "CreateOrUpdate (unstructured)", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Named 'volsync'. Created in the managed cluster's namespace on the hub.", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "Policy (Secret Propagation)", "kind": "Policy", "apiGroup": "policy.open-cluster-management.io", "apiVersion": "v1", "creator": "SecretPropagator (DRPolicyReconciler)", "operatorMode": "hub", "clusterLocation": "hub", "category": "OCM", "purpose": "Propagates S3/Velero secrets to managed clusters via OCM governance policy with embedded ConfigurationPolicy", "sourceFile": "internal/controller/volsync/secret_propagator.go", "creationMethod": "CreateOrUpdate", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Contains an embedded ConfigurationPolicy that ensures the Secret exists on target clusters", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "PlacementBinding (Secret Propagation)", "kind": "PlacementBinding", "apiGroup": "policy.open-cluster-management.io", "apiVersion": "v1", "creator": "SecretPropagator (DRPolicyReconciler)", "operatorMode": "hub", "clusterLocation": "hub", "category": "OCM", "purpose": "Binds secret propagation Policy to PlacementRule for targeting managed clusters", "sourceFile": "internal/controller/volsync/secret_propagator.go", "creationMethod": "CreateOrUpdate", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "PlacementRule (Secret Propagation)", "kind": "PlacementRule", "apiGroup": "apps.open-cluster-management.io", "apiVersion": "v1", "creator": "SecretPropagator (DRPolicyReconciler)", "operatorMode": "hub", "clusterLocation": "hub", "category": "OCM", "purpose": "Targets managed clusters for secret propagation via governance policy", "sourceFile": "internal/controller/volsync/secret_propagator.go", "creationMethod": "CreateOrUpdate", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "PlacementDecision", "kind": "PlacementDecision", "apiGroup": "cluster.open-cluster-management.io", "apiVersion": "v1beta1", "creator": "DRPlacementControlReconciler", "operatorMode": "hub", "clusterLocation": "hub", "category": "OCM", "purpose": "Records cluster placement decisions for DR-protected workloads", "sourceFile": "internal/controller/drplacementcontrol_controller.go", "creationMethod": "CreateOrUpdate", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Updated with status sub-resource for target cluster selection", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ConfigMap (RamenConfig)", "kind": "ConfigMap", "apiGroup": "", "apiVersion": "v1", "creator": "DRClusterReconciler", "operatorMode": "hub", "clusterLocation": "hub", "category": "Core Kubernetes", "purpose": "Stores Ramen operator configuration for the dr-cluster operator, delivered via ManifestWork", "sourceFile": "internal/controller/ramenconfig.go", "creationMethod": "ConfigMapNew (wrapped in ManifestWork)", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Named ramen-dr-cluster-operator-config. Wrapped inside the DR-Cluster deploy ManifestWork.", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "Namespace (Operator Deploy)", "kind": "Namespace", "apiGroup": "", "apiVersion": "v1", "creator": "DRClusterReconciler", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "Core Kubernetes", "purpose": "Creates namespace for dr-cluster operator on managed clusters via ManifestWork", "sourceFile": "internal/controller/drclusters.go", "creationMethod": "ManifestWork-wrapped", "isTransitive": false, "transitiveSource": "", "scope": "cluster", "notes": "Created when DeploymentAutomationEnabled is true. Also creates ops namespace if configured.", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "Namespace (Protected App)", "kind": "Namespace", "apiGroup": "", "apiVersion": "v1", "creator": "DRPlacementControlReconciler", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "Core Kubernetes", "purpose": "Creates/ensures protected application namespaces on managed clusters via ManifestWork", "sourceFile": "internal/controller/util/mw_util.go", "creationMethod": "ManifestWork-wrapped (Orphan delete policy)", "isTransitive": false, "transitiveSource": "", "scope": "cluster", "notes": "Supports multi-namespace protection. Orphan policy ensures namespace survives ManifestWork deletion.", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ClusterRole (OLM Edit)", "kind": "ClusterRole", "apiGroup": "rbac.authorization.k8s.io", "apiVersion": "v1", "creator": "DRClusterReconciler", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "RBAC", "purpose": "Grants klusterlet work agent permission to manage OLM OperatorGroups on managed clusters", "sourceFile": "internal/controller/drclusters.go", "creationMethod": "ManifestWork-wrapped", "isTransitive": false, "transitiveSource": "", "scope": "cluster", "notes": "Named open-cluster-management:klusterlet-work-sa:agent:olm-edit. Only when DeploymentAutomationEnabled.", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ClusterRole (VRG Edit)", "kind": "ClusterRole", "apiGroup": "rbac.authorization.k8s.io", "apiVersion": "v1", "creator": "DRPlacementControlReconciler", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "RBAC", "purpose": "Grants klusterlet work agent permission to manage VolumeReplicationGroup resources", "sourceFile": "internal/controller/util/mw_util.go", "creationMethod": "ManifestWork-wrapped", "isTransitive": false, "transitiveSource": "", "scope": "cluster", "notes": "Named open-cluster-management:klusterlet-work-sa:agent:volrepgroup-edit", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ClusterRole (MaintenanceMode Edit)", "kind": "ClusterRole", "apiGroup": "rbac.authorization.k8s.io", "apiVersion": "v1", "creator": "DRClusterReconciler", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "RBAC", "purpose": "Grants klusterlet work agent permission to manage MaintenanceMode resources", "sourceFile": "internal/controller/util/mw_util.go", "creationMethod": "ManifestWork-wrapped", "isTransitive": false, "transitiveSource": "", "scope": "cluster", "notes": "Named open-cluster-management:klusterlet-work-sa:agent:mmode-edit", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ClusterRole (DRClusterConfig Edit)", "kind": "ClusterRole", "apiGroup": "rbac.authorization.k8s.io", "apiVersion": "v1", "creator": "DRClusterReconciler", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "RBAC", "purpose": "Grants klusterlet work agent permission to manage DRClusterConfig resources", "sourceFile": "internal/controller/util/mw_util.go", "creationMethod": "ManifestWork-wrapped", "isTransitive": false, "transitiveSource": "", "scope": "cluster", "notes": "Named open-cluster-management:klusterlet-work-sa:agent:drclusterconfig-edit", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ClusterRole (NetworkFence Edit)", "kind": "ClusterRole", "apiGroup": "rbac.authorization.k8s.io", "apiVersion": "v1", "creator": "DRClusterReconciler", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "RBAC", "purpose": "Grants klusterlet work agent permission to manage NetworkFence resources", "sourceFile": "internal/controller/util/mw_util.go", "creationMethod": "ManifestWork-wrapped", "isTransitive": false, "transitiveSource": "", "scope": "cluster", "notes": "Named open-cluster-management:klusterlet-work-sa:agent:networkfence-edit", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ClusterRole (Recipe Edit)", "kind": "ClusterRole", "apiGroup": "rbac.authorization.k8s.io", "apiVersion": "v1", "creator": "DRPlacementControlReconciler", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "RBAC", "purpose": "Grants klusterlet work agent permission to manage Recipe resources", "sourceFile": "internal/controller/util/mw_util.go", "creationMethod": "ManifestWork-wrapped", "isTransitive": false, "transitiveSource": "", "scope": "cluster", "notes": "Named open-cluster-management:klusterlet-work-sa:agent:recipe-edit", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "OperatorGroup", "kind": "OperatorGroup", "apiGroup": "operators.coreos.com", "apiVersion": "v1", "creator": "DRClusterReconciler", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "OLM", "purpose": "Creates OperatorGroup for dr-cluster operator installation on managed clusters", "sourceFile": "internal/controller/drclusters.go", "creationMethod": "ManifestWork-wrapped", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Named ramen-operator-group. Only when DeploymentAutomationEnabled.", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "Subscription", "kind": "Subscription", "apiGroup": "operators.coreos.com", "apiVersion": "v1alpha1", "creator": "DRClusterReconciler", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "OLM", "purpose": "Subscribes to dr-cluster operator package via OLM on managed clusters", "sourceFile": "internal/controller/drclusters.go", "creationMethod": "ManifestWork-wrapped", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Named ramen-dr-cluster-subscription. Only when DeploymentAutomationEnabled.", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "VolumeReplicationGroup", "kind": "VolumeReplicationGroup", "apiGroup": "ramendr.openshift.io", "apiVersion": "v1alpha1", "creator": "DRPlacementControlReconciler", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "Ramen CRD", "purpose": "Primary resource for managing volume replication and protection on managed clusters", "sourceFile": "internal/controller/util/mw_util.go", "creationMethod": "ManifestWork-wrapped", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Delivered to managed clusters via VRG ManifestWork. Reconciled by VRGReconciler on dr-cluster.", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "DRClusterConfig", "kind": "DRClusterConfig", "apiGroup": "ramendr.openshift.io", "apiVersion": "v1alpha1", "creator": "DRClusterReconciler", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "Ramen CRD", "purpose": "Detects storage classes, replication classes, snapshot classes, and network fence classes on managed clusters", "sourceFile": "internal/controller/drcluster_controller.go", "creationMethod": "ManifestWork-wrapped", "isTransitive": false, "transitiveSource": "", "scope": "cluster", "notes": "Reconciled by DRClusterConfigReconciler on the managed cluster side.", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "MaintenanceMode", "kind": "MaintenanceMode", "apiGroup": "ramendr.openshift.io", "apiVersion": "v1alpha1", "creator": "DRClusterReconciler", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "Ramen CRD", "purpose": "Notifies storage backends to enter maintenance mode during failover operations", "sourceFile": "internal/controller/drcluster_mmode.go", "creationMethod": "ManifestWork-wrapped", "isTransitive": false, "transitiveSource": "", "scope": "cluster", "notes": "One per storage backend (identified by storageProvisioner + storageID)", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "NetworkFence", "kind": "NetworkFence", "apiGroup": "csiaddons.openshift.io", "apiVersion": "v1alpha1", "creator": "DRClusterReconciler", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "CSI Addons", "purpose": "Performs network isolation/fencing of a cluster during MetroDR failover", "sourceFile": "internal/controller/drcluster_controller.go", "creationMethod": "ManifestWork-wrapped", "isTransitive": false, "transitiveSource": "", "scope": "cluster", "notes": "Created for each NetworkFenceClass. Used in Metro DR scenarios.", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "Recipe", "kind": "Recipe", "apiGroup": "ramendr.openshift.io", "apiVersion": "v1alpha1", "creator": "DRPlacementControlReconciler", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "Ramen CRD", "purpose": "Defines ordered workflow for capturing and recovering kube objects during DR operations", "sourceFile": "internal/controller/util/mw_util.go", "creationMethod": "ManifestWork-wrapped", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "External type from github.com/ramendr/recipe. Copied from hub to managed cluster.", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "VolumeReplication", "kind": "VolumeReplication", "apiGroup": "replication.storage.openshift.io", "apiVersion": "v1alpha1", "creator": "VRGReconciler", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "CSI Replication", "purpose": "Manages per-PVC volume replication via CSI replication driver", "sourceFile": "internal/controller/vrg_volrep.go", "creationMethod": "CreateOrUpdate", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "One per PVC protected by VRG using VolumeReplication method", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "VolumeGroupReplication", "kind": "VolumeGroupReplication", "apiGroup": "replication.storage.openshift.io", "apiVersion": "v1alpha1", "creator": "VRGReconciler", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "CSI Replication", "purpose": "Manages group-level volume replication for multiple PVCs as a consistency group", "sourceFile": "internal/controller/vrg_volgrouprep.go", "creationMethod": "Create / Update", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Groups PVCs by VolumeGroupReplicationClass for consistent replication", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ReplicationSource", "kind": "ReplicationSource", "apiGroup": "volsync.backube", "apiVersion": "v1alpha1", "creator": "VSHandler (VRGReconciler)", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "VolSync", "purpose": "Configures VolSync to replicate PVC data from source cluster to destination", "sourceFile": "internal/controller/volsync/vshandler.go", "creationMethod": "CreateOrUpdate", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "One per PVC protected via VolSync. Supports rsync-tls and rclone copy methods.", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ReplicationDestination", "kind": "ReplicationDestination", "apiGroup": "volsync.backube", "apiVersion": "v1alpha1", "creator": "VSHandler (VRGReconciler)", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "VolSync", "purpose": "Configures VolSync to receive replicated PVC data on destination cluster", "sourceFile": "internal/controller/volsync/vshandler.go", "creationMethod": "CreateOrUpdate", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "One per PVC on the secondary/destination cluster.", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ReplicationGroupSource", "kind": "ReplicationGroupSource", "apiGroup": "ramendr.openshift.io", "apiVersion": "v1alpha1", "creator": "CGHandler (VRGReconciler)", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "CephFS Consistency Group", "purpose": "Manages CephFS consistency group snapshots on source cluster for coordinated replication", "sourceFile": "internal/controller/cephfscg/cghandler.go", "creationMethod": "CreateOrUpdate", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Triggers VolumeGroupSnapshot creation for CephFS volumes", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ReplicationGroupDestination", "kind": "ReplicationGroupDestination", "apiGroup": "ramendr.openshift.io", "apiVersion": "v1alpha1", "creator": "CGHandler (VRGReconciler)", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "CephFS Consistency Group", "purpose": "Manages CephFS consistency group snapshot restoration on destination cluster", "sourceFile": "internal/controller/cephfscg/cghandler.go", "creationMethod": "CreateOrUpdate", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "VolumeSnapshot", "kind": "VolumeSnapshot", "apiGroup": "snapshot.storage.k8s.io", "apiVersion": "v1", "creator": "VSHandler / VRGReconciler", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Snapshot", "purpose": "Creates point-in-time snapshots of PVCs for backup, restore, and VolSync operations", "sourceFile": "internal/controller/volsync/vshandler.go", "creationMethod": "Create", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Used for final sync snapshots, dry-run snapshots, and restore operations", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "VolumeGroupSnapshot", "kind": "VolumeGroupSnapshot", "apiGroup": "groupsnapshot.storage.k8s.io", "apiVersion": "v1beta1", "creator": "VolumeGroupSourceHandler (VRGReconciler)", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Snapshot", "purpose": "Creates coordinated group snapshots of multiple CephFS PVCs for consistency group replication", "sourceFile": "internal/controller/cephfscg/volumegroupsourcehandler.go", "creationMethod": "CreateOrUpdate", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Triggers creation of individual VolumeSnapshots for each PVC in the group", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "Secret (VolSync PSK)", "kind": "Secret", "apiGroup": "", "apiVersion": "v1", "creator": "VSHandler (VRGReconciler)", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Core Kubernetes", "purpose": "Stores pre-shared key (PSK) for VolSync rsync-tls authentication between source and destination", "sourceFile": "internal/controller/volsync/secretgen.go", "creationMethod": "Create", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Generated with random PSK data. Propagated to peer clusters via OCM Policy.", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "Secret (Copied for VolSync)", "kind": "Secret", "apiGroup": "", "apiVersion": "v1", "creator": "VSHandler (VRGReconciler)", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Core Kubernetes", "purpose": "Copies existing secrets into the protected namespace for VolSync replication use", "sourceFile": "internal/controller/volsync/vshandler.go", "creationMethod": "Create", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "PersistentVolumeClaim (VolSync Destination)", "kind": "PersistentVolumeClaim", "apiGroup": "", "apiVersion": "v1", "creator": "VSHandler (VRGReconciler)", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Core Kubernetes", "purpose": "Creates destination PVCs for VolSync replication and temporary PVCs for final sync", "sourceFile": "internal/controller/volsync/vshandler.go", "creationMethod": "Create", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Also creates temporary PVCs for mount jobs and restore operations", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "PersistentVolumeClaim (CephFS CG Restore)", "kind": "PersistentVolumeClaim", "apiGroup": "", "apiVersion": "v1", "creator": "VolumeGroupSourceHandler (VRGReconciler)", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Core Kubernetes", "purpose": "Creates PVCs from VolumeSnapshot sources during CephFS consistency group restore", "sourceFile": "internal/controller/cephfscg/volumegroupsourcehandler.go", "creationMethod": "Create", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "Job (Mount for VolSync)", "kind": "Job", "apiGroup": "batch", "apiVersion": "v1", "creator": "VSHandler (VRGReconciler)", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Core Kubernetes", "purpose": "Mounts unmounted PVCs so VolSync ReplicationSource can access and replicate the data", "sourceFile": "internal/controller/volsync/vshandler.go", "creationMethod": "Create", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Created when a PVC is not mounted by any pod but needs to be replicated by VolSync", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "ServiceExport", "kind": "ServiceExport", "apiGroup": "multicluster.x-k8s.io", "apiVersion": "v1alpha1", "creator": "VSHandler (VRGReconciler)", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Multicluster Networking", "purpose": "Exports VolSync ReplicationDestination service for cross-cluster access via Submariner", "sourceFile": "internal/controller/volsync/vshandler.go", "creationMethod": "CreateOrUpdate", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Enables Submariner service discovery for rsync-tls endpoints between clusters", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "Backup (Velero)", "kind": "Backup", "apiGroup": "velero.io", "apiVersion": "v1", "creator": "VRGReconciler (KubeObjectProtection)", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Velero", "purpose": "Captures Kubernetes objects (Deployments, ConfigMaps, etc.) to S3 for DR protection", "sourceFile": "internal/controller/kubeobjects/velero/requests.go", "creationMethod": "Create", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Works with Recipe to define capture groups and ordering", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "Restore (Velero)", "kind": "Restore", "apiGroup": "velero.io", "apiVersion": "v1", "creator": "VRGReconciler (KubeObjectProtection)", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Velero", "purpose": "Restores Kubernetes objects from S3 backup during DR recovery", "sourceFile": "internal/controller/kubeobjects/velero/requests.go", "creationMethod": "Create", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Works with Recipe to define recovery groups and ordering", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "BackupStorageLocation (Velero)", "kind": "BackupStorageLocation", "apiGroup": "velero.io", "apiVersion": "v1", "creator": "VRGReconciler (KubeObjectProtection)", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Velero", "purpose": "Configures S3-compatible object storage for Velero backup/restore operations", "sourceFile": "internal/controller/kubeobjects/velero/requests.go", "creationMethod": "CreateOrUpdate", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Points to S3 bucket configured in RamenConfig S3 profiles", "labelStatus": {"createdByRamen": "yes", "ramenBackupExclusion": "implicit", "veleroExclusion": "yes"}}, {"name": "Event", "kind": "Event", "apiGroup": "", "apiVersion": "v1", "creator": "Multiple controllers", "operatorMode": "both", "clusterLocation": "both", "category": "Core Kubernetes", "purpose": "Records status events for debugging and monitoring of DR operations", "sourceFile": "internal/controller/volumereplicationgroup_controller.go", "creationMethod": "EventRecorder.Event", "isTransitive": false, "transitiveSource": "", "scope": "namespaced", "notes": "Standard Kubernetes events attached to VRG, DRPC, and other resources", "labelStatus": {"createdByRamen": "no", "ramenBackupExclusion": "n/a", "veleroExclusion": "no"}}, {"name": "Secret (Propagated to Managed Cluster)", "kind": "Secret", "apiGroup": "", "apiVersion": "v1", "creator": "OCM Policy Engine", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "Core Kubernetes", "purpose": "S3 credentials and Velero secrets propagated to managed clusters via OCM ConfigurationPolicy", "sourceFile": "internal/controller/volsync/secret_propagator.go", "creationMethod": "Transitive (via Policy/ConfigurationPolicy)", "isTransitive": true, "transitiveSource": "Policy (Secret Propagation)", "scope": "namespaced", "notes": "Created by OCM governance engine when it enforces the ConfigurationPolicy on managed clusters", "labelStatus": {"createdByRamen": "no-api", "ramenBackupExclusion": "n/a", "veleroExclusion": "no-api"}}, {"name": "ConfigurationPolicy (Embedded in Policy)", "kind": "ConfigurationPolicy", "apiGroup": "policy.open-cluster-management.io", "apiVersion": "v1", "creator": "SecretPropagator (DRPolicyReconciler)", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "OCM", "purpose": "Embedded within Policy to enforce Secret existence on managed clusters", "sourceFile": "internal/controller/volsync/secret_propagator.go", "creationMethod": "Embedded in Policy spec", "isTransitive": true, "transitiveSource": "Policy (Secret Propagation)", "scope": "namespaced", "notes": "Not a standalone resource on the hub; extracted by OCM policy framework on managed clusters", "labelStatus": {"createdByRamen": "no-api", "ramenBackupExclusion": "n/a", "veleroExclusion": "no-api"}}, {"name": "VolSync-created VolumeSnapshot", "kind": "VolumeSnapshot", "apiGroup": "snapshot.storage.k8s.io", "apiVersion": "v1", "creator": "VolSync Operator", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Snapshot", "purpose": "VolSync creates VolumeSnapshots as part of ReplicationSource/Destination sync cycles", "sourceFile": "", "creationMethod": "Transitive (VolSync internal)", "isTransitive": true, "transitiveSource": "ReplicationSource / ReplicationDestination", "scope": "namespaced", "notes": "Created and managed by VolSync operator during replication sync operations", "labelStatus": {"createdByRamen": "no-api", "ramenBackupExclusion": "n/a", "veleroExclusion": "no-api"}}, {"name": "VolSync-created PersistentVolumeClaim", "kind": "PersistentVolumeClaim", "apiGroup": "", "apiVersion": "v1", "creator": "VolSync Operator", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Core Kubernetes", "purpose": "VolSync creates temporary PVCs for staging data during replication sync", "sourceFile": "", "creationMethod": "Transitive (VolSync internal)", "isTransitive": true, "transitiveSource": "ReplicationSource / ReplicationDestination", "scope": "namespaced", "notes": "Intermediate PVCs used by VolSync for snapshot-based data movement", "labelStatus": {"createdByRamen": "no-api", "ramenBackupExclusion": "n/a", "veleroExclusion": "no-api"}}, {"name": "VolSync-created Job/Pod", "kind": "Job", "apiGroup": "batch", "apiVersion": "v1", "creator": "VolSync Operator", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Core Kubernetes", "purpose": "VolSync creates Jobs/Pods to perform rsync-tls data transfer between clusters", "sourceFile": "", "creationMethod": "Transitive (VolSync internal)", "isTransitive": true, "transitiveSource": "ReplicationSource / ReplicationDestination", "scope": "namespaced", "notes": "Transfer pods that run rsync-tls or rclone to move data", "labelStatus": {"createdByRamen": "moverPodLabels", "ramenBackupExclusion": "implicit", "veleroExclusion": "moverPodLabels"}}, {"name": "VolSync-created Service", "kind": "Service", "apiGroup": "", "apiVersion": "v1", "creator": "VolSync Operator", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Core Kubernetes", "purpose": "VolSync creates Services to expose rsync-tls endpoints for ReplicationDestination", "sourceFile": "", "creationMethod": "Transitive (VolSync internal)", "isTransitive": true, "transitiveSource": "ReplicationDestination", "scope": "namespaced", "notes": "Service endpoint used by ReplicationSource on peer cluster to connect", "labelStatus": {"createdByRamen": "no-api", "ramenBackupExclusion": "n/a", "veleroExclusion": "no-api"}}, {"name": "Velero-created Pod", "kind": "Pod", "apiGroup": "", "apiVersion": "v1", "creator": "Velero Operator", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Core Kubernetes", "purpose": "Velero creates Pods to execute backup and restore operations", "sourceFile": "", "creationMethod": "Transitive (Velero internal)", "isTransitive": true, "transitiveSource": "Backup / Restore (Velero)", "scope": "namespaced", "notes": "", "labelStatus": {"createdByRamen": "no-api", "ramenBackupExclusion": "n/a", "veleroExclusion": "no-api"}}, {"name": "CSI Driver VolumeReplication (internal)", "kind": "VolumeReplication (CSI internal state)", "apiGroup": "", "apiVersion": "", "creator": "CSI Replication Driver", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "CSI Replication", "purpose": "CSI driver acts on VolumeReplication CR to configure storage-level replication", "sourceFile": "", "creationMethod": "Transitive (CSI driver internal)", "isTransitive": true, "transitiveSource": "VolumeReplication", "scope": "namespaced", "notes": "The CSI replication sidecar processes VolumeReplication CRs and configures storage backend replication", "labelStatus": {"createdByRamen": "no-api", "ramenBackupExclusion": "n/a", "veleroExclusion": "no-api"}}, {"name": "VolumeGroupSnapshot-created VolumeSnapshots", "kind": "VolumeSnapshot", "apiGroup": "snapshot.storage.k8s.io", "apiVersion": "v1", "creator": "CSI Snapshot Controller", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Snapshot", "purpose": "Individual VolumeSnapshots created by the snapshot controller when a VolumeGroupSnapshot is processed", "sourceFile": "", "creationMethod": "Transitive (snapshot controller)", "isTransitive": true, "transitiveSource": "VolumeGroupSnapshot", "scope": "namespaced", "notes": "One VolumeSnapshot per PVC in the group. Created by the CSI group snapshot controller.", "labelStatus": {"createdByRamen": "no-api", "ramenBackupExclusion": "n/a", "veleroExclusion": "no-api"}}, {"name": "VolumeSnapshotContent", "kind": "VolumeSnapshotContent", "apiGroup": "snapshot.storage.k8s.io", "apiVersion": "v1", "creator": "CSI Snapshot Controller", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Snapshot", "purpose": "Backing storage-level snapshot content created when a VolumeSnapshot is provisioned", "sourceFile": "", "creationMethod": "Transitive (snapshot controller)", "isTransitive": true, "transitiveSource": "VolumeSnapshot", "scope": "cluster", "notes": "Cluster-scoped resource binding a VolumeSnapshot to actual storage snapshot", "labelStatus": {"createdByRamen": "no-api", "ramenBackupExclusion": "n/a", "veleroExclusion": "no-api"}}, {"name": "VolumeGroupSnapshotContent", "kind": "VolumeGroupSnapshotContent", "apiGroup": "groupsnapshot.storage.k8s.io", "apiVersion": "v1beta1", "creator": "CSI Snapshot Controller", "operatorMode": "dr-cluster", "clusterLocation": "managed-cluster", "category": "Snapshot", "purpose": "Backing storage-level group snapshot content created when a VolumeGroupSnapshot is provisioned", "sourceFile": "", "creationMethod": "Transitive (snapshot controller)", "isTransitive": true, "transitiveSource": "VolumeGroupSnapshot", "scope": "cluster", "notes": "Cluster-scoped resource binding a VolumeGroupSnapshot to actual storage group snapshot", "labelStatus": {"createdByRamen": "no-api", "ramenBackupExclusion": "n/a", "veleroExclusion": "no-api"}}, {"name": "OLM-created Deployment (dr-cluster operator)", "kind": "Deployment", "apiGroup": "apps", "apiVersion": "v1", "creator": "OLM", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "OLM", "purpose": "OLM creates the dr-cluster operator Deployment after processing the Subscription", "sourceFile": "", "creationMethod": "Transitive (OLM)", "isTransitive": true, "transitiveSource": "Subscription", "scope": "namespaced", "notes": "Only when DeploymentAutomationEnabled. OLM installs the CSV and creates the operator Deployment.", "labelStatus": {"createdByRamen": "no-api", "ramenBackupExclusion": "n/a", "veleroExclusion": "no-api"}}, {"name": "OLM-created ClusterServiceVersion", "kind": "ClusterServiceVersion", "apiGroup": "operators.coreos.com", "apiVersion": "v1alpha1", "creator": "OLM", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "OLM", "purpose": "OLM creates CSV representing the installed dr-cluster operator version", "sourceFile": "", "creationMethod": "Transitive (OLM)", "isTransitive": true, "transitiveSource": "Subscription", "scope": "namespaced", "notes": "Only when DeploymentAutomationEnabled.", "labelStatus": {"createdByRamen": "no-api", "ramenBackupExclusion": "n/a", "veleroExclusion": "no-api"}}, {"name": "OLM-created InstallPlan", "kind": "InstallPlan", "apiGroup": "operators.coreos.com", "apiVersion": "v1alpha1", "creator": "OLM", "operatorMode": "hub", "clusterLocation": "managed-cluster", "category": "OLM", "purpose": "OLM creates InstallPlan to track dr-cluster operator installation steps", "sourceFile": "", "creationMethod": "Transitive (OLM)", "isTransitive": true, "transitiveSource": "Subscription", "scope": "namespaced", "notes": "Only when DeploymentAutomationEnabled.", "labelStatus": {"createdByRamen": "no-api", "ramenBackupExclusion": "n/a", "veleroExclusion": "no-api"}}]};
+
+const COLUMNS = [
+  { key: "name", label: "Resource", width: "180px" },
+  { key: "kind", label: "Kind", width: "140px" },
+  { key: "category", label: "Category", width: "120px" },
+  { key: "operatorMode", label: "Operator", width: "90px" },
+  { key: "clusterLocation", label: "Cluster", width: "100px" },
+  { key: "creator", label: "Creator", width: "160px" },
+  { key: "isTransitive", label: "Type", width: "70px" },
+  { key: "scope", label: "Scope", width: "80px" },
+  { key: "label1", label: "Label 1", width: "100px" },
+  { key: "label2", label: "Label 2", width: "80px" },
+  { key: "label3", label: "Label 3", width: "100px" },
+  { key: "purpose", label: "Purpose", width: "" },
+];
+
+const CATEGORY_CLASSES = {
+  "OCM": "cat-ocm",
+  "Ramen CRD": "cat-ramen-crd",
+  "VolSync": "cat-volsync",
+  "CSI Replication": "cat-csi-replication",
+  "Snapshot": "cat-snapshot",
+  "Velero": "cat-velero",
+  "Core Kubernetes": "cat-core-kubernetes",
+  "RBAC": "cat-rbac",
+  "Multicluster Networking": "cat-multicluster-networking",
+  "CephFS Consistency Group": "cat-cephfs-consistency-group",
+  "OLM": "cat-olm",
+  "CSI Addons": "cat-csi-addons",
+};
+
+let resources = DATA.resources;
+let filters = {};
+let sortCol = "name";
+let sortDir = 1;
+let searchQuery = "";
+
+function unique(arr, key) {
+  const vals = new Set();
+  arr.forEach(r => {
+    const v = typeof r[key] === "boolean" ? (r[key] ? "Transitive" : "Direct") : r[key];
+    if (v) vals.add(v);
+  });
+  return [...vals].sort();
+}
+
+const FILTER_DEFS = [
+  { key: "operatorMode", title: "Operator Mode", values: unique(resources, "operatorMode") },
+  { key: "clusterLocation", title: "Cluster Location", values: unique(resources, "clusterLocation") },
+  { key: "category", title: "Category", values: unique(resources, "category") },
+  { key: "creator", title: "Creator", values: unique(resources, "creator") },
+  { key: "isTransitive", title: "Direct / Transitive", values: ["Direct", "Transitive"] },
+  { key: "scope", title: "Scope", values: unique(resources, "scope") },
+  { key: "createdByRamen", title: "Label 1 (Created by Ramen)", values: ["yes", "no", "moverPodLabels", "no-api"] },
+  { key: "veleroExclusion", title: "Label 3 (Velero Exclusion)", values: ["yes", "no", "moverPodLabels", "no-api"] },
+];
+
+function initFilters() {
+  FILTER_DEFS.forEach(fd => { filters[fd.key] = new Set(); });
+}
+
+function getFilterVal(r, key) {
+  if (key === "isTransitive") return r.isTransitive ? "Transitive" : "Direct";
+  if (key === "createdByRamen") return r.labelStatus.createdByRamen;
+  if (key === "veleroExclusion") return r.labelStatus.veleroExclusion;
+  return r[key];
+}
+
+function matchesFilters(r) {
+  for (const fd of FILTER_DEFS) {
+    if (filters[fd.key].size === 0) continue;
+    const val = getFilterVal(r, fd.key);
+    if (!filters[fd.key].has(val)) return false;
+  }
+  return true;
+}
+
+function matchesSearch(r) {
+  if (!searchQuery) return true;
+  const q = searchQuery.toLowerCase();
+  return (
+    r.name.toLowerCase().includes(q) ||
+    r.kind.toLowerCase().includes(q) ||
+    r.apiGroup.toLowerCase().includes(q) ||
+    r.purpose.toLowerCase().includes(q) ||
+    r.creator.toLowerCase().includes(q) ||
+    r.category.toLowerCase().includes(q) ||
+    r.creationMethod.toLowerCase().includes(q) ||
+    (r.notes && r.notes.toLowerCase().includes(q)) ||
+    (r.sourceFile && r.sourceFile.toLowerCase().includes(q)) ||
+    (r.transitiveSource && r.transitiveSource.toLowerCase().includes(q))
+  );
+}
+
+function getFiltered() {
+  return resources.filter(r => matchesFilters(r) && matchesSearch(r));
+}
+
+function getSortVal(r, col) {
+  if (col === "label1") return r.labelStatus.createdByRamen;
+  if (col === "label2") return r.labelStatus.ramenBackupExclusion;
+  if (col === "label3") return r.labelStatus.veleroExclusion;
+  return r[col];
+}
+
+function sortResources(arr) {
+  return [...arr].sort((a, b) => {
+    let va = getSortVal(a, sortCol), vb = getSortVal(b, sortCol);
+    if (typeof va === "boolean") { va = va ? 1 : 0; vb = vb ? 1 : 0; }
+    if (typeof va === "string") { va = va.toLowerCase(); vb = vb.toLowerCase(); }
+    if (va < vb) return -sortDir;
+    if (va > vb) return sortDir;
+    return 0;
+  });
+}
+
+function renderSidebar() {
+  const filtered = getFiltered();
+  let html = "";
+  FILTER_DEFS.forEach(fd => {
+    html += `<h3>${fd.title}</h3><div class="filter-group">`;
+    fd.values.forEach(v => {
+      const count = filtered.filter(r => getFilterVal(r, fd.key) === v).length;
+      const checked = filters[fd.key].has(v) ? "checked" : "";
+      html += `<label><input type="checkbox" data-filter="${fd.key}" data-value="${v}" ${checked}><span>${v}</span><span class="filter-count">${count}</span></label>`;
+    });
+    html += "</div>";
+  });
+  html += `<button class="clear-filters" onclick="clearFilters()">Clear All Filters</button>`;
+  document.getElementById("sidebar").innerHTML = html;
+  document.querySelectorAll('.filter-group input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener("change", function() {
+      const key = this.dataset.filter;
+      const val = this.dataset.value;
+      if (this.checked) filters[key].add(val);
+      else filters[key].delete(val);
+      render();
+    });
+  });
+}
+
+function renderStats() {
+  const filtered = getFiltered();
+  const direct = filtered.filter(r => !r.isTransitive).length;
+  const transitive = filtered.filter(r => r.isTransitive).length;
+  const hubOnly = filtered.filter(r => r.operatorMode === "hub").length;
+  const drOnly = filtered.filter(r => r.operatorMode === "dr-cluster").length;
+  const label1Yes = filtered.filter(r => r.labelStatus.createdByRamen === "yes").length;
+  const label1Mover = filtered.filter(r => r.labelStatus.createdByRamen === "moverPodLabels").length;
+  const label3Yes = filtered.filter(r => r.labelStatus.veleroExclusion === "yes").length;
+  const label3Mover = filtered.filter(r => r.labelStatus.veleroExclusion === "moverPodLabels").length;
+
+  document.getElementById("stats").innerHTML = `
+    <div class="stat-card"><div class="number">${filtered.length}</div><div class="label">Total Resources</div></div>
+    <div class="stat-card"><div class="number">${direct}</div><div class="label">Direct</div></div>
+    <div class="stat-card"><div class="number">${transitive}</div><div class="label">Transitive</div></div>
+    <div class="stat-card"><div class="number">${hubOnly}</div><div class="label">Hub Operator</div></div>
+    <div class="stat-card"><div class="number">${drOnly}</div><div class="label">DR-Cluster</div></div>
+    <div class="stat-card"><div class="number">${label1Yes}+${label1Mover}</div><div class="label">Label 1 Covered</div></div>
+    <div class="stat-card"><div class="number">${label3Yes}+${label3Mover}</div><div class="label">Label 3 Covered</div></div>
+  `;
+}
+
+function modeTag(mode) {
+  if (mode === "hub") return `<span class="tag tag-hub">hub</span>`;
+  if (mode === "dr-cluster") return `<span class="tag tag-dr-cluster">dr-cluster</span>`;
+  return `<span class="tag tag-both">both</span>`;
+}
+
+function clusterTag(loc) {
+  if (loc === "hub") return `<span class="tag tag-hub">hub</span>`;
+  if (loc === "managed-cluster") return `<span class="tag tag-dr-cluster">managed</span>`;
+  return `<span class="tag tag-both">both</span>`;
+}
+
+function categoryTag(cat) {
+  const cls = CATEGORY_CLASSES[cat] || "cat-core-kubernetes";
+  return `<span class="category-tag ${cls}">${cat}</span>`;
+}
+
+function labelBadge(val) {
+  const clsMap = { "yes": "label-yes", "no": "label-no", "moverPodLabels": "label-moverPodLabels", "no-api": "label-no-api", "implicit": "label-implicit", "n/a": "label-na" };
+  const cls = clsMap[val] || "label-na";
+  return `<span class="label-badge ${cls}">${val}</span>`;
+}
+
+function renderTable() {
+  const filtered = sortResources(getFiltered());
+  document.getElementById("results-info").textContent = `Showing ${filtered.length} of ${resources.length} resources`;
+
+  let thead = "<tr>";
+  COLUMNS.forEach(col => {
+    const arrow = sortCol === col.key ? (sortDir === 1 ? "▲" : "▼") : "▲";
+    const cls = sortCol === col.key ? "sorted" : "";
+    thead += `<th class="${cls}" data-col="${col.key}" style="${col.width ? 'width:' + col.width : ''}">${col.label} <span class="sort-arrow">${arrow}</span></th>`;
+  });
+  thead += `<th style="width:40px"></th></tr>`;
+  document.getElementById("thead").innerHTML = thead;
+
+  let tbody = "";
+  filtered.forEach((r, i) => {
+    tbody += `<tr>`;
+    COLUMNS.forEach(col => {
+      let val = r[col.key];
+      if (col.key === "operatorMode") val = modeTag(val);
+      else if (col.key === "clusterLocation") val = clusterTag(val);
+      else if (col.key === "category") val = categoryTag(val);
+      else if (col.key === "isTransitive") val = val ? `<span class="tag tag-transitive">transitive</span>` : `<span class="tag tag-direct">direct</span>`;
+      else if (col.key === "scope") val = val === "cluster" ? `<span class="tag tag-cluster">cluster</span>` : `<span class="tag tag-namespaced">namespaced</span>`;
+      else if (col.key === "label1") val = labelBadge(r.labelStatus.createdByRamen);
+      else if (col.key === "label2") val = labelBadge(r.labelStatus.ramenBackupExclusion);
+      else if (col.key === "label3") val = labelBadge(r.labelStatus.veleroExclusion);
+      else if (col.key === "purpose") val = `<span class="purpose">${val}</span>`;
+      else val = val || "";
+      tbody += `<td>${val}</td>`;
+    });
+    tbody += `<td><button class="expand-btn" data-idx="${i}" title="Details">▼</button></td>`;
+    tbody += `</tr>`;
+    tbody += `<tr class="detail-row" id="detail-${i}"><td colspan="${COLUMNS.length + 1}">
+      <div class="detail-grid">
+        <span class="detail-label">API Group</span><span>${r.apiGroup || "(core)"}</span>
+        <span class="detail-label">API Version</span><span>${r.apiVersion || ""}</span>
+        <span class="detail-label">Creation Method</span><span>${r.creationMethod || ""}</span>
+        <span class="detail-label">Source File</span><span class="source-file">${r.sourceFile || ""}</span>
+        ${r.isTransitive ? `<span class="detail-label">Triggered By</span><span>${r.transitiveSource}</span>` : ""}
+        <span class="detail-label">Label 1 (Created by Ramen)</span><span>${labelBadge(r.labelStatus.createdByRamen)}</span>
+        <span class="detail-label">Label 2 (Backup Exclusion)</span><span>${labelBadge(r.labelStatus.ramenBackupExclusion)}</span>
+        <span class="detail-label">Label 3 (Velero Exclusion)</span><span>${labelBadge(r.labelStatus.veleroExclusion)}</span>
+        ${r.notes ? `<span class="detail-label">Notes</span><span class="notes">${r.notes}</span>` : ""}
+      </div>
+    </td></tr>`;
+  });
+  document.getElementById("tbody").innerHTML = tbody;
+
+  document.querySelectorAll("th[data-col]").forEach(th => {
+    th.addEventListener("click", function() {
+      const col = this.dataset.col;
+      if (sortCol === col) sortDir *= -1;
+      else { sortCol = col; sortDir = 1; }
+      render();
+    });
+  });
+
+  document.querySelectorAll(".expand-btn").forEach(btn => {
+    btn.addEventListener("click", function() {
+      const row = document.getElementById("detail-" + this.dataset.idx);
+      row.classList.toggle("open");
+      this.textContent = row.classList.contains("open") ? "▲" : "▼";
+    });
+  });
+}
+
+function clearFilters() {
+  initFilters();
+  searchQuery = "";
+  document.getElementById("search").value = "";
+  render();
+}
+
+function render() {
+  renderSidebar();
+  renderStats();
+  renderTable();
+}
+
+document.getElementById("search").addEventListener("input", function() {
+  searchQuery = this.value;
+  render();
+});
+
+initFilters();
+render();
+</script>
+
+</body>
+</html>
