@@ -107,9 +107,12 @@ The only difference is how it gets its configuration:
   (`dr-hub` for hub, `dr-cluster` for DR clusters).
 - **Namespace**: set via `POD_NAMESPACE=ramen-system`.
 - **Kubeconfig**: passed via `--kubeconfig` flag.
+- **Manager options**: passed as flags, like the in-cluster deployment does —
+  unique `--metrics-bind-address`/`--health-probe-bind-address` per process to
+  avoid bind conflicts on one machine, and `--leader-elect=false` (the
+  per-reconciler processes of a cluster would otherwise contend for one lease).
 - **RamenConfig**: read from a ConfigMap in `ramen-system` on each cluster,
-  created by `configure`. Each cluster gets unique health/metrics ports to
-  avoid bind conflicts when all run on the same machine.
+  created by `configure`.
 
 ### Configuration (`configure`)
 
@@ -124,14 +127,14 @@ The configure subcommand sets up each cluster with:
 5. **Hub-only resources**: ManagedClusterSetBinding, DRCluster resources,
    and DRPolicies (dr-policy-1m, dr-policy-5m)
 
-The per-cluster ConfigMaps in `localrun/configs/` only specify overrides
-(unique ports, S3 profiles). All other fields use the defaults from the
-ramen code.
+The per-cluster ConfigMaps in `localrun/configs/` only specify
+environment-specific overrides (S3 profiles). All other fields use the
+defaults from the ramen code; manager options (metrics, health probe,
+leader election) are flags on the manager, not config.
 
 ### Port assignments
 
-| Cluster | Metrics | Health probe |
-|---------|---------|--------------|
-| hub     | :9310   | :9410        |
-| dr1     | :9320   | :9420        |
-| dr2     | :9330   | :9430        |
+Each (cluster, reconciler) process binds `127.0.0.1:93<cluster><rec>` for
+metrics and `127.0.0.1:94<cluster><rec>` for its health probe, where
+`<cluster>` is 1 for hub, 2/3 for the DR clusters, and `<rec>` is the
+reconciler's slot digit (see `reconcilerPort` in `main.go`).
