@@ -175,64 +175,74 @@ func setupReconcilers(mgr ctrl.Manager, ramenConfig *ramendrv1alpha1.RamenConfig
 }
 
 func setupReconcilersCluster(mgr ctrl.Manager, ramenConfig *ramendrv1alpha1.RamenConfig) {
-	if err := (&controllers.ProtectedVolumeReplicationGroupListReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		APIReader:      mgr.GetAPIReader(),
-		ObjStoreGetter: controllers.S3ObjectStoreGetter(),
-		Log:            ctrl.Log.WithName("pvrgl"),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ProtectedVolumeReplicationGroupList")
-		os.Exit(1)
+	if reconcilerEnabled("pvrgl") {
+		if err := (&controllers.ProtectedVolumeReplicationGroupListReconciler{
+			Client:         mgr.GetClient(),
+			Scheme:         mgr.GetScheme(),
+			APIReader:      mgr.GetAPIReader(),
+			ObjStoreGetter: controllers.S3ObjectStoreGetter(),
+			Log:            ctrl.Log.WithName("pvrgl"),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ProtectedVolumeReplicationGroupList")
+			os.Exit(1)
+		}
 	}
 
-	// Index fields that are required for VSHandler
-	if err := rmnutil.IndexFieldsForVSHandler(context.Background(), mgr.GetFieldIndexer()); err != nil {
-		setupLog.Error(err, "unable to index fields for controller", "controller", "VolumeReplicationGroup")
-		os.Exit(1)
+	if reconcilerEnabled("vrg") {
+		// Index fields that are required for VSHandler
+		if err := rmnutil.IndexFieldsForVSHandler(context.Background(), mgr.GetFieldIndexer()); err != nil {
+			setupLog.Error(err, "unable to index fields for controller", "controller", "VolumeReplicationGroup")
+			os.Exit(1)
+		}
+
+		if err := (&controllers.VolumeReplicationGroupReconciler{
+			Client:         mgr.GetClient(),
+			APIReader:      mgr.GetAPIReader(),
+			Log:            ctrl.Log.WithName("vrg"),
+			ObjStoreGetter: controllers.S3ObjectStoreGetter(),
+			Scheme:         mgr.GetScheme(),
+		}).SetupWithManager(mgr, ramenConfig); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "VolumeReplicationGroup")
+			os.Exit(1)
+		}
 	}
 
-	if err := (&controllers.VolumeReplicationGroupReconciler{
-		Client:         mgr.GetClient(),
-		APIReader:      mgr.GetAPIReader(),
-		Log:            ctrl.Log.WithName("vrg"),
-		ObjStoreGetter: controllers.S3ObjectStoreGetter(),
-		Scheme:         mgr.GetScheme(),
-	}).SetupWithManager(mgr, ramenConfig); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "VolumeReplicationGroup")
-		os.Exit(1)
-	}
-
-	if err := (&controllers.DRClusterConfigReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		Log:       ctrl.Log.WithName("drcc"),
-		APIReader: mgr.GetAPIReader(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "DRClusterConfig")
-		os.Exit(1)
+	if reconcilerEnabled("drclusterconfig") {
+		if err := (&controllers.DRClusterConfigReconciler{
+			Client:    mgr.GetClient(),
+			Scheme:    mgr.GetScheme(),
+			Log:       ctrl.Log.WithName("drcc"),
+			APIReader: mgr.GetAPIReader(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "DRClusterConfig")
+			os.Exit(1)
+		}
 	}
 
 	if !ramenConfig.VolSync.Disabled {
 		setupLog.Info("VolSync enabled, setup ReplicationGroupSource and ReplicationGroupDestination controllers")
 
-		if err := (&controllers.ReplicationGroupDestinationReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
-			Log:    ctrl.Log.WithName("rgd"),
-		}).SetupWithManager(mgr, ramenConfig); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "ReplicationGroupDestination")
-			os.Exit(1)
+		if reconcilerEnabled("rgd") {
+			if err := (&controllers.ReplicationGroupDestinationReconciler{
+				Client: mgr.GetClient(),
+				Scheme: mgr.GetScheme(),
+				Log:    ctrl.Log.WithName("rgd"),
+			}).SetupWithManager(mgr, ramenConfig); err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "ReplicationGroupDestination")
+				os.Exit(1)
+			}
 		}
 
-		if err := (&controllers.ReplicationGroupSourceReconciler{
-			Client:    mgr.GetClient(),
-			APIReader: mgr.GetAPIReader(),
-			Scheme:    mgr.GetScheme(),
-			Log:       ctrl.Log.WithName("rgs"),
-		}).SetupWithManager(mgr, ramenConfig); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "ReplicationGroupSource")
-			os.Exit(1)
+		if reconcilerEnabled("rgs") {
+			if err := (&controllers.ReplicationGroupSourceReconciler{
+				Client:    mgr.GetClient(),
+				APIReader: mgr.GetAPIReader(),
+				Scheme:    mgr.GetScheme(),
+				Log:       ctrl.Log.WithName("rgs"),
+			}).SetupWithManager(mgr, ramenConfig); err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "ReplicationGroupSource")
+				os.Exit(1)
+			}
 		}
 	}
 }
@@ -242,50 +252,56 @@ func setupReconcilersHub(mgr ctrl.Manager, ramenConfig *ramendrv1alpha1.RamenCon
 	// series distinguishes an idle hub from an absent operator
 	controllers.InitDRTelemetryMetrics()
 
-	if err := (&controllers.DRPolicyReconciler{
-		Client:    mgr.GetClient(),
-		APIReader: mgr.GetAPIReader(),
-		Log:       ctrl.Log.WithName("drp"),
-		Scheme:    mgr.GetScheme(),
-		MCVGetter: rmnutil.ManagedClusterViewGetterImpl{
+	if reconcilerEnabled("drpolicy") {
+		if err := (&controllers.DRPolicyReconciler{
 			Client:    mgr.GetClient(),
 			APIReader: mgr.GetAPIReader(),
-		},
-		ObjectStoreGetter: controllers.S3ObjectStoreGetter(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "DRPolicy")
-		os.Exit(1)
+			Log:       ctrl.Log.WithName("drp"),
+			Scheme:    mgr.GetScheme(),
+			MCVGetter: rmnutil.ManagedClusterViewGetterImpl{
+				Client:    mgr.GetClient(),
+				APIReader: mgr.GetAPIReader(),
+			},
+			ObjectStoreGetter: controllers.S3ObjectStoreGetter(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "DRPolicy")
+			os.Exit(1)
+		}
 	}
 
-	if err := (&controllers.DRClusterReconciler{
-		Client:    mgr.GetClient(),
-		APIReader: mgr.GetAPIReader(),
-		Log:       ctrl.Log.WithName("drc"),
-		Scheme:    mgr.GetScheme(),
-		MCVGetter: rmnutil.ManagedClusterViewGetterImpl{
+	if reconcilerEnabled("drcluster") {
+		if err := (&controllers.DRClusterReconciler{
 			Client:    mgr.GetClient(),
 			APIReader: mgr.GetAPIReader(),
-		},
-		ObjectStoreGetter: controllers.S3ObjectStoreGetter(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "DRCluster")
-		os.Exit(1)
+			Log:       ctrl.Log.WithName("drc"),
+			Scheme:    mgr.GetScheme(),
+			MCVGetter: rmnutil.ManagedClusterViewGetterImpl{
+				Client:    mgr.GetClient(),
+				APIReader: mgr.GetAPIReader(),
+			},
+			ObjectStoreGetter: controllers.S3ObjectStoreGetter(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "DRCluster")
+			os.Exit(1)
+		}
 	}
 
-	if err := (&controllers.DRPlacementControlReconciler{
-		Client:    mgr.GetClient(),
-		APIReader: mgr.GetAPIReader(),
-		Log:       ctrl.Log.WithName("drpc"),
-		MCVGetter: rmnutil.ManagedClusterViewGetterImpl{
+	if reconcilerEnabled("drpc") {
+		if err := (&controllers.DRPlacementControlReconciler{
 			Client:    mgr.GetClient(),
 			APIReader: mgr.GetAPIReader(),
-		},
-		Scheme:         mgr.GetScheme(),
-		Callback:       func(string, string) {},
-		ObjStoreGetter: controllers.S3ObjectStoreGetter(),
-	}).SetupWithManager(mgr, ramenConfig); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "DRPlacementControl")
-		os.Exit(1)
+			Log:       ctrl.Log.WithName("drpc"),
+			MCVGetter: rmnutil.ManagedClusterViewGetterImpl{
+				Client:    mgr.GetClient(),
+				APIReader: mgr.GetAPIReader(),
+			},
+			Scheme:         mgr.GetScheme(),
+			Callback:       func(string, string) {},
+			ObjStoreGetter: controllers.S3ObjectStoreGetter(),
+		}).SetupWithManager(mgr, ramenConfig); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "DRPlacementControl")
+			os.Exit(1)
+		}
 	}
 }
 

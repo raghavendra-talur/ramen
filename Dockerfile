@@ -18,11 +18,11 @@ COPY api/ api/
 RUN go mod download
 
 # Copy the go source
-COPY cmd/main.go cmd/main.go
+COPY cmd/ cmd/
 COPY internal/ internal/
 
 # Build
-RUN CGO_ENABLED=0 GOOS=linux go build -a -o manager cmd/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -a -o manager ./cmd
 
 FROM registry.access.redhat.com/ubi8/ubi-minimal
 WORKDIR /

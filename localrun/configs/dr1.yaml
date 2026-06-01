@@ -12,13 +12,6 @@ data:
   ramen_manager_config.yaml: |
     apiVersion: ramendr.openshift.io/v1alpha1
     kind: RamenConfig
-    health:
-      healthProbeBindAddress: ":9420"
-    metrics:
-      bindAddress: ":9320"
-    leaderElection:
-      leaderElect: false
-      resourceName: dr-cluster.ramendr.openshift.io
     s3StoreProfiles:
     - s3ProfileName: minio-on-dr1
       s3Bucket: bucket

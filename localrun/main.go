@@ -23,10 +23,27 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+var hubReconcilers = []string{"drpolicy", "drcluster", "drpc"}
+
+var drClusterReconcilers = []string{"pvrgl", "vrg", "drclusterconfig", "rgd", "rgs"}
+
+var reconcilerPort = map[string]string{
+	"drpolicy":        "0",
+	"drcluster":       "1",
+	"drpc":            "2",
+	"pvrgl":           "3",
+	"vrg":             "4",
+	"rgd":             "5",
+	"rgs":             "6",
+	"drclusterconfig": "7",
+}
+
 type cluster struct {
 	name       string
 	kubeconfig string
 	hub        bool
+	openshift  bool
+	index      int
 }
 
 type envFile struct {
@@ -40,7 +57,13 @@ type envFile struct {
 func main() {
 	root := repoRoot()
 
-	var envfilePath string
+	var (
+		envfilePath string
+		logDir      string
+		noLogs      bool
+		reconcilers string
+		skipBuild   bool
+	)
 
 	rootCmd := &cobra.Command{
 		Use:   "localrun",
@@ -53,15 +76,27 @@ func main() {
 
 	runCmd := &cobra.Command{
 		Use:   "run",
-		Short: "Build and start ramen managers",
+		Short: "Build and start ramen managers (one process per reconciler)",
 		Run: func(cmd *cobra.Command, args []string) {
 			clusters := loadClusters(envfilePath)
-			skipBuild, _ := cmd.Flags().GetBool("skip-build")
-
 			bin := filepath.Join(root, "localrun", "bin", "manager")
 
 			if !skipBuild {
 				build(root, bin)
+			}
+
+			resolvedLogDir := ""
+			if !noLogs {
+				resolvedLogDir = logDir
+				if !filepath.IsAbs(resolvedLogDir) {
+					resolvedLogDir = filepath.Join(root, resolvedLogDir)
+				}
+
+				os.MkdirAll(resolvedLogDir, 0o755)
+			}
+
+			for _, c := range clusters {
+				scaleDownOperator(c)
 			}
 
 			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -71,33 +106,114 @@ func main() {
 
 			var wg sync.WaitGroup
 
-			for _, c := range clusters {
-				wg.Add(1)
+			filter := parseReconcilerFilter(reconcilers)
 
-				go func() {
-					defer wg.Done()
-					runManager(ctx, bin, c)
-				}()
+			for _, c := range clusters {
+				for _, rec := range reconcilersForCluster(c) {
+					if len(filter) > 0 && !filter[rec] {
+						continue
+					}
+
+					wg.Add(1)
+
+					go func() {
+						defer wg.Done()
+						runManager(ctx, bin, c, rec, resolvedLogDir)
+					}()
+				}
 			}
 
 			wg.Wait()
-
 			fmt.Println("All managers stopped.")
 		},
 	}
 
-	runCmd.Flags().Bool("skip-build", false, "skip building the manager binary")
+	runCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "skip building the manager binary")
+	runCmd.Flags().StringVar(&logDir, "log-dir", "localrun/logs", "directory for per-reconciler log files")
+	runCmd.Flags().BoolVar(&noLogs, "no-logs", false, "disable log files (terminal only)")
+	runCmd.Flags().StringVar(&reconcilers, "reconcilers", "", "comma-separated reconciler filter (e.g. vrg,pvrgl)")
 
 	configureCmd := &cobra.Command{
 		Use:   "configure",
 		Short: "Install CRDs, create namespaces, S3 secrets, and config",
 		Run: func(cmd *cobra.Command, args []string) {
 			clusters := loadClusters(envfilePath)
+
+			for _, c := range clusters {
+				if c.openshift {
+					fatal("configure is only supported for upstream (drenv) environments; "+
+						"cluster %q is OpenShift and must be configured out-of-band", c.name)
+				}
+			}
+
 			configure(root, clusters)
 		},
 	}
 
-	rootCmd.AddCommand(runCmd, configureCmd)
+	refreshCmd := &cobra.Command{
+		Use:   "refresh",
+		Short: "Kill local managers, clear logs, rebuild, and restart",
+		Run: func(cmd *cobra.Command, args []string) {
+			clusters := loadClusters(envfilePath)
+			bin := filepath.Join(root, "localrun", "bin", "manager")
+
+			fmt.Println("Killing existing local manager processes...")
+			killLocalManagers(bin)
+
+			resolvedLogDir := ""
+			if !noLogs {
+				resolvedLogDir = logDir
+				if !filepath.IsAbs(resolvedLogDir) {
+					resolvedLogDir = filepath.Join(root, resolvedLogDir)
+				}
+
+				fmt.Printf("Clearing log directory %s...\n", resolvedLogDir)
+				clearLogDir(resolvedLogDir)
+			}
+
+			if !skipBuild {
+				build(root, bin)
+			}
+
+			for _, c := range clusters {
+				scaleDownOperator(c)
+			}
+
+			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+			defer stop()
+
+			fmt.Println("Starting ramen managers (Ctrl-C to stop)...")
+
+			var wg sync.WaitGroup
+
+			filter := parseReconcilerFilter(reconcilers)
+
+			for _, c := range clusters {
+				for _, rec := range reconcilersForCluster(c) {
+					if len(filter) > 0 && !filter[rec] {
+						continue
+					}
+
+					wg.Add(1)
+
+					go func() {
+						defer wg.Done()
+						runManager(ctx, bin, c, rec, resolvedLogDir)
+					}()
+				}
+			}
+
+			wg.Wait()
+			fmt.Println("All managers stopped.")
+		},
+	}
+
+	refreshCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "skip building the manager binary")
+	refreshCmd.Flags().StringVar(&logDir, "log-dir", "localrun/logs", "directory for per-reconciler log files")
+	refreshCmd.Flags().BoolVar(&noLogs, "no-logs", false, "disable log files (terminal only)")
+	refreshCmd.Flags().StringVar(&reconcilers, "reconcilers", "", "comma-separated reconciler filter (e.g. vrg,pvrgl)")
+
+	rootCmd.AddCommand(runCmd, configureCmd, refreshCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -135,18 +251,57 @@ func loadClusters(envfilePath string) []cluster {
 	kcDir := filepath.Join(home, ".config", "drenv", env.Name, "kubeconfigs")
 
 	clusters := []cluster{
-		{env.Ramen.Hub, filepath.Join(kcDir, env.Ramen.Hub), true},
+		{name: env.Ramen.Hub, kubeconfig: filepath.Join(kcDir, env.Ramen.Hub), hub: true, index: 1},
 	}
 
-	for _, name := range env.Ramen.Clusters {
-		clusters = append(clusters, cluster{name, filepath.Join(kcDir, name), false})
+	for i, name := range env.Ramen.Clusters {
+		clusters = append(clusters, cluster{
+			name:       name,
+			kubeconfig: filepath.Join(kcDir, name),
+			index:      i + 2,
+		})
 	}
 
-	for _, c := range clusters {
+	for i, c := range clusters {
 		checkFile(c.kubeconfig, "kubeconfig")
+
+		clusters[i].openshift = isOpenShift(c.kubeconfig)
+		if clusters[i].openshift {
+			fmt.Printf("[%s] OpenShift cluster detected\n", c.name)
+		}
 	}
 
 	return clusters
+}
+
+func reconcilersForCluster(c cluster) []string {
+	if c.hub {
+		return hubReconcilers
+	}
+
+	return drClusterReconcilers
+}
+
+func parseReconcilerFilter(s string) map[string]bool {
+	if s == "" {
+		return nil
+	}
+
+	m := make(map[string]bool)
+
+	for _, name := range strings.Split(s, ",") {
+		m[strings.TrimSpace(name)] = true
+	}
+
+	return m
+}
+
+func metricsAddr(c cluster, rec string) string {
+	return fmt.Sprintf("127.0.0.1:93%d%s", c.index, reconcilerPort[rec])
+}
+
+func healthAddr(c cluster, rec string) string {
+	return fmt.Sprintf("127.0.0.1:94%d%s", c.index, reconcilerPort[rec])
 }
 
 func minioServiceURL(clusterContext string) string {
@@ -379,7 +534,7 @@ func build(root, out string) {
 
 	os.MkdirAll(filepath.Dir(out), 0o755)
 
-	cmd := exec.Command("go", "build", "-o", out, "./cmd/main.go")
+	cmd := exec.Command("go", "build", "-o", out, "./cmd")
 	cmd.Dir = root
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -391,30 +546,73 @@ func build(root, out string) {
 	fmt.Println("Build complete.")
 }
 
-func runManager(ctx context.Context, bin string, c cluster) {
+func scaleDownOperator(c cluster) {
+	ns := podNamespace(c)
+
+	deployName := "ramen-dr-cluster-operator"
+	if c.hub {
+		deployName = "ramen-hub-operator"
+	}
+
+	cmd := exec.Command("kubectl", "--kubeconfig="+c.kubeconfig,
+		"-n", ns, "scale", "--replicas=0", "deployment", deployName)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err == nil {
+		fmt.Printf("[%s] scaled down in-cluster %s\n", c.name, deployName)
+	}
+}
+
+func runManager(ctx context.Context, bin string, c cluster, rec, logDirPath string) {
+	tag := fmt.Sprintf("%s:%s", c.name, rec)
+
 	cmd := exec.CommandContext(ctx, bin,
 		"--kubeconfig="+c.kubeconfig,
+		"--metrics-bind-address="+metricsAddr(c, rec),
+		"--health-probe-bind-address="+healthAddr(c, rec),
+		// One process per (cluster, reconciler) pair: all processes for a
+		// cluster would contend for the same lease, so no leader election.
+		"--leader-elect=false",
 	)
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 	cmd.WaitDelay = 10 * time.Second
+
 	controllerType := "dr-cluster"
 	if c.hub {
 		controllerType = "dr-hub"
 	}
 
 	cmd.Env = append(os.Environ(),
-		"POD_NAMESPACE=ramen-system",
+		"POD_NAMESPACE="+podNamespace(c),
 		"RAMEN_CONTROLLER_TYPE="+controllerType,
+		"RAMEN_RECONCILERS="+rec,
 	)
 
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 
-	fmt.Printf("[%s] starting (kubeconfig=%s)\n", c.name, c.kubeconfig)
+	fmt.Printf("[%s] starting (kubeconfig=%s)\n", tag, c.kubeconfig)
 
 	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "[%s] start failed: %v\n", c.name, err)
+		fmt.Fprintf(os.Stderr, "[%s] start failed: %v\n", tag, err)
 		return
+	}
+
+	var logFile *os.File
+
+	if logDirPath != "" {
+		logFileName := filepath.Join(logDirPath, fmt.Sprintf("%s-%s.log", c.name, rec))
+
+		var err error
+
+		logFile, err = os.Create(logFileName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[%s] cannot create log file %s: %v\n", tag, logFileName, err)
+		} else {
+			defer logFile.Close()
+			fmt.Printf("[%s] logging to %s\n", tag, logFileName)
+		}
 	}
 
 	var wg sync.WaitGroup
@@ -423,30 +621,53 @@ func runManager(ctx context.Context, bin string, c cluster) {
 
 	go func() {
 		defer wg.Done()
-		logLines(os.Stderr, stdout, c.name)
+		logLines(os.Stderr, stdout, tag, logFile)
 	}()
 
 	go func() {
 		defer wg.Done()
-		logLines(os.Stderr, stderr, c.name)
+		logLines(os.Stderr, stderr, tag, logFile)
 	}()
 
 	waitErr := cmd.Wait()
 	wg.Wait()
 
 	if ctx.Err() != nil {
-		fmt.Printf("[%s] stopped\n", c.name)
+		fmt.Printf("[%s] stopped\n", tag)
 	} else if waitErr != nil {
-		fmt.Fprintf(os.Stderr, "[%s] exited: %v\n", c.name, waitErr)
+		fmt.Fprintf(os.Stderr, "[%s] exited: %v\n", tag, waitErr)
 	}
 }
 
-func logLines(dst io.Writer, src io.Reader, tag string) {
+func logLines(dst io.Writer, src io.Reader, tag string, logFile *os.File) {
 	s := bufio.NewScanner(src)
 	s.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	for s.Scan() {
-		fmt.Fprintf(dst, "[%s] %s\n", tag, s.Text())
+		line := s.Text()
+		fmt.Fprintf(dst, "[%s] %s\n", tag, line)
+
+		if logFile != nil {
+			fmt.Fprintln(logFile, line)
+		}
+	}
+}
+
+func killLocalManagers(bin string) {
+	exec.Command("pkill", "-f", bin).Run() //nolint:errcheck
+	time.Sleep(1 * time.Second)
+}
+
+func clearLogDir(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".log") {
+			os.Remove(filepath.Join(dir, e.Name()))
+		}
 	}
 }
 
@@ -471,6 +692,24 @@ func repoRoot() string {
 
 		d = p
 	}
+}
+
+func isOpenShift(kubeconfig string) bool {
+	return exec.Command("kubectl", "--kubeconfig="+kubeconfig,
+		"get", "clusterversions", "--no-headers",
+	).Run() == nil
+}
+
+func podNamespace(c cluster) string {
+	if !c.openshift {
+		return "ramen-system"
+	}
+
+	if c.hub {
+		return "openshift-operators"
+	}
+
+	return "openshift-dr-system"
 }
 
 func fatal(f string, a ...any) {
