@@ -13,7 +13,7 @@ target_archive="${target_dir}/kustomize.tar.gz"
 tool="kustomize"
 
 # sample output to parse: '{Version:kustomize/v4.5.7 GitCommit:56d82a8378dfc8dc3b3b1085e5a6e67b82966bd7 BuildDate:2022-08-02T16:35:54Z GoOs:linux GoArch:amd64}'
-installed_version=$("${target_path}" version | tr -d "{" | tr -d '}' | cut -d" " -f1 | cut -d"/" -f2)
+installed_version=$("${target_path}" version 2>/dev/null | tr -d "{" | tr -d '}' | cut -d" " -f1 | cut -d"/" -f2 || true)
 
 if [ "$required_version" == "$installed_version" ]; then
   exit 0

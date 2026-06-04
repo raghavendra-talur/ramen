@@ -12,7 +12,7 @@ target_path="${target_dir}/operator-sdk"
 tool="operator-sdk"
 
 # sample output to parse: 'operator-sdk version: "v1.24.0", commit: "de6a14d03de3c36dcc9de3891af788b49d15f0f3", kubernetes version: "1.24.2", go version: "go1.18.6", GOOS: "linux", GOARCH: "amd64"'
-installed_version=$("${target_path}" version | awk '{print $3}' | tr -d ',"')
+installed_version=$("${target_path}" version 2>/dev/null | awk '{print $3}' | tr -d ',"' || true)
 
 if [ "$required_version" == "$installed_version" ]; then
   exit 0

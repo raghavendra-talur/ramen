@@ -12,7 +12,7 @@ target_path="${target_dir}/opm"
 tool="opm"
 
 # sample output to parse: 'Version: version.Version{OpmVersion:"v1.23.2", GitCommit:"82505333", BuildDate:"2022-07-04T13:45:39Z", GoOs:"linux", GoArch:"amd64"}'
-installed_version=$("${target_path}" version | cut -d"{" -f2 | cut -d"," -f1 | cut -d":" -f2 | tr -d '"')
+installed_version=$("${target_path}" version 2>/dev/null | cut -d"{" -f2 | cut -d"," -f1 | cut -d":" -f2 | tr -d '"' || true)
 
 if [ "$required_version" == "$installed_version" ]; then
   exit 0

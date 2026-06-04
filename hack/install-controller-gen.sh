@@ -10,7 +10,7 @@ target_path="${target_dir}/controller-gen"
 tool="controller-gen"
 
 # sample output to parse: 'Version: v0.14.0'
-installed_version=$("${target_path}" --version | cut -d" " -f2)
+installed_version=$("${target_path}" --version 2>/dev/null | cut -d" " -f2 || true)
 
 if [ "$required_version" == "$installed_version" ]; then
   exit 0
