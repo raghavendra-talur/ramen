@@ -100,9 +100,11 @@ help: ## Display this help.
 
 ##@ Development
 
+.PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=operator-role crd:generateEmbeddedObjectMeta=true webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
+.PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
@@ -285,6 +287,7 @@ undeploy-dr-cluster: kustomize ## Undeploy dr-cluster controller from the K8s cl
 ##@ Tools
 
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
+.PHONY: controller-gen
 controller-gen: ## Download controller-gen locally.
 	@hack/install-controller-gen.sh
 
