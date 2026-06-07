@@ -35,6 +35,10 @@ const notFoundMarker = "not found"
 // message, possibly with a non-zero exit) Status returns a zero-value
 // MinikubeStatus (Host == "") and a nil error — callers treat an empty Host as
 // the "not found" signal.
+//
+// Minikube may also exit non-zero (e.g. exit 7) when the cluster exists but its
+// components are stopped. In that case the output is valid JSON and we parse it
+// normally, discarding the exit error.
 func (m Minikube) Status(ctx context.Context, profile string) (MinikubeStatus, error) {
 	out, err := m.R.Output(ctx, "minikube", "status", "-p", profile, "-o", "json")
 
@@ -44,17 +48,20 @@ func (m Minikube) Status(ctx context.Context, profile string) (MinikubeStatus, e
 		return MinikubeStatus{}, nil
 	}
 
-	if err != nil {
-		return MinikubeStatus{}, err
-	}
-
-	// Parse the JSON status payload.
+	// Parse the JSON status payload. Minikube exits non-zero (e.g. exit 7) even
+	// when the cluster exists but its components are stopped, so we attempt to
+	// parse first and only propagate the error if parsing fails.
 	var raw struct {
 		Name      string `json:"Name"`
 		Host      string `json:"Host"`
 		APIServer string `json:"APIServer"`
 	}
 	if jsonErr := json.Unmarshal([]byte(out), &raw); jsonErr != nil {
+		// Output is not parseable JSON — surface the original command error if
+		// present, otherwise the parse error.
+		if err != nil {
+			return MinikubeStatus{}, err
+		}
 		return MinikubeStatus{}, jsonErr
 	}
 	return MinikubeStatus{

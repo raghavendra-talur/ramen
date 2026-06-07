@@ -23,6 +23,8 @@ func main() {
 	}
 	root.PersistentFlags().StringVar(&envfilePath, "envfile", "", "path to the environment file")
 	root.AddCommand(newStatusCommand())
+	root.AddCommand(newStartCommand())
+	root.AddCommand(newDeleteCommand())
 
 	// cobra already prints the error (and usage) to stderr; just set the exit code.
 	if err := root.Execute(); err != nil {
