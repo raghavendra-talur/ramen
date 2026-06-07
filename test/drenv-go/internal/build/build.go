@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: The RamenDR authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package build turns an envfile.Env into ensure.Step trees for the start and
-// delete operations. The returned steps compose provider.ClusterRunningStep /
-// ClusterAbsentStep entries into groups that can be handed directly to
-// ensure.Ensure.
+// Package build turns an envfile.Env into ensure.Step trees for the start, stop,
+// and delete operations. The returned steps compose provider.ClusterRunningStep /
+// ClusterStoppedStep / ClusterAbsentStep entries into groups that can be handed
+// directly to ensure.Ensure.
 package build
 
 import (
@@ -17,7 +17,7 @@ import (
 // Its first child is a parallel "clusters" group that ensures every profile's
 // cluster is running.
 //
-// Milestone 3 will append additional groups here for workers and addons — see
+// Milestone 4 will append additional groups here for workers and addons — see
 // the comment inside the function body for the exact seam.
 func Start(e *envfile.Env, p provider.Provider, opts ensure.Options) ensure.Step {
 	clusterSteps := make([]ensure.Step, len(e.Profiles))
@@ -27,11 +27,11 @@ func Start(e *envfile.Env, p provider.Provider, opts ensure.Options) ensure.Step
 
 	clustersGroup := ensure.NewGroup("clusters", ensure.Parallel, opts, clusterSteps...)
 
-	// --- Milestone 3 seam ---
+	// --- Milestone 4 seam ---
 	// After clustersGroup, append worker/addon groups here, e.g.:
 	//   workerGroups := buildWorkerGroups(e, p, opts)
 	//   children = append(children, workerGroups...)
-	// Do NOT add any steps here until Milestone 3.
+	// Do NOT add any steps here until Milestone 4.
 	children := []ensure.Step{clustersGroup}
 
 	return ensure.NewGroup(e.Name, ensure.Serial, opts, children...)
