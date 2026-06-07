@@ -61,3 +61,31 @@ func (s clusterAbsentStep) Done(ctx context.Context) (bool, error) {
 func (s clusterAbsentStep) Do(ctx context.Context) error {
 	return s.p.Delete(ctx, s.prof.Name)
 }
+
+// clusterStoppedStep is an ensure.Step that ensures a cluster is stopped or absent.
+type clusterStoppedStep struct {
+	p    Provider
+	prof envfile.Profile
+}
+
+// ClusterStoppedStep returns an ensure.Step whose Done condition is
+// Status==StatusStopped || StatusNotFound and whose Do action calls p.Stop.
+// A cluster that does not exist is already in a non-running state, so we treat
+// it as "done" without calling Stop.
+func ClusterStoppedStep(p Provider, prof envfile.Profile) ensure.Step {
+	return clusterStoppedStep{p: p, prof: prof}
+}
+
+func (s clusterStoppedStep) Name() string { return "cluster/" + s.prof.Name + " stopped" }
+
+func (s clusterStoppedStep) Done(ctx context.Context) (bool, error) {
+	st, err := s.p.Status(ctx, s.prof.Name)
+	if err != nil {
+		return false, err
+	}
+	return st == StatusStopped || st == StatusNotFound, nil
+}
+
+func (s clusterStoppedStep) Do(ctx context.Context) error {
+	return s.p.Stop(ctx, s.prof.Name)
+}
