@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ramendr/ramen/test/drenv-go/internal/addon"
 	"github.com/ramendr/ramen/test/drenv-go/internal/build"
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
 	"github.com/ramendr/ramen/test/drenv-go/internal/envfile"
@@ -117,7 +118,7 @@ func TestStartMakesClustersRunning(t *testing.T) {
 	env := testEnv()
 	opts := smallOpts()
 
-	step := build.Start(env, fp, opts)
+	step := build.Start(env, fp, addon.Deps{}, opts)
 	_, err := ensure.Ensure(context.Background(), step, opts)
 	if err != nil {
 		t.Fatalf("Ensure(Start) unexpected error: %v", err)
@@ -140,7 +141,7 @@ func TestStartSkipsAlreadyRunningClusters(t *testing.T) {
 		fp.setStatus(prof.Name, provider.StatusRunning)
 	}
 
-	step := build.Start(env, fp, opts)
+	step := build.Start(env, fp, addon.Deps{}, opts)
 	res, err := ensure.Ensure(context.Background(), step, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

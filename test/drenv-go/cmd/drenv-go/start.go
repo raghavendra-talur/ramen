@@ -5,9 +5,11 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
+	"github.com/ramendr/ramen/test/drenv-go/internal/addon"
 	"github.com/ramendr/ramen/test/drenv-go/internal/build"
 	"github.com/ramendr/ramen/test/drenv-go/internal/cli"
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
@@ -29,8 +31,24 @@ func loadEnv() (*envfile.Env, error) {
 	return envfile.Load(envfilePath)
 }
 
+// defaultAddonsDir returns the path to test/drenv/addons relative to the
+// envfile location, following the repository layout:
+//
+//	test/envs/<env>.yaml  →  test/drenv/addons
+func defaultAddonsDir() string {
+	if envfilePath == "" {
+		return ""
+	}
+	// envfile is typically at test/envs/<name>.yaml; addons live at
+	// test/drenv/addons — two levels up from the envfile, then drenv/addons.
+	envDir := filepath.Dir(envfilePath)
+	return filepath.Join(envDir, "..", "drenv", "addons")
+}
+
 func newStartCommand() *cobra.Command {
-	return &cobra.Command{
+	var addonsDir string
+
+	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Ensure all clusters in the environment are running",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -43,9 +61,31 @@ func newStartCommand() *cobra.Command {
 			opts := ensure.DefaultOptions()
 			opts.Reporter = ensure.ConsoleReporter{W: cmd.OutOrStdout()}
 
-			step := build.Start(env, prov, opts)
+			dir := addonsDir
+			if dir == "" {
+				dir = defaultAddonsDir()
+			}
+
+			r := cli.Exec{}
+			deps := addon.Deps{
+				K:          &cli.Kubectl{R: r},
+				MK:         &cli.Minikube{R: r},
+				Helm:       &cli.Helm{R: r},
+				Clusteradm: &cli.Clusteradm{R: r},
+				Subctl:     &cli.Subctl{R: r},
+				MC:         &cli.MC{R: r},
+				Velero:     &cli.Velero{R: r},
+				AddonsDir:  dir,
+				Opts:       opts,
+			}
+
+			step := build.Start(env, prov, deps, opts)
 			_, err = ensure.Ensure(cmd.Context(), step, opts)
 			return err
 		},
 	}
+
+	cmd.Flags().StringVar(&addonsDir, "addons-dir", "",
+		"path to the addons directory (default: <envfile-dir>/../drenv/addons)")
+	return cmd
 }
