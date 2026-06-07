@@ -75,7 +75,9 @@ func newStartCommand() *cobra.Command {
 				Subctl:     &cli.Subctl{R: r},
 				MC:         &cli.MC{R: r},
 				Velero:     &cli.Velero{R: r},
+				Argocd:     &cli.Argocd{R: r},
 				AddonsDir:  dir,
+				EnvName:    env.Name,
 				Opts:       opts,
 			}
 
