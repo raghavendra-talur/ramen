@@ -288,7 +288,7 @@ func TestCSIAddonsArgv(t *testing.T) {
 func TestOCMControllerArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
-	runStep(t, f, addonsDir, "ocm/controller", testCluster, nil)
+	runStep(t, f, addonsDir, "ocm-controller", testCluster, nil)
 
 	if len(f.Calls) != 2 {
 		t.Fatalf("expected 2 kubectl calls, got %d: %v", len(f.Calls), callNames(f))

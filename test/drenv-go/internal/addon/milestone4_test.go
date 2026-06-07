@@ -265,7 +265,7 @@ func TestOCMHubArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
 
-	runStepFull(t, f, addonsDir, "testenv", "ocm/hub", "hub", nil)
+	runStepFull(t, f, addonsDir, "testenv", "ocm-hub", "hub", nil)
 
 	// 1 init + 2 installs + (7+4)*2 wait/rollout = 25
 	expected := 1 + 2 + (7+4)*2
@@ -359,7 +359,7 @@ func TestOCMClusterArgv(t *testing.T) {
 	f.Script(cli.FakeResult{Out: `{"hub-token":"tok123","hub-apiserver":"https://192.168.1.1:6443"}`})
 	// Remaining calls: default (nil error, empty output)
 
-	runStepFull(t, f, "/fake/addons", "testenv", "ocm/cluster", "dr1", []string{"hub"})
+	runStepFull(t, f, "/fake/addons", "testenv", "ocm-cluster", "dr1", []string{"hub"})
 
 	expected := 24 + 2 + 5 + 1 + 1 + 6
 	if len(f.Calls) != expected {
