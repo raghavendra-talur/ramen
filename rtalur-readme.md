@@ -83,10 +83,10 @@ Parallel Go implementation of `drenv`. Reflects state as of Milestone 4D.
 
 | Command | Status | Notes |
 |---------|--------|-------|
-| `start` | 🚧 | Builds full ensure tree; unit-tested; no real cluster run |
+| `start` | ✅ | Cluster-validated (c1/qemu2): creates the cluster, skips it on re-run (reality-as-checkpoint), runs the worker/addon tree |
 | `stop` | 🚧 | Parallel ensure; unit-tested |
 | `delete` | 🚧 | Parallel ensure; unit-tested |
-| `status` | 🚧 | Per-profile provider; unit-tested |
+| `status` | ✅ | Cluster-validated against the real minikube binary (reads running/stopped/not-found per cluster) |
 | `load` | 🚧 | Per-profile; unit-tested |
 | `suspend` | 🚧 | Per-profile; unit-tested |
 | `resume` | 🚧 | Per-profile; unit-tested |
@@ -103,17 +103,26 @@ Parallel Go implementation of `drenv`. Reflects state as of Milestone 4D.
 
 ### Addon parity sub-table
 
-Every regional-dr addon has been ported and unit-tested (argv-level). None has been validated against a live cluster because the vfkit clusters could not boot on this machine.
+Every regional-dr addon has been ported and unit-tested (argv-level). A subset
+is now also validated end-to-end on a real single-node cluster (`c1`).
+
+**Cluster validation environment:** this host's vfkit driver is broken (SSH
+timeouts), but drenv-go's `minikube start` auto-fell-back to the **qemu2** driver
+and `c1` came up. qemu's builtin (user-mode) network is NOT host-routable, so
+addons that need the host to reach a cluster NodePort/Service (minio `mc`,
+velero, argocd) cannot complete here — a vmnet/vfkit limitation, not a drenv-go
+bug (Python drenv hits the same on qemu-builtin). kubectl-path addons validate
+fully.
 
 | Addon | Registered name | Status |
 |-------|----------------|--------|
-| external-snapshotter | `external-snapshotter` | 🚧 ported, argv-tested, NOT cluster-validated |
-| odf-external-snapshotter | `odf-external-snapshotter` | 🚧 ported, argv-tested, NOT cluster-validated |
-| olm | `olm` | 🚧 ported, argv-tested, NOT cluster-validated |
-| recipe | `recipe` | 🚧 ported, argv-tested, NOT cluster-validated |
-| csi-addons | `csi-addons` | 🚧 ported, argv-tested, NOT cluster-validated |
+| external-snapshotter | `external-snapshotter` | ✅ cluster-validated (c1/qemu2): CRDs applied, established-wait, controller rolled out |
+| odf-external-snapshotter | `odf-external-snapshotter` | 🚧 ported, argv-tested (kubectl-only; expected to pass like external-snapshotter) |
+| olm | `olm` | 🚧 ported, argv-tested (kubectl-only; expected to pass like external-snapshotter) |
+| recipe | `recipe` | ✅ cluster-validated (c1/qemu2): CRD applied |
+| csi-addons | `csi-addons` | 🚧 ported, argv-tested (kubectl-only; expected to pass like external-snapshotter) |
 | ocm-controller | `ocm-controller` | 🚧 ported, argv-tested, NOT cluster-validated |
-| minio | `minio` | 🚧 ported, argv-tested, NOT cluster-validated |
+| minio | `minio` | ⚠️ partial (c1/qemu2): apply + rollout validated; `mc` alias/bucket blocked by qemu-builtin NodePort not being host-routable (env, not code) |
 | velero | `velero` | 🚧 ported, argv-tested, NOT cluster-validated |
 | volsync | `volsync` | 🚧 ported, argv-tested, NOT cluster-validated |
 | ocm-hub | `ocm-hub` | 🚧 ported, argv-tested, NOT cluster-validated |
