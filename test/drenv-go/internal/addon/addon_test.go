@@ -86,11 +86,19 @@ func TestApplyTemplateBytesSubstitutesBracedKey(t *testing.T) {
 	}
 }
 
-func TestApplyTemplateBytesUnknownVarBecomesEmpty(t *testing.T) {
+func TestApplyTemplateBytesUnknownVarPreserved(t *testing.T) {
+	// Unlike os.Expand, an unrecognised "$" token is left untouched so we never
+	// silently corrupt manifest content that legitimately contains "$".
 	tmpl := []byte("value: $UNKNOWN\n")
 	got := addon.ApplyTemplateBytes(tmpl, map[string]string{})
-	want := []byte("value: \n")
-	if !reflect.DeepEqual(got, want) {
+	if !reflect.DeepEqual(got, tmpl) {
+		t.Errorf("got %q, want %q", got, tmpl)
+	}
+}
+
+func TestApplyTemplateBytesMixed(t *testing.T) {
+	got := addon.ApplyTemplateBytes([]byte("${A} and $B"), map[string]string{"A": "hello", "B": "world"})
+	if want := []byte("hello and world"); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
@@ -100,22 +108,6 @@ func TestApplyTemplateBytesNoSubstitution(t *testing.T) {
 	got := addon.ApplyTemplateBytes(tmpl, nil)
 	if !reflect.DeepEqual(got, tmpl) {
 		t.Errorf("got %q, want %q", got, tmpl)
-	}
-}
-
-// ---- ExpandTemplate tests ----
-
-func TestExpandTemplateSubstitutesDollarKey(t *testing.T) {
-	result := addon.ExpandTemplate("pool: $POOL_NAME\n", map[string]string{"POOL_NAME": "replicapool"})
-	if result != "pool: replicapool\n" {
-		t.Errorf("got %q, want %q", result, "pool: replicapool\n")
-	}
-}
-
-func TestExpandTemplateMixed(t *testing.T) {
-	result := addon.ExpandTemplate("${A} and $B", map[string]string{"A": "hello", "B": "world"})
-	if result != "hello and world" {
-		t.Errorf("got %q, want %q", result, "hello and world")
 	}
 }
 
