@@ -68,6 +68,9 @@ func Load(path string) (*Env, error) {
 		return nil, err
 	}
 	var env Env
+	// yaml.v3 silently ignores fields absent from Env, so envfile keys the Go
+	// tool does not yet model (e.g. container_runtime, extra_disks) are dropped
+	// rather than rejected. Add them to the structs when the tool needs them.
 	if err := yaml.Unmarshal(data, &env); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
@@ -105,6 +108,7 @@ func applyTemplate(p *Profile, t Template) {
 	if p.Network == "" {
 		p.Network = t.Network
 	}
+	// CPUs == 0 is treated as unset; a profile cannot explicitly request 0 CPUs.
 	if p.CPUs == 0 {
 		p.CPUs = t.CPUs
 	}
