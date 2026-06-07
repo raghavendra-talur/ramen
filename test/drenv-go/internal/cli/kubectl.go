@@ -180,6 +180,13 @@ func (k Kubectl) Get(ctx context.Context, kubeContext, namespace string, args ..
 	return k.R.Output(ctx, "kubectl", all...)
 }
 
+// Config runs `kubectl config <args...>` and returns the combined output.
+// Use this for kubeconfig manipulation such as use-context and set-context.
+func (k Kubectl) Config(ctx context.Context, args ...string) (string, error) {
+	all := append([]string{"config"}, args...)
+	return k.R.Output(ctx, "kubectl", all...)
+}
+
 // formatTimeout converts a time.Duration to a kubectl-compatible timeout string
 // of the form "<seconds>s". Fractional seconds are truncated.
 func formatTimeout(d time.Duration) string {
