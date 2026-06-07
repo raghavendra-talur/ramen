@@ -45,8 +45,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
 )
@@ -130,16 +131,17 @@ func buildRBDMirror(d Deps, _ string, args []string) ensure.Step {
 		return waitRBDMirrorReady(ctx, d, cluster2)
 	})
 
-	// ---- wait_until_pool_mirroring_is_healthy(cluster1) ----
-	// NOTE: The Python watches pool .status.mirroringStatus.summary via streaming
-	// kubectl watch and retries up to 3 times with rbd-mirror daemon restarts.
-	// We use a single kubectl get for argv faithfulness; streaming watch + retry
-	// needs real-cluster validation.
+	// ---- wait_until_pool_mirroring_is_healthy(cluster1/2) ----
+	// Do polls the pool's mirroringStatus.summary until daemon_health, health,
+	// and image_health are all OK (or the verify timeout elapses), giving the
+	// same "block until mirroring is healthy" guarantee as the Python addon.
+	// Using newApplyStep means the step latches Done after success, so the
+	// group's post-Do verification does not re-query. The Python extra of
+	// restarting the rbd-mirror daemon on timeout is not replicated and needs
+	// real-cluster validation.
 	waitHealthyC1 := newApplyStep("wait-pool-mirroring-healthy/"+cluster1, func(ctx context.Context) error {
 		return waitRBDMirroringHealthy(ctx, d, cluster1)
 	})
-
-	// ---- wait_until_pool_mirroring_is_healthy(cluster2) ----
 	waitHealthyC2 := newApplyStep("wait-pool-mirroring-healthy/"+cluster2, func(ctx context.Context) error {
 		return waitRBDMirroringHealthy(ctx, d, cluster2)
 	})
@@ -292,23 +294,53 @@ func waitRBDMirrorReady(ctx context.Context, d Deps, cluster string) error {
 	return nil
 }
 
-// waitRBDMirroringHealthy checks pool mirroring health on a cluster.
-//
-// NOTE: The Python implementation watches pool .status.mirroringStatus.summary
-// via a streaming kubectl watch and retries up to 3 times (restarting the
-// rbd-mirror daemon on timeout). This simplified version issues a single
-// kubectl get and logs the status — the health check assertion is left for
-// real-cluster validation since it requires a streaming watch + retry loop.
-//
-// NEEDS REAL-CLUSTER VALIDATION.
+// waitRBDMirroringHealthy polls rbdMirroringHealthy until it reports healthy,
+// the context is cancelled, or the verify timeout elapses. This mirrors the
+// Python wait_until_pool_mirroring_is_healthy loop (minus the daemon restart).
 func waitRBDMirroringHealthy(ctx context.Context, d Deps, cluster string) error {
-	out, err := d.K.Get(ctx, cluster, "rook-ceph",
-		"cephblockpool/"+rbdMirrorPoolName,
-		"--output=jsonpath={.status.mirroringStatus.summary}",
-	)
-	if err != nil {
-		return fmt.Errorf("get pool mirroring status on %s: %w", cluster, err)
+	interval := d.Opts.VerifyInterval
+	if interval <= 0 {
+		interval = 2 * time.Second
 	}
-	log.Printf("cluster %q pool mirroring status: %s", cluster, out)
-	return nil
+	timeout := d.Opts.VerifyTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		ok, err := rbdMirroringHealthy(ctx, d, cluster)
+		if err != nil {
+			return err
+		}
+		if ok {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for healthy pool mirroring on %s", cluster)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(interval):
+		}
+	}
+}
+
+// rbdMirroringHealthy reports whether the pool's mirroring is healthy on a
+// cluster: daemon_health, health, and image_health in
+// .status.mirroringStatus.summary must all be "OK". An empty field (status not
+// yet populated) reports not-healthy (no error) so the caller keeps polling.
+func rbdMirroringHealthy(ctx context.Context, d Deps, cluster string) (bool, error) {
+	resource := "cephblockpools.ceph.rook.io/" + rbdMirrorPoolName
+	for _, field := range []string{"daemon_health", "health", "image_health"} {
+		v, err := d.K.GetJSONPath(ctx, cluster, "rook-ceph", resource,
+			"{.status.mirroringStatus.summary."+field+"}")
+		if err != nil {
+			return false, fmt.Errorf("get pool mirroring %s on %s: %w", field, cluster, err)
+		}
+		if strings.TrimSpace(v) != "OK" {
+			return false, nil
+		}
+	}
+	return true, nil
 }
