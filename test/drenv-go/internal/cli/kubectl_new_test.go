@@ -330,6 +330,28 @@ func TestRunStdinFakeRunnerScriptedError(t *testing.T) {
 	}
 }
 
+func TestKubectlApplyStdinNamespaceIssuesCorrectArgvAndPassesStdin(t *testing.T) {
+	ctx := context.Background()
+	f := &cli.FakeRunner{}
+	k := cli.Kubectl{R: f}
+
+	manifest := []byte("kind: Secret\nmetadata:\n  name: my-secret\n")
+	if err := k.ApplyStdinNamespace(ctx, "dr1", "rook-ceph", manifest); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(f.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(f.Calls))
+	}
+	c := f.Calls[0]
+	wantArgs := []string{"--context", "dr1", "apply", "--filename", "-", "--namespace=rook-ceph"}
+	if !reflect.DeepEqual(c.Args, wantArgs) {
+		t.Errorf("args = %v, want %v", c.Args, wantArgs)
+	}
+	if c.Stdin != string(manifest) {
+		t.Errorf("stdin = %q, want %q", c.Stdin, string(manifest))
+	}
+}
+
 func TestKubectlApplyServerSideKustomizeDirIssuesCorrectArgv(t *testing.T) {
 	ctx := context.Background()
 	f := &cli.FakeRunner{}
