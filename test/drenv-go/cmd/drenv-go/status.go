@@ -7,23 +7,28 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	"github.com/ramendr/ramen/test/drenv-go/internal/envfile"
 )
 
 func newStatusCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Parse the envfile and print its tree",
+		Short: "Print the lifecycle status of every cluster in the environment",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if envfilePath == "" {
-				return fmt.Errorf("--envfile is required")
-			}
-			env, err := envfile.Load(envfilePath)
+			env, err := loadEnv()
 			if err != nil {
 				return err
 			}
-			fmt.Print(envfile.Tree(env))
+
+			prov := newMinikubeProvider()
+
+			for _, prof := range env.Profiles {
+				st, err := prov.Status(cmd.Context(), prof.Name)
+				if err != nil {
+					fmt.Fprintf(cmd.OutOrStdout(), "cluster/%s: error: %v\n", prof.Name, err)
+					continue
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "cluster/%s: %s\n", prof.Name, st)
+			}
 			return nil
 		},
 	}
