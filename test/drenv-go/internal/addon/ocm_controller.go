@@ -6,8 +6,8 @@ package addon
 // ocm-controller deploys the OCM controller, mirroring the Python
 // addons/ocm/controller/start.py.
 //
-// The addon is registered under the name "ocm/controller" to match the
-// Python package path (ocm/controller).
+// The addon is registered under the name "ocm-controller" to match the addon
+// name used in the environment files.
 //
 // Steps (serial):
 //  1. apply -k <AddonsDir>/ocm/controller/start-data
@@ -24,7 +24,7 @@ import (
 const ocmControllerRolloutTimeout = 5 * time.Minute
 
 func init() {
-	Register("ocm/controller", buildOCMController)
+	Register("ocm-controller", buildOCMController)
 }
 
 func buildOCMController(d Deps, cluster string, _ []string) ensure.Step {

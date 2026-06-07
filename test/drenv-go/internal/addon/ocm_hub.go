@@ -61,7 +61,7 @@ const (
 )
 
 func init() {
-	Register("ocm/hub", buildOCMHub)
+	Register("ocm-hub", buildOCMHub)
 }
 
 func buildOCMHub(d Deps, cluster string, _ []string) ensure.Step {

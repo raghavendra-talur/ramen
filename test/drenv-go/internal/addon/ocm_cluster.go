@@ -83,7 +83,7 @@ type hubTokenOutput struct {
 }
 
 func init() {
-	Register("ocm/cluster", buildOCMCluster)
+	Register("ocm-cluster", buildOCMCluster)
 }
 
 func buildOCMCluster(d Deps, cluster string, args []string) ensure.Step {
