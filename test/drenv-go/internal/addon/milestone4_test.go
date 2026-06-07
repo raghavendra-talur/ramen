@@ -10,6 +10,7 @@ package addon_test
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -325,47 +326,78 @@ func TestOCMHubArgv(t *testing.T) {
 // cluster = "dr1", hub = args[0] = "hub".
 //
 // Call count:
-//   - wait_for_hub: (7+4) deployments * 2 = 22
+//   - wait_for_hub: 2 namespace waits + (7+4) deployments * 2 = 2 + 22 = 24
 //   - join: 1 clusteradm get token + 1 clusteradm join = 2
 //   - wait_for_managed_cluster: 1 wait-create + 1 wait-hubAcceptsClient + 3 conditions = 5
 //   - label: 1
 //   - enable_addons: 1
 //   - wait addon deployments: 3 addons * 2 = 6
 //
-// Total: 22 + 2 + 5 + 1 + 1 + 6 = 37
+// Total: 24 + 2 + 5 + 1 + 1 + 6 = 39
+//
+// Hub-wait call layout (offset 0):
+//
+//	[0]  wait namespace/open-cluster-management --for=create
+//	[1]  wait deploy/cluster-manager --for=create in open-cluster-management
+//	[2]  rollout deploy/cluster-manager
+//	...  (6 more deployment pairs for open-cluster-management, indices 3–14)
+//	[15] wait namespace/open-cluster-management-hub --for=create
+//	[16] wait deploy/cluster-manager-placement-controller --for=create
+//	[17] rollout deploy/cluster-manager-placement-controller
+//	...  (3 more deployment pairs, indices 18–23)
 func TestOCMClusterArgv(t *testing.T) {
 	f := &cli.FakeRunner{}
 
-	// Script the clusteradm get token call to return parseable JSON.
-	// Call order: 22 kubectl waits/rollouts for hub, then get token at call[22].
-	hubDeploymentCalls := (7 + 4) * 2 // 22
-	for i := 0; i < hubDeploymentCalls; i++ {
+	// Script the hub-wait calls to succeed.
+	// Layout: 1 ns-wait + 7*2 deploy waits for open-cluster-management
+	//       + 1 ns-wait + 4*2 deploy waits for open-cluster-management-hub
+	hubWaitCalls := 1 + (7 * 2) + 1 + (4 * 2) // 24
+	for i := 0; i < hubWaitCalls; i++ {
 		f.Script(cli.FakeResult{}) // kubectl wait/rollout — success
 	}
-	// call[22]: clusteradm get token
+	// call[24]: clusteradm get token
 	f.Script(cli.FakeResult{Out: `{"hub-token":"tok123","hub-apiserver":"https://192.168.1.1:6443"}`})
 	// Remaining calls: default (nil error, empty output)
 
 	runStepFull(t, f, "/fake/addons", "testenv", "ocm/cluster", "dr1", []string{"hub"})
 
-	expected := 22 + 2 + 5 + 1 + 1 + 6
+	expected := 24 + 2 + 5 + 1 + 1 + 6
 	if len(f.Calls) != expected {
 		t.Fatalf("expected %d calls, got %d:\n%s", expected, len(f.Calls), dumpCalls(f))
 	}
 
-	// call[0..21]: hub deployment wait/rollout on hub context
-	assertCallContains(t, "first-hub-wait", f, 0,
+	// call[0]: wait namespace/open-cluster-management --for=create on hub
+	assertCallContains(t, "wait-ns-ocm", f, 0,
+		"--context", "hub",
+		"wait", "namespace/open-cluster-management", "--for=create",
+	)
+
+	// call[1]: first deploy wait in open-cluster-management
+	assertCallContains(t, "first-hub-deploy-wait", f, 1,
 		"--context", "hub", "-n", "open-cluster-management",
 		"wait", "deploy/cluster-manager", "--for=create",
 	)
 
-	// call[22]: clusteradm get token
-	assertCall(t, "get-token", f, hubDeploymentCalls, "clusteradm", []string{
+	// call[15]: wait namespace/open-cluster-management-hub --for=create on hub
+	// offset: 1 (ns-wait) + 7*2 (deploy pairs) = 15
+	assertCallContains(t, "wait-ns-ocm-hub", f, 15,
+		"--context", "hub",
+		"wait", "namespace/open-cluster-management-hub", "--for=create",
+	)
+
+	// call[16]: first deploy wait in open-cluster-management-hub
+	assertCallContains(t, "first-hub-deploy-wait-hub-ns", f, 16,
+		"--context", "hub", "-n", "open-cluster-management-hub",
+		"wait", "deploy/cluster-manager-placement-controller", "--for=create",
+	)
+
+	// call[24]: clusteradm get token
+	assertCall(t, "get-token", f, hubWaitCalls, "clusteradm", []string{
 		"get", "token", "--output=json", "--context", "hub",
 	})
 
-	// call[23]: clusteradm join
-	assertCall(t, "join", f, hubDeploymentCalls+1, "clusteradm", []string{
+	// call[25]: clusteradm join
+	assertCall(t, "join", f, hubWaitCalls+1, "clusteradm", []string{
 		"join",
 		"--hub-token=tok123",
 		"--hub-apiserver=https://192.168.1.1:6443",
@@ -373,64 +405,64 @@ func TestOCMClusterArgv(t *testing.T) {
 		"--context", "dr1",
 	})
 
-	// call[24]: wait managedcluster/dr1 --for=create (180s) on hub
-	assertCallContains(t, "wait-mc-create", f, hubDeploymentCalls+2,
+	// call[26]: wait managedcluster/dr1 --for=create (180s) on hub
+	assertCallContains(t, "wait-mc-create", f, hubWaitCalls+2,
 		"--context", "hub",
 		"wait", "managedcluster/dr1", "--for=create",
 	)
 
-	// call[25]: wait managedcluster/dr1 --for=jsonpath={.spec.hubAcceptsClient}=true on hub
-	assertCallContains(t, "wait-mc-hubAcceptsClient", f, hubDeploymentCalls+3,
+	// call[27]: wait managedcluster/dr1 --for=jsonpath={.spec.hubAcceptsClient}=true on hub
+	assertCallContains(t, "wait-mc-hubAcceptsClient", f, hubWaitCalls+3,
 		"--context", "hub",
 		"wait", "managedcluster/dr1",
 		"--for=jsonpath={.spec.hubAcceptsClient}=true",
 	)
 
-	// call[26]: wait --for=condition=HubAcceptedManagedCluster
-	assertCallContains(t, "wait-HubAccepted", f, hubDeploymentCalls+4,
+	// call[28]: wait --for=condition=HubAcceptedManagedCluster
+	assertCallContains(t, "wait-HubAccepted", f, hubWaitCalls+4,
 		"--context", "hub",
 		"wait", "managedcluster/dr1",
 		"--for=condition=HubAcceptedManagedCluster",
 	)
 
-	// call[27]: wait --for=condition=ManagedClusterJoined
-	assertCallContains(t, "wait-Joined", f, hubDeploymentCalls+5,
+	// call[29]: wait --for=condition=ManagedClusterJoined
+	assertCallContains(t, "wait-Joined", f, hubWaitCalls+5,
 		"--context", "hub",
 		"wait", "managedcluster/dr1",
 		"--for=condition=ManagedClusterJoined",
 	)
 
-	// call[28]: wait --for=condition=ManagedClusterConditionAvailable
-	assertCallContains(t, "wait-Available", f, hubDeploymentCalls+6,
+	// call[30]: wait --for=condition=ManagedClusterConditionAvailable
+	assertCallContains(t, "wait-Available", f, hubWaitCalls+6,
 		"--context", "hub",
 		"wait", "managedcluster/dr1",
 		"--for=condition=ManagedClusterConditionAvailable",
 	)
 
-	// call[29]: kubectl label managedclusters/dr1 name=dr1 --overwrite on hub
-	assertCall(t, "label-cluster", f, hubDeploymentCalls+7, "kubectl", []string{
+	// call[31]: kubectl label managedclusters/dr1 name=dr1 --overwrite on hub
+	assertCall(t, "label-cluster", f, hubWaitCalls+7, "kubectl", []string{
 		"--context", "hub",
 		"label", "managedclusters/dr1", "name=dr1",
 		"--overwrite",
 	})
 
-	// call[30]: clusteradm addon enable
-	assertCall(t, "enable-addons", f, hubDeploymentCalls+8, "clusteradm", []string{
+	// call[32]: clusteradm addon enable
+	assertCall(t, "enable-addons", f, hubWaitCalls+8, "clusteradm", []string{
 		"addon", "enable",
 		"--names=application-manager,governance-policy-framework,config-policy-controller",
 		"--clusters=dr1",
 		"--context", "hub",
 	})
 
-	// call[31]: wait deploy/application-manager create in open-cluster-management-agent-addon on dr1
-	assertCallContains(t, "wait-addon-create-application-manager", f, hubDeploymentCalls+9,
+	// call[33]: wait deploy/application-manager create in open-cluster-management-agent-addon on dr1
+	assertCallContains(t, "wait-addon-create-application-manager", f, hubWaitCalls+9,
 		"--context", "dr1",
 		"-n", "open-cluster-management-agent-addon",
 		"wait", "deploy/application-manager", "--for=create",
 	)
 
-	// call[32]: rollout status deploy/application-manager on dr1
-	assertCallContains(t, "rollout-application-manager", f, hubDeploymentCalls+10,
+	// call[34]: rollout status deploy/application-manager on dr1
+	assertCallContains(t, "rollout-application-manager", f, hubWaitCalls+10,
 		"--context", "dr1",
 		"-n", "open-cluster-management-agent-addon",
 		"rollout", "status", "deploy/application-manager",
@@ -451,6 +483,16 @@ func TestOCMClusterArgv(t *testing.T) {
 // so each cluster contributes: 1 get + 1 annotate + 1 join + 6 wait/rollout = 9.
 // Total: 3 + 2*9 = 21.
 func TestSubmarinerArgv(t *testing.T) {
+	// The deploy-broker step calls os.Rename("broker-info.subm", brokerInfoPath)
+	// after subctl returns. Chdir to a temp directory so the rename has a
+	// source file to move and does not touch the package tree.
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+	// Create the source file that subctl would normally produce.
+	if err := os.WriteFile(filepath.Join(tmp, "broker-info.subm"), []byte("fake"), 0o600); err != nil {
+		t.Fatalf("setup broker-info.subm: %v", err)
+	}
+
 	f := &cli.FakeRunner{}
 
 	nodeJSON := `{"items":[{"metadata":{"name":"node1"},"status":{"addresses":[{"type":"InternalIP","address":"10.0.0.2"}]}}]}`
@@ -662,5 +704,64 @@ func TestArgocdArgv(t *testing.T) {
 	// call[11]: argocd cluster add dr2 -y
 	if !reflect.DeepEqual(f.Calls[11].Args, []string{"cluster", "add", "dr2", "-y"}) {
 		t.Errorf("call[11] args=%v, want [cluster add dr2 -y]", f.Calls[11].Args)
+	}
+}
+
+// TestArgocdClusterAddNOAUTHSuppressed verifies that an *exec.ExitError with
+// exit code 20 returned by argocd cluster add is silently suppressed, mirroring
+// the Python workaround for https://github.com/argoproj/argo-cd/issues/18464.
+func TestArgocdClusterAddNOAUTHSuppressed(t *testing.T) {
+	// Build a real *exec.ExitError with exit code 20 by running a short-lived
+	// subprocess — the only portable way to obtain one.
+	cmd := exec.Command("sh", "-c", "exit 20")
+	exitErr, ok := cmd.Run().(*exec.ExitError)
+	if !ok {
+		t.Fatal("could not construct *exec.ExitError with code 20")
+	}
+
+	addonsDir := "/fake/addons"
+	f := &cli.FakeRunner{}
+
+	f.Script(cli.FakeResult{})                        // apply
+	f.Script(cli.FakeResult{})                        // wait
+	f.Script(cli.FakeResult{Out: "apiVersion: v1\n"}) // config view (dr1)
+	f.Script(cli.FakeResult{})                        // config use-context (dr1)
+	f.Script(cli.FakeResult{})                        // config set-context (dr1)
+	f.Script(cli.FakeResult{})                        // argocd login (dr1)
+	f.Script(cli.FakeResult{Err: exitErr})            // argocd cluster add → NOAUTH exit 20
+
+	// Ensure must succeed: exit 20 is suppressed.
+	runStepFull(t, f, addonsDir, "myenv", "argocd", "", []string{"hub", "dr1"})
+}
+
+// TestArgocdClusterAddOtherErrorPropagated verifies that exit codes other than
+// 20 are NOT suppressed by the NOAUTH workaround.
+func TestArgocdClusterAddOtherErrorPropagated(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "exit 1")
+	exitErr, ok := cmd.Run().(*exec.ExitError)
+	if !ok {
+		t.Fatal("could not construct *exec.ExitError with code 1")
+	}
+
+	addonsDir := "/fake/addons"
+	f := &cli.FakeRunner{}
+
+	f.Script(cli.FakeResult{})                        // apply
+	f.Script(cli.FakeResult{})                        // wait
+	f.Script(cli.FakeResult{Out: "apiVersion: v1\n"}) // config view (dr1)
+	f.Script(cli.FakeResult{})                        // config use-context (dr1)
+	f.Script(cli.FakeResult{})                        // config set-context (dr1)
+	f.Script(cli.FakeResult{})                        // argocd login (dr1)
+	f.Script(cli.FakeResult{Err: exitErr})            // argocd cluster add → exit 1
+
+	b, ok := addon.Lookup("argocd")
+	if !ok {
+		t.Fatal("argocd addon not registered")
+	}
+	d := testDepsFull(f, addonsDir, "myenv")
+	step := b(d, "", []string{"hub", "dr1"})
+	_, err := ensure.Ensure(context.Background(), step, d.Opts)
+	if err == nil {
+		t.Error("expected error for exit code 1, got nil")
 	}
 }

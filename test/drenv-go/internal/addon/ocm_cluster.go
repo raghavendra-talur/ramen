@@ -93,9 +93,18 @@ func buildOCMCluster(d Deps, cluster string, args []string) ensure.Step {
 	hub := args[0]
 
 	// --- wait_for_hub steps ---
+	// Mirror Python wait_for_hub: wait for each namespace to exist before
+	// waiting for the deployments within it.
 	var hubWaitSteps []ensure.Step
 	for _, ns := range ocmClusterHubDeployments {
-		namespace := ns.namespace
+		namespace := ns.namespace // capture
+		// Wait for the namespace to be created before probing deployments inside it.
+		// Mirrors: kubectl.wait("namespace/<ns>", "--for=create", context=hub)
+		hubWaitSteps = append(hubWaitSteps,
+			newApplyStep("wait-hub-namespace/"+namespace, func(ctx context.Context) error {
+				return d.K.WaitFor(ctx, hub, "", "create", ocmClusterWaitTimeout, "namespace/"+namespace)
+			}),
+		)
 		for _, dep := range ns.deployments {
 			depName := dep // capture
 			resource := "deploy/" + depName
