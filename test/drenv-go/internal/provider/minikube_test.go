@@ -1,0 +1,244 @@
+// SPDX-FileCopyrightText: The RamenDR authors
+// SPDX-License-Identifier: Apache-2.0
+
+package provider_test
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"testing"
+
+	"github.com/ramendr/ramen/test/drenv-go/internal/cli"
+	"github.com/ramendr/ramen/test/drenv-go/internal/envfile"
+	"github.com/ramendr/ramen/test/drenv-go/internal/provider"
+)
+
+// statusJSON builds a minimal minikube status JSON payload.
+func runningJSON(name string) string {
+	return `{"Name":"` + name + `","Host":"Running","APIServer":"Running","Kubelet":"Running"}`
+}
+
+func stoppedJSON(name string) string {
+	return `{"Name":"` + name + `","Host":"Stopped","APIServer":"Stopped","Kubelet":"Stopped"}`
+}
+
+func unknownJSON(name string) string {
+	return `{"Name":"` + name + `","Host":"Starting","APIServer":"Paused","Kubelet":"Running"}`
+}
+
+const notFoundOutput = `❌  Profile "dr1" not found.`
+
+// newProvider is a test helper that wires a FakeRunner into MinikubeProvider.
+func newProvider(f *cli.FakeRunner) provider.MinikubeProvider {
+	return provider.MinikubeProvider{MK: &cli.Minikube{R: f}}
+}
+
+// ---- Status mapping table ----
+
+func TestMinikubeProviderStatusRunning(t *testing.T) {
+	f := &cli.FakeRunner{}
+	f.Script(cli.FakeResult{Out: runningJSON("dr1")})
+	p := newProvider(f)
+
+	s, err := p.Status(context.Background(), "dr1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if s != provider.StatusRunning {
+		t.Errorf("Status = %s, want running", s)
+	}
+}
+
+func TestMinikubeProviderStatusStopped(t *testing.T) {
+	f := &cli.FakeRunner{}
+	f.Script(cli.FakeResult{Out: stoppedJSON("dr1")})
+	p := newProvider(f)
+
+	s, err := p.Status(context.Background(), "dr1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if s != provider.StatusStopped {
+		t.Errorf("Status = %s, want stopped", s)
+	}
+}
+
+func TestMinikubeProviderStatusNotFound(t *testing.T) {
+	f := &cli.FakeRunner{}
+	f.Script(cli.FakeResult{Out: notFoundOutput})
+	p := newProvider(f)
+
+	s, err := p.Status(context.Background(), "dr1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if s != provider.StatusNotFound {
+		t.Errorf("Status = %s, want not-found", s)
+	}
+}
+
+func TestMinikubeProviderStatusUnknown(t *testing.T) {
+	f := &cli.FakeRunner{}
+	f.Script(cli.FakeResult{Out: unknownJSON("dr1")})
+	p := newProvider(f)
+
+	s, err := p.Status(context.Background(), "dr1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if s != provider.StatusUnknown {
+		t.Errorf("Status = %s, want unknown", s)
+	}
+}
+
+func TestMinikubeProviderStatusPropagatesError(t *testing.T) {
+	// When cli.Minikube.Status returns a non-nil error with non-empty Host,
+	// MinikubeProvider.Status should propagate the error as StatusUnknown.
+	// We can't easily produce that scenario via FakeRunner directly because
+	// minikube.go converts "not found" to (empty, nil). So instead we simulate
+	// the case by scripting a real JSON plus an error (no notFoundMarker).
+	sentinelErr := errors.New("some connection error")
+	f := &cli.FakeRunner{}
+	// Output returns a non-zero status without the "not found" marker, so
+	// cli.Minikube will propagate the error as-is.
+	f.Script(cli.FakeResult{Out: `{"Name":"dr1","Host":"Running","APIServer":"Running"}`, Err: sentinelErr})
+	p := newProvider(f)
+
+	_, err := p.Status(context.Background(), "dr1")
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+}
+
+// ---- Start argv tests ----
+
+func TestMinikubeProviderStartFullProfile(t *testing.T) {
+	f := &cli.FakeRunner{}
+	p := newProvider(f)
+
+	prof := envfile.Profile{
+		Name:    "dr1",
+		Driver:  "kvm2",
+		Network: "mynet",
+		CPUs:    4,
+		Memory:  "8192m",
+	}
+	if err := p.Start(context.Background(), prof); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(f.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(f.Calls))
+	}
+	c := f.Calls[0]
+	want := []string{"start", "-p", "dr1", "--driver", "kvm2", "--network", "mynet", "--cpus", "4", "--memory", "8192m"}
+	if !reflect.DeepEqual(c.Args, want) {
+		t.Errorf("args = %v, want %v", c.Args, want)
+	}
+}
+
+func TestMinikubeProviderStartOmitsPlaceholderDriver(t *testing.T) {
+	f := &cli.FakeRunner{}
+	p := newProvider(f)
+
+	prof := envfile.Profile{
+		Name:   "dr1",
+		Driver: "$vm", // unresolved placeholder — should be omitted
+		CPUs:   2,
+		Memory: "4096m",
+	}
+	if err := p.Start(context.Background(), prof); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	c := f.Calls[0]
+	want := []string{"start", "-p", "dr1", "--cpus", "2", "--memory", "4096m"}
+	if !reflect.DeepEqual(c.Args, want) {
+		t.Errorf("args = %v, want %v", c.Args, want)
+	}
+}
+
+func TestMinikubeProviderStartOmitsPlaceholderNetwork(t *testing.T) {
+	f := &cli.FakeRunner{}
+	p := newProvider(f)
+
+	prof := envfile.Profile{
+		Name:    "dr1",
+		Driver:  "kvm2",
+		Network: "$network", // unresolved placeholder — should be omitted
+		CPUs:    2,
+		Memory:  "4096m",
+	}
+	if err := p.Start(context.Background(), prof); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	c := f.Calls[0]
+	want := []string{"start", "-p", "dr1", "--driver", "kvm2", "--cpus", "2", "--memory", "4096m"}
+	if !reflect.DeepEqual(c.Args, want) {
+		t.Errorf("args = %v, want %v", c.Args, want)
+	}
+}
+
+func TestMinikubeProviderStartMinimal(t *testing.T) {
+	// Only name set; no driver/network/cpus/memory — just "-p <name>".
+	f := &cli.FakeRunner{}
+	p := newProvider(f)
+
+	prof := envfile.Profile{Name: "dr1"}
+	if err := p.Start(context.Background(), prof); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	c := f.Calls[0]
+	want := []string{"start", "-p", "dr1"}
+	if !reflect.DeepEqual(c.Args, want) {
+		t.Errorf("args = %v, want %v", c.Args, want)
+	}
+}
+
+// ---- Exists tests ----
+
+func TestMinikubeProviderExistsTrue(t *testing.T) {
+	f := &cli.FakeRunner{}
+	f.Script(cli.FakeResult{Out: runningJSON("dr1")})
+	p := newProvider(f)
+
+	ok, err := p.Exists(context.Background(), "dr1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Errorf("Exists = false, want true")
+	}
+}
+
+func TestMinikubeProviderExistsFalse(t *testing.T) {
+	f := &cli.FakeRunner{}
+	f.Script(cli.FakeResult{Out: notFoundOutput})
+	p := newProvider(f)
+
+	ok, err := p.Exists(context.Background(), "dr1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ok {
+		t.Errorf("Exists = true, want false")
+	}
+}
+
+// ---- Status String() tests ----
+
+func TestStatusString(t *testing.T) {
+	cases := []struct {
+		s    provider.Status
+		want string
+	}{
+		{provider.StatusRunning, "running"},
+		{provider.StatusStopped, "stopped"},
+		{provider.StatusNotFound, "not-found"},
+		{provider.StatusUnknown, "unknown"},
+	}
+	for _, tc := range cases {
+		if got := tc.s.String(); got != tc.want {
+			t.Errorf("Status(%d).String() = %q, want %q", tc.s, got, tc.want)
+		}
+	}
+}
