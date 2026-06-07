@@ -28,6 +28,11 @@ type Runner interface {
 	// non-nil, so callers can inspect failure text (e.g. to distinguish a
 	// "not found" exit from a real failure).
 	Output(ctx context.Context, name string, args ...string) (string, error)
+
+	// RunStdin executes name with args, feeding stdin as the command's standard
+	// input and wiring stdout/stderr to the process's own descriptors. It
+	// returns a non-nil error when the command exits with a non-zero status.
+	RunStdin(ctx context.Context, stdin string, name string, args ...string) error
 }
 
 // Exec is the real Runner that shells out via os/exec.CommandContext.
@@ -59,6 +64,17 @@ func (Exec) Output(ctx context.Context, name string, args ...string) (string, er
 		return out, fmt.Errorf("%s: %w", cmdLine(name, args), err)
 	}
 	return out, nil
+}
+
+// RunStdin executes name with args, feeding stdin as the command's standard
+// input. Stdout and stderr are wired to the current process's file descriptors
+// so the caller sees live output. A non-zero exit status is returned as an error.
+func (Exec) RunStdin(ctx context.Context, stdin string, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Stdin = strings.NewReader(stdin)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // cmdLine formats a command name and its arguments as a single string for
