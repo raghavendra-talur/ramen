@@ -12,7 +12,8 @@ import (
 type Call struct {
 	Name  string
 	Args  []string
-	Stdin string // non-empty only for RunStdin calls
+	Stdin string   // non-empty only for RunStdin calls
+	Env   []string // non-nil only for RunEnv calls
 }
 
 // FakeResult is a scripted (output, error) pair that FakeRunner will return
@@ -88,5 +89,13 @@ func (f *FakeRunner) RunStdin(_ context.Context, stdin string, name string, args
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.Calls = append(f.Calls, Call{Name: name, Args: args, Stdin: stdin})
+	return f.nextResult().Err
+}
+
+// RunEnv records the call (including env) and returns the next scripted error (if any).
+func (f *FakeRunner) RunEnv(_ context.Context, env []string, name string, args ...string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Calls = append(f.Calls, Call{Name: name, Args: args, Env: env})
 	return f.nextResult().Err
 }
