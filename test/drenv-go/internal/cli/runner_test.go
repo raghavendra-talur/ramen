@@ -6,6 +6,7 @@ package cli_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/cli"
@@ -47,6 +48,21 @@ func TestExecOutputError(t *testing.T) {
 	_, err := e.Output(ctx, "false")
 	if err == nil {
 		t.Fatal("expected error from false, got nil")
+	}
+}
+
+// TestExecOutputPreservesOutputOnError pins the contract that Output returns the
+// captured text even on a non-zero exit (Minikube.Status relies on this to read
+// the "not found" message minikube prints when it fails).
+func TestExecOutputPreservesOutputOnError(t *testing.T) {
+	ctx := context.Background()
+	e := cli.Exec{}
+	out, err := e.Output(ctx, "sh", "-c", `echo "not found"; exit 1`)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(out, "not found") {
+		t.Fatalf("expected output to contain failure text, got %q", out)
 	}
 }
 
