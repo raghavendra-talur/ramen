@@ -14,6 +14,9 @@ type ConsoleReporter struct {
 	W io.Writer
 }
 
+var _ Reporter = ConsoleReporter{}
+
+// Start is a no-op: a checkpoint line is only emitted once its outcome is known.
 func (c ConsoleReporter) Start(name string) {}
 
 func (c ConsoleReporter) Skipped(name string, d time.Duration) {
