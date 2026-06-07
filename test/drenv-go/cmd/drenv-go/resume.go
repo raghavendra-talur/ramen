@@ -27,13 +27,13 @@ func newResumeCommand() *cobra.Command {
 				return err
 			}
 
-			prov := newMinikubeProvider()
+			sel := newProviderSelector()
 			ctx := cmd.Context()
 
 			var errs []error
 			for _, prof := range env.Profiles {
 				fmt.Fprintf(cmd.OutOrStdout(), "resuming %s\n", prof.Name)
-				if err := prov.Resume(ctx, prof.Name); err != nil {
+				if err := sel(prof).Resume(ctx, prof.Name); err != nil {
 					errs = append(errs, fmt.Errorf("profile %s: %w", prof.Name, err))
 				}
 			}

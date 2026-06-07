@@ -372,3 +372,50 @@ func TestKubectlApplyServerSideKustomizeDirIssuesCorrectArgv(t *testing.T) {
 		t.Errorf("args = %v, want %v", c.Args, want)
 	}
 }
+
+func TestKubectlGetRawIssuesCorrectArgv(t *testing.T) {
+	ctx := context.Background()
+	f := &cli.FakeRunner{}
+	f.Script(cli.FakeResult{Out: "ok"})
+	k := cli.Kubectl{R: f}
+
+	out, err := k.GetRaw(ctx, "ext1", "/readyz")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(f.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(f.Calls))
+	}
+	c := f.Calls[0]
+	want := []string{"--context", "ext1", "get", "--raw", "/readyz"}
+	if !reflect.DeepEqual(c.Args, want) {
+		t.Errorf("args = %v, want %v", c.Args, want)
+	}
+	if out != "ok" {
+		t.Errorf("output = %q, want %q", out, "ok")
+	}
+}
+
+func TestKubectlClusterInfoDumpIssuesCorrectArgv(t *testing.T) {
+	ctx := context.Background()
+	f := &cli.FakeRunner{}
+	k := cli.Kubectl{R: f}
+
+	if err := k.ClusterInfoDump(ctx, "dr1", "/tmp/gather/dr1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(f.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(f.Calls))
+	}
+	c := f.Calls[0]
+	want := []string{
+		"--context", "dr1",
+		"cluster-info", "dump",
+		"--output-directory=/tmp/gather/dr1",
+		"--all-namespaces",
+		"--output=yaml",
+	}
+	if !reflect.DeepEqual(c.Args, want) {
+		t.Errorf("args = %v, want %v", c.Args, want)
+	}
+}

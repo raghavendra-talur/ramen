@@ -88,7 +88,7 @@ func TestStartTreeShape(t *testing.T) {
 	fp.setStatus("dr1", provider.StatusRunning)
 	opts := smallOpts()
 
-	step := build.Start(env, fp, addon.Deps{Opts: opts}, opts)
+	step := build.Start(env, uniformSelector(fp), addon.Deps{Opts: opts}, opts)
 
 	// Top-level group: env name, serial.
 	top := asGroup(t, step, "top")
@@ -201,7 +201,7 @@ func TestStartUnregisteredAddonBecomesNoop(t *testing.T) {
 	opts := smallOpts()
 
 	// Should not panic.
-	step := build.Start(env, fp, addon.Deps{Opts: opts}, opts)
+	step := build.Start(env, uniformSelector(fp), addon.Deps{Opts: opts}, opts)
 
 	// Dig down to the addon step.
 	top := asGroup(t, step, "top")
@@ -229,7 +229,7 @@ func TestStartProfileWithNoWorkers(t *testing.T) {
 	fp.setStatus("hub", provider.StatusRunning)
 	opts := smallOpts()
 
-	step := build.Start(env, fp, addon.Deps{Opts: opts}, opts)
+	step := build.Start(env, uniformSelector(fp), addon.Deps{Opts: opts}, opts)
 
 	top := asGroup(t, step, "top")
 	// No global workers → only "profiles" child.

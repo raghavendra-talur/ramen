@@ -21,10 +21,11 @@ func newStatusCommand() *cobra.Command {
 				return err
 			}
 
-			prov := newMinikubeProvider()
+			sel := newProviderSelector()
 
 			// Print cluster status for each profile.
 			for _, prof := range env.Profiles {
+				prov := sel(prof)
 				st, err := prov.Status(cmd.Context(), prof.Name)
 				if err != nil {
 					fmt.Fprintf(cmd.OutOrStdout(), "cluster/%s: error: %v\n", prof.Name, err)

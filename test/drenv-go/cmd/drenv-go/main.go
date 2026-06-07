@@ -30,6 +30,7 @@ func main() {
 	root.AddCommand(newSuspendCommand())
 	root.AddCommand(newResumeCommand())
 	root.AddCommand(newDumpCommand())
+	root.AddCommand(newGatherCommand())
 
 	// cobra already prints the error (and usage) to stderr; just set the exit code.
 	if err := root.Execute(); err != nil {
