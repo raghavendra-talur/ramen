@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+---
+name: sample
+ramen:
+  hub: hub
+  clusters: [dr1, dr2]
+  topology: regional-dr
+templates:
+  - name: dr-cluster
+    driver: "$vm"
+    network: "$network"
+    cpus: 4
+    memory: "8g"
+    workers:
+      - addons:
+          - name: rook-operator
+          - name: ocm-cluster
+            args: ["$name", "hub"]
+  - name: hub-cluster
+    driver: "$vm"
+    cpus: 2
+    memory: "6g"
+    workers:
+      - addons:
+          - name: ocm-hub
+profiles:
+  - name: dr1
+    template: dr-cluster
+  - name: dr2
+    template: dr-cluster
+  - name: hub
+    template: hub-cluster
+workers:
+  - addons:
+      - name: rbd-mirror
+        args: ["dr1", "dr2"]
