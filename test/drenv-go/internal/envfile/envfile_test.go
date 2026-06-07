@@ -75,16 +75,30 @@ func TestLoadParsesGlobalWorkers(t *testing.T) {
 }
 
 func TestLoadUnknownTemplateErrors(t *testing.T) {
-	_, err := Load("testdata/sample.yaml")
-	if err != nil {
-		return // sample is valid; this guards the error path indirectly below
-	}
-	// Build an env referencing a missing template and expand directly.
+	// A profile referencing a template that does not exist is an error.
 	e := &Env{
 		Profiles: []Profile{{Name: "x", Template: "nope"}},
 	}
 	if err := e.expand(); err == nil || !strings.Contains(err.Error(), "unknown template") {
 		t.Fatalf("expected unknown template error, got %v", err)
+	}
+}
+
+func TestApplyTemplateProfileOverrides(t *testing.T) {
+	// A field set on the profile wins over the template's value.
+	e := &Env{
+		Templates: []Template{{Name: "base", Driver: "$vm", CPUs: 4}},
+		Profiles:  []Profile{{Name: "p", Template: "base", Driver: "custom", CPUs: 2}},
+	}
+	if err := e.expand(); err != nil {
+		t.Fatalf("expand: %v", err)
+	}
+	p := e.Profiles[0]
+	if p.Driver != "custom" {
+		t.Fatalf("Driver = %q, want custom (profile overrides template)", p.Driver)
+	}
+	if p.CPUs != 2 {
+		t.Fatalf("CPUs = %d, want 2 (profile overrides template)", p.CPUs)
 	}
 }
 
