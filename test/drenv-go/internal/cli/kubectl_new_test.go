@@ -329,3 +329,24 @@ func TestRunStdinFakeRunnerScriptedError(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 }
+
+func TestKubectlApplyServerSideKustomizeDirIssuesCorrectArgv(t *testing.T) {
+	ctx := context.Background()
+	f := &cli.FakeRunner{}
+	k := cli.Kubectl{R: f}
+
+	if err := k.ApplyServerSideKustomizeDir(ctx, "hub", "/addons/olm/start-data/crds"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(f.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(f.Calls))
+	}
+	c := f.Calls[0]
+	want := []string{
+		"--context", "hub",
+		"apply", "--server-side=true", "--kustomize", "/addons/olm/start-data/crds",
+	}
+	if !reflect.DeepEqual(c.Args, want) {
+		t.Errorf("args = %v, want %v", c.Args, want)
+	}
+}

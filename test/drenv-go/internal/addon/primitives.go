@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
 )
@@ -15,6 +16,9 @@ import (
 // applyStep is an ensure.Step that always runs its apply function (Done
 // returns false). This is correct for idempotent apply operations — kubectl
 // apply is safe to re-run every time.
+//
+// This type is kept for direct step-primitive tests in addon_test.go that
+// exercise Done=false semantics without going through ensure.Ensure.
 type applyStep struct {
 	name    string
 	applyFn func(ctx context.Context) error
@@ -29,9 +33,40 @@ func (s applyStep) Done(_ context.Context) (bool, error) { return false, nil }
 // Do executes the apply function.
 func (s applyStep) Do(ctx context.Context) error { return s.applyFn(ctx) }
 
-// newApplyStep returns an applyStep with the given name and apply function.
+// idempotentStep is an ensure.Step for idempotent operations (e.g. kubectl
+// apply, kubectl wait, rollout status). Its Done returns false initially so
+// the operation is always executed, and true after Do succeeds so
+// ensure.Ensure's post-Do verification completes immediately without timeout.
+//
+// This is the standard primitive for addon builders: use newApplyStep for
+// direct unit tests of step primitives, but use this type inside builder
+// functions that will be run through ensure.Ensure.
+type idempotentStep struct {
+	name    string
+	applyFn func(ctx context.Context) error
+	done    atomic.Bool
+}
+
+func (s *idempotentStep) Name() string { return s.name }
+
+// Done returns false until Do has been called successfully, then true.
+func (s *idempotentStep) Done(_ context.Context) (bool, error) { return s.done.Load(), nil }
+
+// Do executes the apply function and marks the step as done on success.
+func (s *idempotentStep) Do(ctx context.Context) error {
+	if err := s.applyFn(ctx); err != nil {
+		return err
+	}
+	s.done.Store(true)
+	return nil
+}
+
+// newApplyStep returns an idempotentStep: Done=false initially (always runs),
+// Done=true after Do completes (verification passes immediately). This is
+// correct for kubectl apply, kubectl wait, rollout status, and mc operations
+// which are idempotent and safe to re-run.
 func newApplyStep(name string, applyFn func(ctx context.Context) error) ensure.Step {
-	return applyStep{name: name, applyFn: applyFn}
+	return &idempotentStep{name: name, applyFn: applyFn}
 }
 
 // waitStep is an ensure.Step whose Done checks a real readiness condition and

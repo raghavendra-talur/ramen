@@ -7,6 +7,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/ramendr/ramen/test/drenv-go/internal/envfile"
 )
 
 func newStatusCommand() *cobra.Command {
@@ -21,6 +23,7 @@ func newStatusCommand() *cobra.Command {
 
 			prov := newMinikubeProvider()
 
+			// Print cluster status for each profile.
 			for _, prof := range env.Profiles {
 				st, err := prov.Status(cmd.Context(), prof.Name)
 				if err != nil {
@@ -29,6 +32,12 @@ func newStatusCommand() *cobra.Command {
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "cluster/%s: %s\n", prof.Name, st)
 			}
+
+			// Print the full env tree (profiles → workers → addons) as a
+			// read-only structural view of what would be applied on start.
+			fmt.Fprintln(cmd.OutOrStdout())
+			fmt.Fprintln(cmd.OutOrStdout(), "Environment tree:")
+			fmt.Fprint(cmd.OutOrStdout(), envfile.Tree(env))
 			return nil
 		},
 	}

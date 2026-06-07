@@ -26,6 +26,16 @@ func (k Kubectl) ApplyServerSideFile(ctx context.Context, kubeContext, path stri
 	return k.R.Run(ctx, "kubectl", "--context", kubeContext, "apply", "--server-side=true", "--filename", path)
 }
 
+// ApplyServerSideKustomizeDir runs:
+//
+//	kubectl --context <kubeContext> apply --server-side=true --kustomize <dir>
+//
+// This is needed for large CRD bundles (e.g. OLM) where the annotation
+// exceeds the 262144-byte limit that client-side apply enforces.
+func (k Kubectl) ApplyServerSideKustomizeDir(ctx context.Context, kubeContext, dir string) error {
+	return k.R.Run(ctx, "kubectl", "--context", kubeContext, "apply", "--server-side=true", "--kustomize", dir)
+}
+
 // ApplyStdin runs `kubectl --context <kubeContext> apply --filename -` with manifest
 // supplied on stdin.
 func (k Kubectl) ApplyStdin(ctx context.Context, kubeContext string, manifest []byte) error {
