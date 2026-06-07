@@ -107,3 +107,35 @@ func TestGroupPropagatesError(t *testing.T) {
 		t.Fatalf("got %v, want Failed", res)
 	}
 }
+
+func TestGroupParallelPropagatesError(t *testing.T) {
+	var mu sync.Mutex
+	var rec []string
+	failing := &recordStep{name: "fail", rec: &rec, mu: &mu, doErr: errors.New("boom")}
+	ok := &recordStep{name: "ok", rec: &rec, mu: &mu}
+	g := NewGroup("grp", Parallel, testOpts(), failing, ok)
+
+	res, err := Ensure(context.Background(), g, testOpts())
+	if err == nil {
+		t.Fatal("expected error from parallel group, got nil")
+	}
+	if res != Failed {
+		t.Fatalf("got %v, want Failed", res)
+	}
+}
+
+func TestGroupDoneTrueWhenAllChildrenDone(t *testing.T) {
+	var mu sync.Mutex
+	var rec []string
+	a := &recordStep{name: "a", rec: &rec, mu: &mu, done: true}
+	b := &recordStep{name: "b", rec: &rec, mu: &mu, done: true}
+	g := NewGroup("grp", Serial, testOpts(), a, b)
+
+	ok, err := g.Done(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Fatal("group Done = false, want true (all children done)")
+	}
+}
