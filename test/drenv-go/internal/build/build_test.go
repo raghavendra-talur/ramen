@@ -78,6 +78,20 @@ func (f *fakeProvider) Delete(_ context.Context, profile string) error {
 
 func (f *fakeProvider) LoadImage(_ context.Context, _, _ string) error { return nil }
 
+func (f *fakeProvider) Suspend(_ context.Context, profile string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.statuses[profile] = provider.StatusStopped
+	return nil
+}
+
+func (f *fakeProvider) Resume(_ context.Context, profile string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.statuses[profile] = provider.StatusRunning
+	return nil
+}
+
 // testEnv returns a small inline Env with three profiles for testing.
 func testEnv() *envfile.Env {
 	return &envfile.Env{
@@ -168,6 +182,65 @@ func TestDeleteSkipsAbsentClusters(t *testing.T) {
 
 	// No statuses set → all NotFound already.
 	step := build.Delete(env, fp, opts)
+	res, err := ensure.Ensure(context.Background(), step, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res != ensure.Skipped {
+		t.Errorf("result = %s, want Skipped", res)
+	}
+}
+
+func TestStopMakesClustersStopped(t *testing.T) {
+	fp := newFakeProvider()
+	env := testEnv()
+	opts := smallOpts()
+
+	// Pre-seed all clusters as running so Stop has work to do.
+	for _, prof := range env.Profiles {
+		fp.setStatus(prof.Name, provider.StatusRunning)
+	}
+
+	step := build.Stop(env, fp, opts)
+	_, err := ensure.Ensure(context.Background(), step, opts)
+	if err != nil {
+		t.Fatalf("Ensure(Stop) unexpected error: %v", err)
+	}
+
+	for _, prof := range env.Profiles {
+		if got := fp.status(prof.Name); got != provider.StatusStopped {
+			t.Errorf("after Stop: profile %q status = %s, want stopped", prof.Name, got)
+		}
+	}
+}
+
+func TestStopSkipsAbsentClusters(t *testing.T) {
+	fp := newFakeProvider()
+	env := testEnv()
+	opts := smallOpts()
+
+	// No statuses set → all NotFound (treated as already stopped).
+	step := build.Stop(env, fp, opts)
+	res, err := ensure.Ensure(context.Background(), step, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res != ensure.Skipped {
+		t.Errorf("result = %s, want Skipped", res)
+	}
+}
+
+func TestStopSkipsAlreadyStoppedClusters(t *testing.T) {
+	fp := newFakeProvider()
+	env := testEnv()
+	opts := smallOpts()
+
+	// Pre-seed all clusters as already stopped.
+	for _, prof := range env.Profiles {
+		fp.setStatus(prof.Name, provider.StatusStopped)
+	}
+
+	step := build.Stop(env, fp, opts)
 	res, err := ensure.Ensure(context.Background(), step, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

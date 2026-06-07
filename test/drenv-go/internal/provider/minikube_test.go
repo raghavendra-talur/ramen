@@ -221,6 +221,42 @@ func TestMinikubeProviderExistsFalse(t *testing.T) {
 	}
 }
 
+// ---- Suspend / Resume argv tests ----
+
+func TestMinikubeProviderSuspendIssuesCorrectArgv(t *testing.T) {
+	f := &cli.FakeRunner{}
+	p := newProvider(f)
+
+	if err := p.Suspend(context.Background(), "dr1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(f.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(f.Calls))
+	}
+	c := f.Calls[0]
+	want := []string{"pause", "-p", "dr1"}
+	if !reflect.DeepEqual(c.Args, want) {
+		t.Errorf("args = %v, want %v", c.Args, want)
+	}
+}
+
+func TestMinikubeProviderResumeIssuesCorrectArgv(t *testing.T) {
+	f := &cli.FakeRunner{}
+	p := newProvider(f)
+
+	if err := p.Resume(context.Background(), "dr1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(f.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(f.Calls))
+	}
+	c := f.Calls[0]
+	want := []string{"unpause", "-p", "dr1"}
+	if !reflect.DeepEqual(c.Args, want) {
+		t.Errorf("args = %v, want %v", c.Args, want)
+	}
+}
+
 // ---- Status String() tests ----
 
 func TestStatusString(t *testing.T) {
