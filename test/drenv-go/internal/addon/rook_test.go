@@ -445,12 +445,19 @@ func TestRBDMirrorArgv(t *testing.T) {
 	f.Script(cli.FakeResult{Out: "token-secret-dr2"}) // [6] get peer secret name (dr2)
 	f.Script(cli.FakeResult{Out: "tokendr2b64=="})    // [7] get token from secret (dr2)
 
-	// Remaining calls: configure_mirroring×2, wait_ready×2, wait_healthy×2
-	// Default: nil error, empty output — sufficient for the fake
+	// configure_mirroring×2 (10 calls) + wait_ready×2 (4 calls): empty results.
+	for i := 0; i < 14; i++ {
+		f.Script(cli.FakeResult{})
+	}
+	// wait_healthy×2: each polls 3 summary fields, all must report OK so the
+	// health step's Done is satisfied on the first check.
+	for i := 0; i < 6; i++ {
+		f.Script(cli.FakeResult{Out: "OK"})
+	}
 
 	runStepFull(t, f, addonsDir, "testenv", "rbd-mirror", "", []string{"dr1", "dr2"})
 
-	expected := 24
+	expected := 28
 	if len(f.Calls) != expected {
 		t.Fatalf("expected %d calls, got %d:\n%s", expected, len(f.Calls), dumpCalls(f))
 	}
@@ -622,19 +629,19 @@ func TestRBDMirrorArgv(t *testing.T) {
 	)
 
 	// ---- wait_until_pool_mirroring_is_healthy ----
-	// [22]: get cephblockpool/replicapool --output=jsonpath=mirroringStatus.summary on dr1
-	assertCall(t, "get-mirroring-status-dr1", f, 22, "kubectl", []string{
-		"--context", "dr1", "-n", "rook-ceph",
-		"get", "cephblockpool/replicapool",
-		"--output=jsonpath={.status.mirroringStatus.summary}",
-	})
-
-	// [23]: same on dr2
-	assertCall(t, "get-mirroring-status-dr2", f, 23, "kubectl", []string{
-		"--context", "dr2", "-n", "rook-ceph",
-		"get", "cephblockpool/replicapool",
-		"--output=jsonpath={.status.mirroringStatus.summary}",
-	})
+	// Each cluster polls the three summary health fields; all must be OK.
+	for i, field := range []string{"daemon_health", "health", "image_health"} {
+		assertCall(t, "get-mirroring-"+field+"-dr1", f, 22+i, "kubectl", []string{
+			"--context", "dr1", "-n", "rook-ceph",
+			"get", "cephblockpools.ceph.rook.io/replicapool",
+			"--output=jsonpath={.status.mirroringStatus.summary." + field + "}",
+		})
+		assertCall(t, "get-mirroring-"+field+"-dr2", f, 25+i, "kubectl", []string{
+			"--context", "dr2", "-n", "rook-ceph",
+			"get", "cephblockpools.ceph.rook.io/replicapool",
+			"--output=jsonpath={.status.mirroringStatus.summary." + field + "}",
+		})
+	}
 }
 
 // rookAddonsDir returns the real test/drenv/addons directory for template-based
