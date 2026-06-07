@@ -5,7 +5,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -42,7 +41,7 @@ func newStartCommand() *cobra.Command {
 
 			prov := newMinikubeProvider()
 			opts := ensure.DefaultOptions()
-			opts.Reporter = ensure.ConsoleReporter{W: os.Stdout}
+			opts.Reporter = ensure.ConsoleReporter{W: cmd.OutOrStdout()}
 
 			step := build.Start(env, prov, opts)
 			_, err = ensure.Ensure(cmd.Context(), step, opts)
