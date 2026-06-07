@@ -34,8 +34,10 @@ package addon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -139,8 +141,16 @@ func argocdAddCluster(ctx context.Context, d Deps, hub, cluster string) error {
 	}
 
 	// Step 5: argocd cluster add <cluster> -y
-	// Ignore NOAUTH exit code 20 (upstream bug workaround).
+	// Mirror Python: ignore exit code 20 (NOAUTH), a known argocd bug after
+	// "argocd login --core". See https://github.com/argoproj/argo-cd/issues/18464.
+	// We cannot match the "NOAUTH" string (RunEnv does not capture stdout/stderr),
+	// so we match on exit code 20 alone — faithful as possible given the seam.
 	if err := d.Argocd.ClusterAdd(ctx, kubeconfig, cluster); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 20 {
+			// Suppress: known argocd NOAUTH transient error.
+			return nil
+		}
 		return fmt.Errorf("argocd: cluster add %s: %w", cluster, err)
 	}
 

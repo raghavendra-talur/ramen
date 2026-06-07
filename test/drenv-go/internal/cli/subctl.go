@@ -3,7 +3,10 @@
 
 package cli
 
-import "context"
+import (
+	"context"
+	"runtime"
+)
 
 // Subctl wraps a Runner to issue subctl CLI commands. All methods take a context
 // so callers can cancel long-running operations.
@@ -45,6 +48,10 @@ func (s Subctl) Join(ctx context.Context, brokerInfo, kubeContext, clusterID, ca
 	if version != "" {
 		args = append(args, "--version", version)
 	}
-	args = append(args, "--check-broker-certificate=false")
+	// Mirror Python subctl.join: --check-broker-certificate=false is only
+	// appended on macOS (darwin). See test/drenv/subctl.py join().
+	if runtime.GOOS == "darwin" {
+		args = append(args, "--check-broker-certificate=false")
+	}
 	return s.R.Run(ctx, "subctl", args...)
 }
