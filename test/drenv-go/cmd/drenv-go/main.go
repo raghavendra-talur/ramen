@@ -4,7 +4,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -25,8 +24,8 @@ func main() {
 	root.PersistentFlags().StringVar(&envfilePath, "envfile", "", "path to the environment file")
 	root.AddCommand(newStatusCommand())
 
+	// cobra already prints the error (and usage) to stderr; just set the exit code.
 	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
