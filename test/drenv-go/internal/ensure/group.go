@@ -62,7 +62,6 @@ func (g *Group) Do(ctx context.Context) error {
 
 	eg, egCtx := errgroup.WithContext(ctx)
 	for _, s := range g.steps {
-		s := s
 		eg.Go(func() error {
 			_, err := Ensure(egCtx, s, g.opts)
 			return err
