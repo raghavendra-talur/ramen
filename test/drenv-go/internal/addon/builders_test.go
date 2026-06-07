@@ -193,10 +193,13 @@ func TestMinioArgv(t *testing.T) {
 	assertArgsContain(t, "rollout", callArgs(t, f, 1),
 		"--context", testCluster, "-n", "minio", "rollout", "status", "deployment/minio")
 
-	// GetJSONPath calls.
-	assertArgsContain(t, "get-hostIP", callArgs(t, f, 2),
+	// hostIP query: the resource and selector must be SEPARATE argv tokens,
+	// not a single embedded string (which kubectl would reject).
+	assertArgsEqual(t, "get-hostIP", callArgs(t, f, 2), []string{
 		"--context", testCluster, "-n", "minio", "get",
-		"--output=jsonpath={.items[0].status.hostIP}")
+		"pod", "--selector=component=minio",
+		"--output=jsonpath={.items[0].status.hostIP}",
+	})
 	assertArgsContain(t, "get-nodePort", callArgs(t, f, 3),
 		"--context", testCluster, "-n", "minio", "get",
 		"--output=jsonpath={.spec.ports[0].nodePort}")
