@@ -42,6 +42,21 @@ func (k Kubectl) ApplyStdin(ctx context.Context, kubeContext string, manifest []
 	return k.R.RunStdin(ctx, string(manifest), "kubectl", "--context", kubeContext, "apply", "--filename", "-")
 }
 
+// ApplyStdinNamespace runs:
+//
+//	kubectl --context <kubeContext> apply --filename - --namespace=<namespace>
+//
+// with manifest supplied on stdin. This is used when the Python source passes
+// --namespace=<ns> as an explicit flag to kubectl apply (e.g. rbd-mirror secret).
+func (k Kubectl) ApplyStdinNamespace(ctx context.Context, kubeContext, namespace string, manifest []byte) error {
+	return k.R.RunStdin(ctx, string(manifest), "kubectl",
+		"--context", kubeContext,
+		"apply",
+		"--filename", "-",
+		"--namespace="+namespace,
+	)
+}
+
 // WaitFor runs:
 //
 //	kubectl --context <kubeContext> [-n <namespace>] wait <target...> --for=<forExpr> --timeout <Ns>
