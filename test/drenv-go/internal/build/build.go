@@ -45,3 +45,14 @@ func Delete(e *envfile.Env, p provider.Provider, opts ensure.Options) ensure.Ste
 	}
 	return ensure.NewGroup(e.Name+" delete", ensure.Parallel, opts, steps...)
 }
+
+// Stop returns a parallel ensure.Group that stops every profile's cluster.
+// A cluster that does not exist is treated as already stopped (see
+// provider.ClusterStoppedStep).
+func Stop(e *envfile.Env, p provider.Provider, opts ensure.Options) ensure.Step {
+	steps := make([]ensure.Step, len(e.Profiles))
+	for i, prof := range e.Profiles {
+		steps[i] = provider.ClusterStoppedStep(p, prof)
+	}
+	return ensure.NewGroup(e.Name+" stop", ensure.Parallel, opts, steps...)
+}
