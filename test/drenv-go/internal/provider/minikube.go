@@ -17,6 +17,8 @@ type MinikubeProvider struct {
 	MK *cli.Minikube
 }
 
+var _ Provider = MinikubeProvider{}
+
 // Status maps the raw cli.MinikubeStatus to the provider Status enum.
 //
 // Mapping rules:
@@ -27,8 +29,8 @@ type MinikubeProvider struct {
 func (mp MinikubeProvider) Status(ctx context.Context, profile string) (Status, error) {
 	st, err := mp.MK.Status(ctx, profile)
 	if err != nil {
-		// The cli layer only returns a non-nil error when the profile exists but
-		// something genuinely failed (non-empty Host). Propagate as StatusUnknown.
+		// The cli layer returns ({}, err) on any genuine failure. This err-first
+		// check ensures such a failure is never misread as NotFound below.
 		return StatusUnknown, err
 	}
 
