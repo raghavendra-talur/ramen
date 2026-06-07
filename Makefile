@@ -219,6 +219,10 @@ test-ramendev: ## Run ramendev tests.
 e2e-rdr: generate manifests ## Run rdr-e2e tests.
 	cd e2e && ./run.sh
 
+.PHONY: drenv-go
+drenv-go: ## Build the drenv-go binary (parallel Go rewrite of drenv).
+	$(MAKE) -C test/drenv-go build
+
 coverage:
 	go tool cover -html=cover.out
 
