@@ -63,18 +63,81 @@ The four areas I iterate in, fastest to slowest feedback:
 
 ## drenv-go parity status
 
-Parallel Go implementation of `drenv`. Tracks which pieces work in Go yet.
-(✅ done · 🚧 in progress · ⬜ not started)
+Parallel Go implementation of `drenv`. Reflects state as of Milestone 4D.
+(✅ done and unit-tested · 🚧 unit-tested, NOT cluster-validated · ⬜ not started / out-of-scope)
 
-| Piece | Status |
-|-------|--------|
-| Module skeleton (mage, tools.mod, cobra, ensure pkg, envfile parser) | ✅ |
-| minikube provider + cluster lifecycle (`start`/`delete`/`status`) | 🚧 (unit-tested via fake runner/provider; real-cluster smoke test pending) |
-| Commands: `stop`/`load`/`suspend`/`resume`/`dump` | ✅ (M3) |
-| `cli.Kubectl` wrapper (Apply, ApplyKustomization, WaitRollout, WaitCondition, Get) | ✅ (M3, M4 foundation — not yet used by commands) |
-| Addon-execution framework + addon ports (smallest env first) | ⬜ (M4) |
-| Remaining commands (`gather`/`cache`) | ⬜ (infra-heavy; deferred) |
-| lima + external providers | ⬜ |
+### Core infrastructure
+
+| Piece | Status | Notes |
+|-------|--------|-------|
+| Module skeleton (mage, tools.mod, cobra, ensure pkg, envfile parser) | ✅ | |
+| envfile: parse profiles including `external: true` | ✅ | `Profile.External bool` added M4D |
+| minikube provider + cluster lifecycle (start / stop / delete / status) | 🚧 | Unit-tested via FakeRunner; clusters could not boot on this host (vfkit) |
+| external provider (ExternalProvider) | 🚧 | No-ops for lifecycle; Status probes `/readyz` via kubectl; unit-tested M4D |
+| Per-profile provider selection (`provider.For`, `build.ProviderSelector`) | ✅ | External profiles get ExternalProvider; normal profiles get MinikubeProvider |
+| suspend / resume / load-image | 🚧 | Unit-tested; delegates to provider per profile |
+| `cli.Kubectl` wrapper (Apply, ApplyKustomizeDir, WaitFor, WaitCondition, GetRaw, ClusterInfoDump, …) | ✅ | All methods argv-tested |
+| Addon-execution framework (registry, ensure integration, parallel workers) | ✅ | |
+
+### Commands
+
+| Command | Status | Notes |
+|---------|--------|-------|
+| `start` | 🚧 | Builds full ensure tree; unit-tested; no real cluster run |
+| `stop` | 🚧 | Parallel ensure; unit-tested |
+| `delete` | 🚧 | Parallel ensure; unit-tested |
+| `status` | 🚧 | Per-profile provider; unit-tested |
+| `load` | 🚧 | Per-profile; unit-tested |
+| `suspend` | 🚧 | Per-profile; unit-tested |
+| `resume` | 🚧 | Per-profile; unit-tested |
+| `dump` | ✅ | YAML marshal of expanded env; trivially correct |
+| `gather` | ✅ | Uses `kubectl cluster-info dump --all-namespaces --output=yaml` per profile; argv-tested |
+| `cache` | ⬜ | Out of scope: drenv-go applies kustomizations via `kubectl -k` directly, so the Python kustomize-build cache (pre-downloading manifests) is unnecessary. Not reimplemented. |
+
+### Not reimplemented (honest)
+
+| Feature | Decision |
+|---------|----------|
+| lima provider | **Dropped**: explicitly out of scope for drenv-go. Only minikube + external. |
+| registry-cache / host-setup / cleanup | **Out of scope**: these are drenv host-infra features (local Docker registry, host `/etc/hosts`, DNS). drenv-go applies kustomizations directly; the kustomize-build cache is unnecessary. Host-infra setup is intentionally not reimplemented. |
+
+### Addon parity sub-table
+
+Every regional-dr addon has been ported and unit-tested (argv-level). None has been validated against a live cluster because the vfkit clusters could not boot on this machine.
+
+| Addon | Registered name | Status |
+|-------|----------------|--------|
+| external-snapshotter | `external-snapshotter` | 🚧 ported, argv-tested, NOT cluster-validated |
+| odf-external-snapshotter | `odf-external-snapshotter` | 🚧 ported, argv-tested, NOT cluster-validated |
+| olm | `olm` | 🚧 ported, argv-tested, NOT cluster-validated |
+| recipe | `recipe` | 🚧 ported, argv-tested, NOT cluster-validated |
+| csi-addons | `csi-addons` | 🚧 ported, argv-tested, NOT cluster-validated |
+| ocm-controller | `ocm/controller` | 🚧 ported, argv-tested, NOT cluster-validated |
+| minio | `minio` | 🚧 ported, argv-tested, NOT cluster-validated |
+| velero | `velero` | 🚧 ported, argv-tested, NOT cluster-validated |
+| volsync | `volsync` | 🚧 ported, argv-tested, NOT cluster-validated |
+| ocm-hub | `ocm/hub` | 🚧 ported, argv-tested, NOT cluster-validated |
+| ocm-cluster | `ocm/cluster` | 🚧 ported, argv-tested, NOT cluster-validated |
+| submariner | `submariner` | 🚧 ported, argv-tested, NOT cluster-validated |
+| argocd | `argocd` | 🚧 ported, argv-tested, NOT cluster-validated |
+| rook-operator | `rook-operator` | 🚧 ported, argv-tested, NOT cluster-validated |
+| rook-cluster | `rook-cluster` | 🚧 ported, argv-tested, NOT cluster-validated |
+| rook-toolbox | `rook-toolbox` | 🚧 ported, argv-tested, NOT cluster-validated |
+| rook-pool | `rook-pool` | 🚧 ported, argv-tested, NOT cluster-validated |
+| rook-cephfs | `rook-cephfs` | 🚧 ported, argv-tested, NOT cluster-validated |
+| rbd-mirror | `rbd-mirror` | 🚧 ported, argv-tested, NOT cluster-validated |
+
+### Known cluster-validation TODOs (from code review)
+
+These issues will surface when a real cluster run is possible:
+
+1. **submariner: broker-info CWD** — `subctl deploy-broker` writes `broker-info.subm` into its working directory. The Go port changes to a temp directory (`os.Chdir`) before calling subctl and renames the file afterward. Needs a real subctl run to confirm the rename path is correct.
+
+2. **argocd: NOAUTH / temp-kubeconfig** — After `argocd cluster add`, argocd sometimes returns exit code 20 (NOAUTH transient error). The Go port suppresses it. The temp-kubeconfig creation also needs to be validated against a live argocd.
+
+3. **rbd-mirror: daemon-restart-on-timeout + CSIAddonsNode retry** — The Python rbd-mirror addon restarts the Ceph rbd-mirror daemon if mirroring setup times out, and retries until all CSIAddonsNodes report "Connected". The Go port mirrors this logic but the wait intervals and retry counts have not been validated against real Rook output.
+
+4. **ocm: namespace-create waits** — The ocm-hub / ocm-cluster addons wait for `namespace/open-cluster-management` and `namespace/open-cluster-management-hub` to be created. The wait duration may need tuning against a real cluster.
 
 ## Conventions I follow here
 

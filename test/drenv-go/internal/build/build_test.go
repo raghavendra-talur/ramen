@@ -105,6 +105,12 @@ func testEnv() *envfile.Env {
 	}
 }
 
+// uniformSelector returns a ProviderSelector that always returns fp regardless
+// of the profile. Used by tests that do not exercise per-profile selection.
+func uniformSelector(fp *fakeProvider) build.ProviderSelector {
+	return func(_ envfile.Profile) provider.Provider { return fp }
+}
+
 // smallOpts returns Options with very short timeouts suitable for unit tests.
 func smallOpts() ensure.Options {
 	return ensure.Options{
@@ -118,7 +124,7 @@ func TestStartMakesClustersRunning(t *testing.T) {
 	env := testEnv()
 	opts := smallOpts()
 
-	step := build.Start(env, fp, addon.Deps{}, opts)
+	step := build.Start(env, uniformSelector(fp), addon.Deps{}, opts)
 	_, err := ensure.Ensure(context.Background(), step, opts)
 	if err != nil {
 		t.Fatalf("Ensure(Start) unexpected error: %v", err)
@@ -141,7 +147,7 @@ func TestStartSkipsAlreadyRunningClusters(t *testing.T) {
 		fp.setStatus(prof.Name, provider.StatusRunning)
 	}
 
-	step := build.Start(env, fp, addon.Deps{}, opts)
+	step := build.Start(env, uniformSelector(fp), addon.Deps{}, opts)
 	res, err := ensure.Ensure(context.Background(), step, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -163,7 +169,7 @@ func TestDeleteMakesClustersAbsent(t *testing.T) {
 		fp.setStatus(prof.Name, provider.StatusRunning)
 	}
 
-	step := build.Delete(env, fp, opts)
+	step := build.Delete(env, uniformSelector(fp), opts)
 	_, err := ensure.Ensure(context.Background(), step, opts)
 	if err != nil {
 		t.Fatalf("Ensure(Delete) unexpected error: %v", err)
@@ -182,7 +188,7 @@ func TestDeleteSkipsAbsentClusters(t *testing.T) {
 	opts := smallOpts()
 
 	// No statuses set → all NotFound already.
-	step := build.Delete(env, fp, opts)
+	step := build.Delete(env, uniformSelector(fp), opts)
 	res, err := ensure.Ensure(context.Background(), step, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -202,7 +208,7 @@ func TestStopMakesClustersStopped(t *testing.T) {
 		fp.setStatus(prof.Name, provider.StatusRunning)
 	}
 
-	step := build.Stop(env, fp, opts)
+	step := build.Stop(env, uniformSelector(fp), opts)
 	_, err := ensure.Ensure(context.Background(), step, opts)
 	if err != nil {
 		t.Fatalf("Ensure(Stop) unexpected error: %v", err)
@@ -221,7 +227,7 @@ func TestStopSkipsAbsentClusters(t *testing.T) {
 	opts := smallOpts()
 
 	// No statuses set → all NotFound (treated as already stopped).
-	step := build.Stop(env, fp, opts)
+	step := build.Stop(env, uniformSelector(fp), opts)
 	res, err := ensure.Ensure(context.Background(), step, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -241,12 +247,110 @@ func TestStopSkipsAlreadyStoppedClusters(t *testing.T) {
 		fp.setStatus(prof.Name, provider.StatusStopped)
 	}
 
-	step := build.Stop(env, fp, opts)
+	step := build.Stop(env, uniformSelector(fp), opts)
 	res, err := ensure.Ensure(context.Background(), step, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if res != ensure.Skipped {
 		t.Errorf("result = %s, want Skipped", res)
+	}
+}
+
+// ---- Per-profile provider selection tests ----
+
+// providerRecord is a Provider that records which profiles it was asked about /
+// started, so we can assert the right provider was selected per profile.
+type providerRecord struct {
+	mu       sync.Mutex
+	started  []string
+	statuses map[string]provider.Status
+}
+
+func newProviderRecord(defaultStatus provider.Status, profiles ...string) *providerRecord {
+	pr := &providerRecord{statuses: make(map[string]provider.Status)}
+	for _, p := range profiles {
+		pr.statuses[p] = defaultStatus
+	}
+	return pr
+}
+
+func (pr *providerRecord) Status(_ context.Context, profile string) (provider.Status, error) {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	s, ok := pr.statuses[profile]
+	if !ok {
+		return provider.StatusNotFound, nil
+	}
+	return s, nil
+}
+
+func (pr *providerRecord) Exists(ctx context.Context, profile string) (bool, error) {
+	s, err := pr.Status(ctx, profile)
+	return s != provider.StatusNotFound, err
+}
+
+func (pr *providerRecord) Start(_ context.Context, p envfile.Profile) error {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	pr.started = append(pr.started, p.Name)
+	pr.statuses[p.Name] = provider.StatusRunning
+	return nil
+}
+
+func (pr *providerRecord) Stop(_ context.Context, _ string) error         { return nil }
+func (pr *providerRecord) Delete(_ context.Context, _ string) error       { return nil }
+func (pr *providerRecord) LoadImage(_ context.Context, _, _ string) error { return nil }
+func (pr *providerRecord) Suspend(_ context.Context, _ string) error      { return nil }
+func (pr *providerRecord) Resume(_ context.Context, _ string) error       { return nil }
+
+func (pr *providerRecord) wasStarted(profile string) bool {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	for _, s := range pr.started {
+		if s == profile {
+			return true
+		}
+	}
+	return false
+}
+
+// TestPerProfileProviderSelectionExternalSkipsStart verifies that an external
+// profile's provider (ExternalProvider-like no-op) is NOT asked to Start the
+// cluster, while the normal profile's provider IS.
+func TestPerProfileProviderSelectionExternalSkipsStart(t *testing.T) {
+	// Two providers: one for normal profiles, one for external profiles.
+	normalProv := newProviderRecord(provider.StatusNotFound, "dr1")
+	extProv := newProviderRecord(provider.StatusRunning, "ext-cluster")
+
+	env := &envfile.Env{
+		Name: "mixed-env",
+		Profiles: []envfile.Profile{
+			{Name: "dr1", External: false},
+			{Name: "ext-cluster", External: true},
+		},
+	}
+	opts := smallOpts()
+
+	selector := func(prof envfile.Profile) provider.Provider {
+		if prof.External {
+			return extProv
+		}
+		return normalProv
+	}
+
+	step := build.Start(env, selector, addon.Deps{}, opts)
+	_, err := ensure.Ensure(context.Background(), step, opts)
+	if err != nil {
+		t.Fatalf("Ensure(Start) unexpected error: %v", err)
+	}
+
+	// dr1 must have been started by normalProv.
+	if !normalProv.wasStarted("dr1") {
+		t.Errorf("dr1 was not started by normalProv")
+	}
+	// ext-cluster must NOT have been started (it was already Running).
+	if extProv.wasStarted("ext-cluster") {
+		t.Errorf("ext-cluster was started by extProv, want no-op")
 	}
 }
