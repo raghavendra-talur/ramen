@@ -93,14 +93,13 @@ func TestMinikubeProviderStatusUnknown(t *testing.T) {
 }
 
 func TestMinikubeProviderStatusPropagatesError(t *testing.T) {
-	// Script output without the "not found" marker plus a non-nil error,
-	// simulating a genuine mid-flight failure. MinikubeProvider.Status must
-	// propagate it as StatusUnknown rather than treating it as NotFound.
+	// Script non-JSON output plus a non-nil error, simulating a genuine
+	// mid-flight failure (e.g. minikube binary not found, network error).
+	// In a real failure the output is not parseable JSON, so
+	// cli.Minikube.Status must propagate the original command error.
 	sentinelErr := errors.New("some connection error")
 	f := &cli.FakeRunner{}
-	// Output returns a non-zero status without the "not found" marker, so
-	// cli.Minikube will propagate the error as-is.
-	f.Script(cli.FakeResult{Out: `{"Name":"dr1","Host":"Running","APIServer":"Running"}`, Err: sentinelErr})
+	f.Script(cli.FakeResult{Out: "Error: unable to connect to minikube", Err: sentinelErr})
 	p := newProvider(f)
 
 	_, err := p.Status(context.Background(), "dr1")
