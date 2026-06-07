@@ -70,9 +70,10 @@ Parallel Go implementation of `drenv`. Tracks which pieces work in Go yet.
 |-------|--------|
 | Module skeleton (mage, tools.mod, cobra, ensure pkg, envfile parser) | ✅ |
 | minikube provider + cluster lifecycle (`start`/`delete`/`status`) | 🚧 (unit-tested via fake runner/provider; real-cluster smoke test pending) |
-| kubectl/kustomize wrappers + addon primitives | ⬜ |
-| Addons (smallest env first) | ⬜ |
-| Remaining commands (`stop`/`load`/`suspend`/`resume`/`gather`/`cache`) | ⬜ |
+| Commands: `stop`/`load`/`suspend`/`resume`/`dump` | ✅ (M3) |
+| `cli.Kubectl` wrapper (Apply, ApplyKustomization, WaitRollout, WaitCondition, Get) | ✅ (M3, M4 foundation — not yet used by commands) |
+| Addon-execution framework + addon ports (smallest env first) | ⬜ (M4) |
+| Remaining commands (`gather`/`cache`) | ⬜ (infra-heavy; deferred) |
 | lima + external providers | ⬜ |
 
 ## Conventions I follow here
