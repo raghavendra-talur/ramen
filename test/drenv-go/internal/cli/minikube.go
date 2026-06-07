@@ -92,3 +92,13 @@ func (m Minikube) Delete(ctx context.Context, profile string) error {
 func (m Minikube) LoadImage(ctx context.Context, profile, image string) error {
 	return m.R.Run(ctx, "minikube", "image", "load", "-p", profile, image)
 }
+
+// Pause runs `minikube pause -p <profile>`.
+func (m Minikube) Pause(ctx context.Context, profile string) error {
+	return m.R.Run(ctx, "minikube", "pause", "-p", profile)
+}
+
+// Unpause runs `minikube unpause -p <profile>`.
+func (m Minikube) Unpause(ctx context.Context, profile string) error {
+	return m.R.Run(ctx, "minikube", "unpause", "-p", profile)
+}

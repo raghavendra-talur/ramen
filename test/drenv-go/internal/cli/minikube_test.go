@@ -183,3 +183,39 @@ func TestMinikubeStatusIssuesCorrectArgv(t *testing.T) {
 		t.Errorf("args = %v, want %v", c.Args, want)
 	}
 }
+
+func TestMinikubePauseIssuesCorrectArgv(t *testing.T) {
+	ctx := context.Background()
+	f := &cli.FakeRunner{}
+	mk := cli.Minikube{R: f}
+
+	if err := mk.Pause(ctx, "dr1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(f.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(f.Calls))
+	}
+	c := f.Calls[0]
+	want := []string{"pause", "-p", "dr1"}
+	if !reflect.DeepEqual(c.Args, want) {
+		t.Errorf("args = %v, want %v", c.Args, want)
+	}
+}
+
+func TestMinikubeUnpauseIssuesCorrectArgv(t *testing.T) {
+	ctx := context.Background()
+	f := &cli.FakeRunner{}
+	mk := cli.Minikube{R: f}
+
+	if err := mk.Unpause(ctx, "dr1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(f.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(f.Calls))
+	}
+	c := f.Calls[0]
+	want := []string{"unpause", "-p", "dr1"}
+	if !reflect.DeepEqual(c.Args, want) {
+		t.Errorf("args = %v, want %v", c.Args, want)
+	}
+}
