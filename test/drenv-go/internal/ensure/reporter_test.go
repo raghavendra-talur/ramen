@@ -29,6 +29,9 @@ func TestConsoleReporterChanged(t *testing.T) {
 	if !strings.Contains(out, "addon/rook") {
 		t.Fatalf("output %q missing name", out)
 	}
+	if !strings.Contains(out, "12.3s") {
+		t.Fatalf("output %q missing duration", out)
+	}
 }
 
 func TestConsoleReporterFailed(t *testing.T) {
