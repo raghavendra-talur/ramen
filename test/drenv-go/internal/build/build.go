@@ -8,34 +8,100 @@
 package build
 
 import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/ramendr/ramen/test/drenv-go/internal/addon"
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
 	"github.com/ramendr/ramen/test/drenv-go/internal/envfile"
 	"github.com/ramendr/ramen/test/drenv-go/internal/provider"
 )
 
 // Start returns a serial top-level ensure.Group named after the environment.
-// Its first child is a parallel "clusters" group that ensures every profile's
-// cluster is running.
+// Its children are:
+//  1. A parallel "profiles" group: for each profile, a serial group containing
+//     [ClusterRunningStep, parallel worker-addon groups].
+//  2. A parallel "workers" group (global workers): each global worker is a
+//     serial group of addon steps (the addon's cluster is passed as "" since
+//     global addons address clusters via their args).
 //
-// Milestone 4 will append additional groups here for workers and addons — see
-// the comment inside the function body for the exact seam.
-func Start(e *envfile.Env, p provider.Provider, opts ensure.Options) ensure.Step {
-	clusterSteps := make([]ensure.Step, len(e.Profiles))
+// Addons not found in the registry are represented as no-op steps (Done=true)
+// named "addon/<name> (unimplemented)" so an env with not-yet-ported addons
+// still composes without error.
+func Start(e *envfile.Env, p provider.Provider, d addon.Deps, opts ensure.Options) ensure.Step {
+	profileSteps := make([]ensure.Step, len(e.Profiles))
 	for i, prof := range e.Profiles {
-		clusterSteps[i] = provider.ClusterRunningStep(p, prof)
+		// Build per-worker steps for this profile.
+		workerSteps := make([]ensure.Step, len(prof.Workers))
+		for wi, w := range prof.Workers {
+			addonSteps := make([]ensure.Step, len(w.Addons))
+			for ai, a := range w.Addons {
+				addonSteps[ai] = buildAddonStep(d, prof.Name, a, opts)
+			}
+			workerSteps[wi] = ensure.NewGroup(
+				fmt.Sprintf("worker/%d", wi),
+				ensure.Serial, opts,
+				addonSteps...,
+			)
+		}
+
+		// Profile group: [cluster-running, parallel-workers].
+		profileChildren := []ensure.Step{provider.ClusterRunningStep(p, prof)}
+		if len(workerSteps) > 0 {
+			profileChildren = append(profileChildren,
+				ensure.NewGroup("workers", ensure.Parallel, opts, workerSteps...),
+			)
+		}
+		profileSteps[i] = ensure.NewGroup("profile/"+prof.Name, ensure.Serial, opts, profileChildren...)
 	}
 
-	clustersGroup := ensure.NewGroup("clusters", ensure.Parallel, opts, clusterSteps...)
+	children := []ensure.Step{
+		ensure.NewGroup("profiles", ensure.Parallel, opts, profileSteps...),
+	}
 
-	// --- Milestone 4 seam ---
-	// After clustersGroup, append worker/addon groups here, e.g.:
-	//   workerGroups := buildWorkerGroups(e, p, opts)
-	//   children = append(children, workerGroups...)
-	// Do NOT add any steps here until Milestone 4.
-	children := []ensure.Step{clustersGroup}
+	// Global workers come after all profiles.
+	if len(e.Workers) > 0 {
+		globalWorkerSteps := make([]ensure.Step, len(e.Workers))
+		for wi, w := range e.Workers {
+			addonSteps := make([]ensure.Step, len(w.Addons))
+			for ai, a := range w.Addons {
+				// Global addons target clusters given by their args; pass
+				// cluster="" so builders know they are in global context.
+				addonSteps[ai] = buildAddonStep(d, "", a, opts)
+			}
+			globalWorkerSteps[wi] = ensure.NewGroup(
+				fmt.Sprintf("global-worker/%d", wi),
+				ensure.Serial, opts,
+				addonSteps...,
+			)
+		}
+		children = append(children,
+			ensure.NewGroup("workers", ensure.Parallel, opts, globalWorkerSteps...),
+		)
+	}
 
 	return ensure.NewGroup(e.Name, ensure.Serial, opts, children...)
 }
+
+// buildAddonStep looks up the addon builder and invokes it. If the addon is not
+// registered it returns a no-op step (Done=true) so composition succeeds.
+func buildAddonStep(d addon.Deps, cluster string, a envfile.Addon, _ ensure.Options) ensure.Step {
+	b, ok := addon.Lookup(a.Name)
+	if !ok {
+		log.Printf("build: addon %q not in registry — using no-op step", a.Name)
+		return noopStep{name: "addon/" + a.Name + " (unimplemented)"}
+	}
+	return b(d, cluster, a.Args)
+}
+
+// noopStep is an ensure.Step that is always Done and does nothing. It is used
+// as a placeholder for addons that have not been ported yet.
+type noopStep struct{ name string }
+
+func (s noopStep) Name() string                         { return s.name }
+func (s noopStep) Done(_ context.Context) (bool, error) { return true, nil }
+func (s noopStep) Do(_ context.Context) error           { return nil }
 
 // Delete returns a parallel ensure.Group that removes every profile's cluster.
 func Delete(e *envfile.Env, p provider.Provider, opts ensure.Options) ensure.Step {

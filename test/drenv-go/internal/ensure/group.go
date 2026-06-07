@@ -35,6 +35,14 @@ func NewGroup(name string, mode Mode, opts Options, steps ...Step) *Group {
 
 func (g *Group) Name() string { return g.name }
 
+// Steps returns the child steps of this group. This is intended for testing
+// the composition shape of a tree without running it.
+func (g *Group) Steps() []Step { return g.steps }
+
+// GroupMode returns the execution mode (Serial or Parallel) of this group.
+// It is named GroupMode (not Mode) to avoid collision with the Mode type.
+func (g *Group) GroupMode() Mode { return g.mode }
+
 // Done reports whether every child is done.
 func (g *Group) Done(ctx context.Context) (bool, error) {
 	for _, s := range g.steps {
