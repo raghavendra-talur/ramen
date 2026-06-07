@@ -158,25 +158,6 @@ func (k Kubectl) Apply(ctx context.Context, kubeContext string, args ...string) 
 	return k.R.Run(ctx, "kubectl", all...)
 }
 
-// ApplyKustomization runs `kubectl --context <kubeContext> apply -k <dir>`.
-func (k Kubectl) ApplyKustomization(ctx context.Context, kubeContext, dir string) error {
-	return k.R.Run(ctx, "kubectl", "--context", kubeContext, "apply", "-k", dir)
-}
-
-// WaitRollout runs:
-//
-//	kubectl --context <kubeContext> -n <namespace> rollout status <resource> --timeout <Ns>
-//
-// Timeout is formatted as "<seconds>s".
-func (k Kubectl) WaitRollout(ctx context.Context, kubeContext, namespace, resource string, timeout time.Duration) error {
-	return k.R.Run(ctx, "kubectl",
-		"--context", kubeContext,
-		"-n", namespace,
-		"rollout", "status", resource,
-		"--timeout", formatTimeout(timeout),
-	)
-}
-
 // WaitCondition runs:
 //
 //	kubectl --context <kubeContext> -n <namespace> wait <resource> --for=condition=<condition> --timeout <Ns>
