@@ -112,12 +112,12 @@ Every regional-dr addon has been ported and unit-tested (argv-level). None has b
 | olm | `olm` | 🚧 ported, argv-tested, NOT cluster-validated |
 | recipe | `recipe` | 🚧 ported, argv-tested, NOT cluster-validated |
 | csi-addons | `csi-addons` | 🚧 ported, argv-tested, NOT cluster-validated |
-| ocm-controller | `ocm/controller` | 🚧 ported, argv-tested, NOT cluster-validated |
+| ocm-controller | `ocm-controller` | 🚧 ported, argv-tested, NOT cluster-validated |
 | minio | `minio` | 🚧 ported, argv-tested, NOT cluster-validated |
 | velero | `velero` | 🚧 ported, argv-tested, NOT cluster-validated |
 | volsync | `volsync` | 🚧 ported, argv-tested, NOT cluster-validated |
-| ocm-hub | `ocm/hub` | 🚧 ported, argv-tested, NOT cluster-validated |
-| ocm-cluster | `ocm/cluster` | 🚧 ported, argv-tested, NOT cluster-validated |
+| ocm-hub | `ocm-hub` | 🚧 ported, argv-tested, NOT cluster-validated |
+| ocm-cluster | `ocm-cluster` | 🚧 ported, argv-tested, NOT cluster-validated |
 | submariner | `submariner` | 🚧 ported, argv-tested, NOT cluster-validated |
 | argocd | `argocd` | 🚧 ported, argv-tested, NOT cluster-validated |
 | rook-operator | `rook-operator` | 🚧 ported, argv-tested, NOT cluster-validated |

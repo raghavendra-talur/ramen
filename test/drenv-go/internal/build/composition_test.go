@@ -18,6 +18,31 @@ import (
 	"github.com/ramendr/ramen/test/drenv-go/internal/provider"
 )
 
+// TestRegionalDRAddonsAllRegistered guards against the class of bug where an
+// addon's registry key does not match the name used in an environment file,
+// which would silently turn it into a no-op. It loads the real regional-dr
+// environment and asserts every worker addon resolves via addon.Lookup.
+func TestRegionalDRAddonsAllRegistered(t *testing.T) {
+	env, err := envfile.Load("../../../envs/regional-dr.yaml")
+	if err != nil {
+		t.Fatalf("load regional-dr.yaml: %v", err)
+	}
+
+	check := func(workers []envfile.Worker) {
+		for _, w := range workers {
+			for _, a := range w.Addons {
+				if _, ok := addon.Lookup(a.Name); !ok {
+					t.Errorf("addon %q used by regional-dr.yaml is not registered (would silently no-op)", a.Name)
+				}
+			}
+		}
+	}
+	for _, p := range env.Profiles {
+		check(p.Workers)
+	}
+	check(env.Workers)
+}
+
 // registrationName returns a unique addon name for test-scoped registrations to
 // avoid colliding with other tests (the global registry is process-wide).
 func registrationName(t *testing.T, suffix string) string {
