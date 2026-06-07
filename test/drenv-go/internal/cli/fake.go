@@ -3,7 +3,10 @@
 
 package cli
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 // Call records a single invocation of a Runner method.
 type Call struct {
@@ -28,7 +31,15 @@ type FakeResult struct {
 // call index (not by command name), giving full per-call control. This keeps
 // minikube tests straightforward: the first call gets the first result, and
 // so on.
+//
+// FakeRunner is safe for concurrent use, so tests exercising parallel ensure
+// Groups may share one instance. Note that with concurrent calls the FIFO
+// script is consumed in a nondeterministic order, so per-call scripting is only
+// reliable for single-threaded tests; concurrent tests should script uniform
+// results (or none) and assert on Calls afterward.
 type FakeRunner struct {
+	mu sync.Mutex
+
 	// Calls is the ordered record of every Run or Output invocation.
 	Calls []Call
 
@@ -38,11 +49,13 @@ type FakeRunner struct {
 
 // Script enqueues a result to be returned by the next Run or Output call.
 func (f *FakeRunner) Script(r FakeResult) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.script = append(f.script, r)
 }
 
 // nextResult dequeues the next scripted result, or returns a zero value if
-// the queue is empty.
+// the queue is empty. The caller must hold f.mu.
 func (f *FakeRunner) nextResult() FakeResult {
 	if len(f.script) == 0 {
 		return FakeResult{}
@@ -54,12 +67,16 @@ func (f *FakeRunner) nextResult() FakeResult {
 
 // Run records the call and returns the next scripted error (if any).
 func (f *FakeRunner) Run(_ context.Context, name string, args ...string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.Calls = append(f.Calls, Call{Name: name, Args: args})
 	return f.nextResult().Err
 }
 
 // Output records the call and returns the next scripted (output, error) pair.
 func (f *FakeRunner) Output(_ context.Context, name string, args ...string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.Calls = append(f.Calls, Call{Name: name, Args: args})
 	r := f.nextResult()
 	return r.Out, r.Err
