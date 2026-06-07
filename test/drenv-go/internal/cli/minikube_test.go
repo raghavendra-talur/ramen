@@ -78,6 +78,29 @@ type fakeExitError struct{}
 
 func (e *fakeExitError) Error() string { return "exit status 1" }
 
+// stoppedJSON is what minikube emits for an existing-but-stopped cluster. Note
+// that minikube exits non-zero (code 7) in this case while still printing valid
+// JSON.
+const stoppedJSON = `{"Name":"dr1","Host":"Stopped","Kubelet":"Stopped","APIServer":"Stopped"}`
+
+// TestMinikubeStatusStoppedWithExitError pins the fix for minikube's exit-7 on
+// stopped clusters: when the output is valid JSON, Status must parse it and
+// discard the exit error rather than treating the cluster as failed.
+func TestMinikubeStatusStoppedWithExitError(t *testing.T) {
+	ctx := context.Background()
+	f := &cli.FakeRunner{}
+	f.Script(cli.FakeResult{Out: stoppedJSON, Err: &fakeExitError{}})
+
+	mk := cli.Minikube{R: f}
+	st, err := mk.Status(ctx, "dr1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if st.Host != "Stopped" {
+		t.Errorf("Host = %q, want %q", st.Host, "Stopped")
+	}
+}
+
 func TestMinikubeStartIssuesCorrectArgv(t *testing.T) {
 	ctx := context.Background()
 	f := &cli.FakeRunner{}
