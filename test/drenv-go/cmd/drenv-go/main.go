@@ -23,6 +23,7 @@ func main() {
 		},
 	}
 	root.PersistentFlags().StringVar(&envfilePath, "envfile", "", "path to the environment file")
+	root.AddCommand(newStatusCommand())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
