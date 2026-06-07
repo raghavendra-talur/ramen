@@ -9,6 +9,131 @@ import (
 	"time"
 )
 
+// ApplyFile runs `kubectl --context <kubeContext> apply --filename <path>`.
+func (k Kubectl) ApplyFile(ctx context.Context, kubeContext, path string) error {
+	return k.R.Run(ctx, "kubectl", "--context", kubeContext, "apply", "--filename", path)
+}
+
+// ApplyKustomizeDir runs `kubectl --context <kubeContext> apply --kustomize <dir>`.
+func (k Kubectl) ApplyKustomizeDir(ctx context.Context, kubeContext, dir string) error {
+	return k.R.Run(ctx, "kubectl", "--context", kubeContext, "apply", "--kustomize", dir)
+}
+
+// ApplyServerSideFile runs:
+//
+//	kubectl --context <kubeContext> apply --server-side=true --filename <path>
+func (k Kubectl) ApplyServerSideFile(ctx context.Context, kubeContext, path string) error {
+	return k.R.Run(ctx, "kubectl", "--context", kubeContext, "apply", "--server-side=true", "--filename", path)
+}
+
+// ApplyStdin runs `kubectl --context <kubeContext> apply --filename -` with manifest
+// supplied on stdin.
+func (k Kubectl) ApplyStdin(ctx context.Context, kubeContext string, manifest []byte) error {
+	return k.R.RunStdin(ctx, string(manifest), "kubectl", "--context", kubeContext, "apply", "--filename", "-")
+}
+
+// WaitFor runs:
+//
+//	kubectl --context <kubeContext> [-n <namespace>] wait <target...> --for=<forExpr> --timeout <Ns>
+//
+// Pass an empty namespace to omit the -n flag. forExpr is e.g. "condition=established",
+// "create", or "jsonpath={.status.phase}=Running".
+func (k Kubectl) WaitFor(ctx context.Context, kubeContext, namespace, forExpr string, timeout time.Duration, target ...string) error {
+	args := []string{"--context", kubeContext}
+	if namespace != "" {
+		args = append(args, "-n", namespace)
+	}
+	args = append(args, "wait")
+	args = append(args, target...)
+	args = append(args, "--for="+forExpr, "--timeout", formatTimeout(timeout))
+	return k.R.Run(ctx, "kubectl", args...)
+}
+
+// WaitForFile runs:
+//
+//	kubectl --context <kubeContext> wait --for=<forExpr> --filename <path> --timeout <Ns>
+func (k Kubectl) WaitForFile(ctx context.Context, kubeContext, forExpr, path string, timeout time.Duration) error {
+	return k.R.Run(ctx, "kubectl",
+		"--context", kubeContext,
+		"wait",
+		"--for="+forExpr,
+		"--filename", path,
+		"--timeout", formatTimeout(timeout),
+	)
+}
+
+// RolloutStatus runs:
+//
+//	kubectl --context <kubeContext> -n <namespace> rollout status <resource> --timeout <Ns>
+func (k Kubectl) RolloutStatus(ctx context.Context, kubeContext, namespace, resource string, timeout time.Duration) error {
+	return k.R.Run(ctx, "kubectl",
+		"--context", kubeContext,
+		"-n", namespace,
+		"rollout", "status", resource,
+		"--timeout", formatTimeout(timeout),
+	)
+}
+
+// GetJSONPath runs:
+//
+//	kubectl --context <kubeContext> -n <namespace> get <resource> --output=jsonpath=<jsonpath>
+//
+// and returns the trimmed output.
+func (k Kubectl) GetJSONPath(ctx context.Context, kubeContext, namespace, resource, jsonpath string) (string, error) {
+	return k.R.Output(ctx, "kubectl",
+		"--context", kubeContext,
+		"-n", namespace,
+		"get", resource,
+		"--output=jsonpath="+jsonpath,
+	)
+}
+
+// KubectlExec runs:
+//
+//	kubectl --context <kubeContext> -n <namespace> exec <resource> -- <cmd...>
+//
+// and returns the combined output.
+func (k Kubectl) KubectlExec(ctx context.Context, kubeContext, namespace, resource string, cmd ...string) (string, error) {
+	args := []string{"--context", kubeContext, "-n", namespace, "exec", resource, "--"}
+	args = append(args, cmd...)
+	return k.R.Output(ctx, "kubectl", args...)
+}
+
+// Patch runs:
+//
+//	kubectl --context <kubeContext> -n <namespace> patch <resource> --type=<patchType> --patch=<patch>
+func (k Kubectl) Patch(ctx context.Context, kubeContext, namespace, resource, patchType, patch string) error {
+	return k.R.Run(ctx, "kubectl",
+		"--context", kubeContext,
+		"-n", namespace,
+		"patch", resource,
+		"--type="+patchType,
+		"--patch="+patch,
+	)
+}
+
+// Annotate runs:
+//
+//	kubectl --context <kubeContext> annotate <resource> <annotation> --overwrite
+func (k Kubectl) Annotate(ctx context.Context, kubeContext, resource, annotation string) error {
+	return k.R.Run(ctx, "kubectl",
+		"--context", kubeContext,
+		"annotate", resource, annotation,
+		"--overwrite",
+	)
+}
+
+// Label runs:
+//
+//	kubectl --context <kubeContext> label <resource> <label> --overwrite
+func (k Kubectl) Label(ctx context.Context, kubeContext, resource, label string) error {
+	return k.R.Run(ctx, "kubectl",
+		"--context", kubeContext,
+		"label", resource, label,
+		"--overwrite",
+	)
+}
+
 // Kubectl wraps a Runner to issue kubectl CLI commands. Cluster selection is by
 // --context <name>, which minikube sets to the profile name, so callers pass
 // the profile name as kubeContext. All methods take a context so callers can

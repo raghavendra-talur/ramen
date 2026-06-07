@@ -10,8 +10,9 @@ import (
 
 // Call records a single invocation of a Runner method.
 type Call struct {
-	Name string
-	Args []string
+	Name  string
+	Args  []string
+	Stdin string // non-empty only for RunStdin calls
 }
 
 // FakeResult is a scripted (output, error) pair that FakeRunner will return
@@ -80,4 +81,12 @@ func (f *FakeRunner) Output(_ context.Context, name string, args ...string) (str
 	f.Calls = append(f.Calls, Call{Name: name, Args: args})
 	r := f.nextResult()
 	return r.Out, r.Err
+}
+
+// RunStdin records the call (including stdin) and returns the next scripted error (if any).
+func (f *FakeRunner) RunStdin(_ context.Context, stdin string, name string, args ...string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Calls = append(f.Calls, Call{Name: name, Args: args, Stdin: stdin})
+	return f.nextResult().Err
 }
