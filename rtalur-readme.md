@@ -69,7 +69,7 @@ Parallel Go implementation of `drenv`. Tracks which pieces work in Go yet.
 | Piece | Status |
 |-------|--------|
 | Module skeleton (mage, tools.mod, cobra, ensure pkg, envfile parser) | ✅ |
-| minikube provider + cluster lifecycle (`start`/`delete`/`status`) | ⬜ |
+| minikube provider + cluster lifecycle (`start`/`delete`/`status`) | 🚧 (unit-tested via fake runner/provider; real-cluster smoke test pending) |
 | kubectl/kustomize wrappers + addon primitives | ⬜ |
 | Addons (smallest env first) | ⬜ |
 | Remaining commands (`stop`/`load`/`suspend`/`resume`/`gather`/`cache`) | ⬜ |
