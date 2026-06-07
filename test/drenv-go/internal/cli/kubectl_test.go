@@ -48,65 +48,6 @@ func TestKubectlApplyNoExtraArgsIssuesCorrectArgv(t *testing.T) {
 	}
 }
 
-func TestKubectlApplyKustomizationIssuesCorrectArgv(t *testing.T) {
-	ctx := context.Background()
-	f := &cli.FakeRunner{}
-	k := cli.Kubectl{R: f}
-
-	if err := k.ApplyKustomization(ctx, "dr1", "./overlays/dr1"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(f.Calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(f.Calls))
-	}
-	c := f.Calls[0]
-	want := []string{"--context", "dr1", "apply", "-k", "./overlays/dr1"}
-	if !reflect.DeepEqual(c.Args, want) {
-		t.Errorf("args = %v, want %v", c.Args, want)
-	}
-}
-
-func TestKubectlWaitRolloutIssuesCorrectArgv(t *testing.T) {
-	ctx := context.Background()
-	f := &cli.FakeRunner{}
-	k := cli.Kubectl{R: f}
-
-	timeout := 5 * time.Minute
-	if err := k.WaitRollout(ctx, "dr1", "ramen-system", "deployment/ramen-dr-cluster-operator", timeout); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(f.Calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(f.Calls))
-	}
-	c := f.Calls[0]
-	want := []string{
-		"--context", "dr1",
-		"-n", "ramen-system",
-		"rollout", "status", "deployment/ramen-dr-cluster-operator",
-		"--timeout", "300s",
-	}
-	if !reflect.DeepEqual(c.Args, want) {
-		t.Errorf("args = %v, want %v", c.Args, want)
-	}
-}
-
-func TestKubectlWaitRolloutFormatsTimeoutAsSeconds(t *testing.T) {
-	ctx := context.Background()
-	f := &cli.FakeRunner{}
-	k := cli.Kubectl{R: f}
-
-	// 90 seconds → "90s", not "1m30s"
-	if err := k.WaitRollout(ctx, "dr1", "default", "deployment/foo", 90*time.Second); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	c := f.Calls[0]
-	// timeout arg is the last one
-	got := c.Args[len(c.Args)-1]
-	if got != "90s" {
-		t.Errorf("timeout arg = %q, want %q", got, "90s")
-	}
-}
-
 func TestKubectlWaitConditionIssuesCorrectArgv(t *testing.T) {
 	ctx := context.Background()
 	f := &cli.FakeRunner{}

@@ -17,9 +17,9 @@ import (
 //
 // The returned URL is of the form `http://<hostIP>:<nodePort>`.
 func MinioServiceURL(ctx context.Context, k *cli.Kubectl, kubeContext string) (string, error) {
-	hostIP, err := k.GetJSONPath(ctx, kubeContext, "minio",
-		"pods --selector=component=minio",
-		"{.items[0].status.hostIP}",
+	hostIP, err := k.Get(ctx, kubeContext, "minio",
+		"pod", "--selector=component=minio",
+		"--output=jsonpath={.items[0].status.hostIP}",
 	)
 	if err != nil {
 		return "", fmt.Errorf("minio: get pod hostIP on %s: %w", kubeContext, err)
