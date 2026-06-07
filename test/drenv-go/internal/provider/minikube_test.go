@@ -93,11 +93,9 @@ func TestMinikubeProviderStatusUnknown(t *testing.T) {
 }
 
 func TestMinikubeProviderStatusPropagatesError(t *testing.T) {
-	// When cli.Minikube.Status returns a non-nil error with non-empty Host,
-	// MinikubeProvider.Status should propagate the error as StatusUnknown.
-	// We can't easily produce that scenario via FakeRunner directly because
-	// minikube.go converts "not found" to (empty, nil). So instead we simulate
-	// the case by scripting a real JSON plus an error (no notFoundMarker).
+	// Script output without the "not found" marker plus a non-nil error,
+	// simulating a genuine mid-flight failure. MinikubeProvider.Status must
+	// propagate it as StatusUnknown rather than treating it as NotFound.
 	sentinelErr := errors.New("some connection error")
 	f := &cli.FakeRunner{}
 	// Output returns a non-zero status without the "not found" marker, so
