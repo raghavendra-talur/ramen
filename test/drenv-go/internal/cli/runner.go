@@ -24,7 +24,9 @@ type Runner interface {
 
 	// Output executes name with args and returns the trimmed combined output
 	// (stdout + stderr). Errors are wrapped with the command line for easier
-	// diagnosis.
+	// diagnosis. The returned output is populated even when the error is
+	// non-nil, so callers can inspect failure text (e.g. to distinguish a
+	// "not found" exit from a real failure).
 	Output(ctx context.Context, name string, args ...string) (string, error)
 }
 
@@ -49,11 +51,14 @@ func (Exec) Output(ctx context.Context, name string, args ...string) (string, er
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 
-	if err := cmd.Run(); err != nil {
-		line := cmdLine(name, args)
-		return "", fmt.Errorf("%s: %w", line, err)
+	// Capture output regardless of exit status: callers like Minikube.Status
+	// rely on the failure text (e.g. "not found") emitted on a non-zero exit.
+	err := cmd.Run()
+	out := strings.TrimSpace(buf.String())
+	if err != nil {
+		return out, fmt.Errorf("%s: %w", cmdLine(name, args), err)
 	}
-	return strings.TrimSpace(buf.String()), nil
+	return out, nil
 }
 
 // cmdLine formats a command name and its arguments as a single string for
