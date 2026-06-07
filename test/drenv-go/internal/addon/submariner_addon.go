@@ -110,7 +110,15 @@ func buildSubmariner(d Deps, _ string, args []string) ensure.Step {
 		if err := os.MkdirAll(filepath.Dir(brokerInfo), 0o755); err != nil {
 			return fmt.Errorf("submariner: create broker dir: %w", err)
 		}
-		return d.Subctl.DeployBroker(ctx, broker, true, submarinerVersion)
+		if err := d.Subctl.DeployBroker(ctx, broker, true, submarinerVersion); err != nil {
+			return err
+		}
+		// subctl deploy-broker writes broker-info.subm to the process CWD.
+		// Mirror Python: shutil.move("broker-info.subm", broker_info).
+		if err := os.Rename(submarinerBrokerInfoFile, brokerInfo); err != nil {
+			return fmt.Errorf("submariner: move broker-info: %w", err)
+		}
+		return nil
 	})
 
 	// Wait for broker deployments.
