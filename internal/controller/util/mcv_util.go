@@ -575,6 +575,7 @@ func (m ManagedClusterViewGetterImpl) getOrCreateManagedClusterView(
 	}
 
 	AddLabel(mcv, CreatedByRamenLabel, "true")
+	AddLabel(mcv, ExcludeFromVeleroBackup, "true")
 
 	err := m.Get(context.TODO(), key, mcv)
 	if err != nil {

@@ -180,6 +180,7 @@ func (u *drclusterInstance) activateRegionalFailoverPrequisite(identifier ramen.
 	}
 
 	util.AddLabel(&mMode, util.CreatedByRamenLabel, "true")
+	util.AddLabel(&mMode, util.ExcludeFromVeleroBackup, "true")
 
 	annotations := make(map[string]string)
 	annotations[DRClusterNameAnnotation] = u.object.GetName()

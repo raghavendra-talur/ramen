@@ -97,6 +97,7 @@ var olmClusterRole = &rbacv1.ClusterRole{
 		Labels: map[string]string{
 			util.ClusterRoleAggregateLabel: "true",
 			util.CreatedByRamenLabel:       "true",
+			util.ExcludeFromVeleroBackup:   "true",
 		},
 	},
 	Rules: []rbacv1.PolicyRule{
@@ -146,7 +147,8 @@ func operatorGroup(namespaceName string) *operatorsv1.OperatorGroup {
 			Name:      "ramen-operator-group",
 			Namespace: namespaceName,
 			Labels: map[string]string{
-				util.CreatedByRamenLabel: "true",
+				util.CreatedByRamenLabel:     "true",
+				util.ExcludeFromVeleroBackup: "true",
 			},
 		},
 	}
@@ -166,7 +168,8 @@ func subscription(
 			Name:      "ramen-dr-cluster-subscription",
 			Namespace: namespaceName,
 			Labels: map[string]string{
-				util.CreatedByRamenLabel: "true",
+				util.CreatedByRamenLabel:     "true",
+				util.ExcludeFromVeleroBackup: "true",
 			},
 		},
 		Spec: &operatorsv1alpha1.SubscriptionSpec{

@@ -2514,6 +2514,7 @@ func (d *DRPCInstance) newVRG(
 	}
 
 	rmnutil.AddLabel(&vrg, rmnutil.CreatedByRamenLabel, "true")
+	rmnutil.AddLabel(&vrg, rmnutil.ExcludeFromVeleroBackup, "true")
 
 	d.updateVRGOptionalFields(&vrg, vrgFromView, dstCluster)
 

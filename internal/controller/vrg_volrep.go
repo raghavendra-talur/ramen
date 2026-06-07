@@ -1552,6 +1552,7 @@ func (v *VRGInstance) createVR(vrNamespacedName types.NamespacedName, state volr
 	}
 
 	rmnutil.AddLabel(volRep, rmnutil.CreatedByRamenLabel, "true")
+	rmnutil.AddLabel(volRep, rmnutil.ExcludeFromVeleroBackup, "true")
 
 	if !vrgInAdminNamespace(v.instance, v.ramenConfig) {
 		// This is to keep existing behavior of ramen.

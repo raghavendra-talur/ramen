@@ -894,6 +894,7 @@ func (v *VRGInstance) createVGR(vrNamespacedName types.NamespacedName,
 	}
 
 	rmnutil.AddLabel(volRep, rmnutil.CreatedByRamenLabel, "true")
+	rmnutil.AddLabel(volRep, rmnutil.ExcludeFromVeleroBackup, "true")
 
 	// This is to keep existing behavior of ramen. Set the owner reference only
 	// for the VGRs which are in the same namespace as the VRG and when VRG is

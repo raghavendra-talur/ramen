@@ -339,6 +339,7 @@ func (m *rgdMachine) CreateReplicationDestinations(
 			util.AddLabel(rd, util.VRGOwnerNamespaceLabel,
 				m.ReplicationGroupDestination.GetLabels()[util.VRGOwnerNamespaceLabel])
 			util.AddLabel(rd, util.CreatedByRamenLabel, "true")
+			util.AddLabel(rd, util.ExcludeFromVeleroBackup, "true")
 			util.AddAnnotation(rd, volsync.OwnerNameAnnotation, m.ReplicationGroupDestination.Name)
 			util.AddAnnotation(rd, volsync.OwnerNamespaceAnnotation, m.ReplicationGroupDestination.Namespace)
 
@@ -395,7 +396,8 @@ func (m *rgdMachine) CreateReplicationDestinations(
 func getMoverConfig(rdSpec ramendrv1alpha1.VolSyncReplicationDestinationSpec) volsyncv1alpha1.MoverConfig {
 	mc := volsyncv1alpha1.MoverConfig{
 		MoverPodLabels: map[string]string{
-			util.CreatedByRamenLabel: "true",
+			util.CreatedByRamenLabel:     "true",
+			util.ExcludeFromVeleroBackup: "true",
 		},
 	}
 

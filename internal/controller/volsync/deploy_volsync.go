@@ -60,6 +60,7 @@ func reconcileVolSyncManagedClusterAddOn(ctx context.Context, k8sClient client.C
 		Kind:    ManagedClusterAddOnKind,
 	})
 	util.AddLabel(vsMCAO, util.CreatedByRamenLabel, "true")
+	util.AddLabel(vsMCAO, util.ExcludeFromVeleroBackup, "true")
 
 	op, err := ctrlutil.CreateOrUpdate(ctx, k8sClient, vsMCAO, func() error {
 		// Do not update the ManagedClusterAddOn if it already exists - let users update settings if required

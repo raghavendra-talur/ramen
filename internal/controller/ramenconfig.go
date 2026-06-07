@@ -418,7 +418,8 @@ func ConfigMapNew(
 			Name:      name,
 			Namespace: namespaceName,
 			Labels: map[string]string{
-				rmnutil.CreatedByRamenLabel: "true",
+				rmnutil.CreatedByRamenLabel:     "true",
+				rmnutil.ExcludeFromVeleroBackup: "true",
 			},
 		},
 		Data: map[string]string{

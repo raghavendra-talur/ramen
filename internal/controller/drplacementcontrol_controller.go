@@ -1332,6 +1332,7 @@ func (r *DRPlacementControlReconciler) clonePlacementRule(ctx context.Context,
 	clonedPlRule.Spec.SchedulerName = ""
 
 	rmnutil.AddLabel(clonedPlRule, rmnutil.CreatedByRamenLabel, "true")
+	rmnutil.AddLabel(clonedPlRule, rmnutil.ExcludeFromVeleroBackup, "true")
 
 	err := r.addClusterPeersToPlacementRule(drPolicy, clonedPlRule, log)
 	if err != nil {

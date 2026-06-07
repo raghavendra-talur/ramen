@@ -765,6 +765,7 @@ func (u *drclusterInstance) generateDRClusterConfig() (*ramen.DRClusterConfig, e
 	}
 
 	util.AddLabel(&drcConfig, util.CreatedByRamenLabel, "true")
+	util.AddLabel(&drcConfig, util.ExcludeFromVeleroBackup, "true")
 
 	drpolicies, err := util.GetAllDRPolicies(u.ctx, u.reconciler.APIReader)
 	if err != nil {
@@ -1665,6 +1666,7 @@ func generateNF(targetCluster *ramen.DRCluster, networkFenceClassName string) (c
 		},
 	}
 	util.AddLabel(&nf, util.CreatedByRamenLabel, "true")
+	util.AddLabel(&nf, util.ExcludeFromVeleroBackup, "true")
 
 	if networkFenceClassName != "" {
 		nf.Name = strings.Join([]string{NetworkFencePrefix, networkFenceClassName, targetCluster.Name}, "-")

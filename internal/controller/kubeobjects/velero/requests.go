@@ -625,6 +625,7 @@ func (w objectWriter) bslCreateOrUpdate(s3Url string,
 			Credential: secretKeyRef,
 		}
 		util.AddLabel(backupLocation, util.CreatedByRamenLabel, "true")
+		util.AddLabel(backupLocation, util.ExcludeFromVeleroBackup, "true")
 
 		return nil
 	})
@@ -736,6 +737,7 @@ func backupRequest(namespaceName, name string, spec velero.BackupSpec,
 	}
 
 	util.AddLabel(backup, util.CreatedByRamenLabel, "true")
+	util.AddLabel(backup, util.ExcludeFromVeleroBackup, "true")
 
 	return backup
 }
@@ -778,6 +780,7 @@ func restore(
 	}
 
 	util.AddLabel(restoreObj, util.CreatedByRamenLabel, "true")
+	util.AddLabel(restoreObj, util.ExcludeFromVeleroBackup, "true")
 
 	return restoreObj
 }
