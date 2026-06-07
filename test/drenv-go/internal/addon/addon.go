@@ -34,9 +34,15 @@ type Deps struct {
 	MC *cli.MC
 	// Velero is the velero wrapper for Velero installation.
 	Velero *cli.Velero
+	// Argocd is the argocd wrapper for ArgoCD CLI operations.
+	Argocd *cli.Argocd
 	// AddonsDir is the absolute path to the test/drenv/addons directory
 	// containing the addon manifests and kustomization files.
 	AddonsDir string
+	// EnvName is the environment name (from the envfile). Used by addons that
+	// need to persist files under ~/.config/drenv/<EnvName>/ (e.g. submariner
+	// broker-info, argocd kubeconfig).
+	EnvName string
 	// Opts is the ensure.Options to use for all addon steps.
 	Opts ensure.Options
 }
