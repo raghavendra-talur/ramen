@@ -4,8 +4,6 @@
 package main
 
 import (
-	"os"
-
 	"github.com/spf13/cobra"
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/build"
@@ -22,11 +20,10 @@ func newDeleteCommand() *cobra.Command {
 				return err
 			}
 
-			prov := newMinikubeProvider()
 			opts := ensure.DefaultOptions()
-			opts.Reporter = ensure.ConsoleReporter{W: os.Stdout}
+			opts.Reporter = ensure.ConsoleReporter{W: cmd.OutOrStdout()}
 
-			step := build.Delete(env, prov, opts)
+			step := build.Delete(env, newProviderSelector(), opts)
 			_, err = ensure.Ensure(cmd.Context(), step, opts)
 			return err
 		},

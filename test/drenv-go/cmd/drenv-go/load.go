@@ -33,13 +33,13 @@ func newLoadCommand() *cobra.Command {
 				return err
 			}
 
-			prov := newMinikubeProvider()
+			sel := newProviderSelector()
 			ctx := cmd.Context()
 
 			var errs []error
 			for _, prof := range env.Profiles {
 				fmt.Fprintf(cmd.OutOrStdout(), "loading image %s into %s\n", image, prof.Name)
-				if err := prov.LoadImage(ctx, prof.Name, image); err != nil {
+				if err := sel(prof).LoadImage(ctx, prof.Name, image); err != nil {
 					errs = append(errs, fmt.Errorf("profile %s: %w", prof.Name, err))
 				}
 			}

@@ -22,6 +22,18 @@ func newMinikubeProvider() provider.MinikubeProvider {
 	return provider.MinikubeProvider{MK: &cli.Minikube{R: cli.Exec{}}}
 }
 
+// newProviderSelector returns a build.ProviderSelector that picks
+// ExternalProvider for profiles with External==true and MinikubeProvider for
+// all others, using real CLI clients.
+func newProviderSelector() build.ProviderSelector {
+	r := cli.Exec{}
+	mk := &cli.Minikube{R: r}
+	k := &cli.Kubectl{R: r}
+	return func(prof envfile.Profile) provider.Provider {
+		return provider.For(prof, mk, k)
+	}
+}
+
 // loadEnv loads the environment from envfilePath, returning an error if the
 // path is empty or the file cannot be parsed.
 func loadEnv() (*envfile.Env, error) {
@@ -57,7 +69,6 @@ func newStartCommand() *cobra.Command {
 				return err
 			}
 
-			prov := newMinikubeProvider()
 			opts := ensure.DefaultOptions()
 			opts.Reporter = ensure.ConsoleReporter{W: cmd.OutOrStdout()}
 
@@ -81,7 +92,7 @@ func newStartCommand() *cobra.Command {
 				Opts:       opts,
 			}
 
-			step := build.Start(env, prov, deps, opts)
+			step := build.Start(env, newProviderSelector(), deps, opts)
 			_, err = ensure.Ensure(cmd.Context(), step, opts)
 			return err
 		},

@@ -48,6 +48,11 @@ type Profile struct {
 	CPUs     int      `yaml:"cpus,omitempty"`
 	Memory   string   `yaml:"memory,omitempty"`
 	Workers  []Worker `yaml:"workers,omitempty"`
+	// External marks the cluster as pre-existing and externally managed.
+	// drenv-go will not create, stop, delete, suspend, or resume external
+	// clusters; it only runs the addons. This mirrors the Python drenv
+	// external provider (test/drenv/providers/external.py).
+	External bool `yaml:"external,omitempty"`
 }
 
 // Worker is a parallel unit holding a serial list of addons.
