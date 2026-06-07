@@ -202,6 +202,33 @@ func (k Kubectl) Config(ctx context.Context, args ...string) (string, error) {
 	return k.R.Output(ctx, "kubectl", all...)
 }
 
+// GetRaw runs `kubectl --context <kubeContext> get --raw <path>` and returns
+// the response body. This is used to probe cluster health endpoints such as
+// /readyz and /livez without requiring a full API resource lookup.
+func (k Kubectl) GetRaw(ctx context.Context, kubeContext, path string) (string, error) {
+	return k.R.Output(ctx, "kubectl", "--context", kubeContext, "get", "--raw", path)
+}
+
+// ClusterInfoDump runs:
+//
+//	kubectl --context <kubeContext> cluster-info dump
+//	  --output-directory=<outputDir>
+//	  --all-namespaces
+//	  --output=yaml
+//
+// This is the faithful Go equivalent of the Python `drenv gather` operation
+// (test/drenv/__main__.py do_gather + kubectl gather plugin). It dumps the
+// full cluster state to a directory for offline analysis.
+func (k Kubectl) ClusterInfoDump(ctx context.Context, kubeContext, outputDir string) error {
+	return k.R.Run(ctx, "kubectl",
+		"--context", kubeContext,
+		"cluster-info", "dump",
+		"--output-directory="+outputDir,
+		"--all-namespaces",
+		"--output=yaml",
+	)
+}
+
 // formatTimeout converts a time.Duration to a kubectl-compatible timeout string
 // of the form "<seconds>s". Fractional seconds are truncated.
 func formatTimeout(d time.Duration) string {

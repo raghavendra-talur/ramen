@@ -16,8 +16,8 @@ func TestLoadParsesEnv(t *testing.T) {
 	if env.Name != "sample" {
 		t.Fatalf("Name = %q, want sample", env.Name)
 	}
-	if len(env.Profiles) != 3 {
-		t.Fatalf("got %d profiles, want 3", len(env.Profiles))
+	if len(env.Profiles) != 4 {
+		t.Fatalf("got %d profiles, want 4", len(env.Profiles))
 	}
 	if env.Ramen == nil || env.Ramen.Hub != "hub" {
 		t.Fatalf("ramen.hub not parsed: %+v", env.Ramen)
@@ -81,6 +81,33 @@ func TestLoadUnknownTemplateErrors(t *testing.T) {
 	}
 	if err := e.expand(); err == nil || !strings.Contains(err.Error(), "unknown template") {
 		t.Fatalf("expected unknown template error, got %v", err)
+	}
+}
+
+func TestLoadParsesExternalProfile(t *testing.T) {
+	env, err := Load("testdata/sample.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	// The ext-cluster profile is the fourth (index 3) in the fixture.
+	var ext *Profile
+	for i := range env.Profiles {
+		if env.Profiles[i].Name == "ext-cluster" {
+			ext = &env.Profiles[i]
+			break
+		}
+	}
+	if ext == nil {
+		t.Fatal("ext-cluster profile not found")
+	}
+	if !ext.External {
+		t.Errorf("ext-cluster.External = false, want true")
+	}
+	// Regular profiles must not be flagged as external.
+	for _, p := range env.Profiles {
+		if p.Name != "ext-cluster" && p.External {
+			t.Errorf("profile %q.External = true, want false", p.Name)
+		}
 	}
 }
 

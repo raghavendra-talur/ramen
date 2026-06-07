@@ -18,6 +18,12 @@ import (
 	"github.com/ramendr/ramen/test/drenv-go/internal/provider"
 )
 
+// ProviderSelector is a function that maps a profile to its Provider. This
+// allows each profile to use a different backend (e.g. minikube vs. external).
+// Use provider.For to construct the standard selector from real CLI clients,
+// or supply a stub in tests.
+type ProviderSelector func(envfile.Profile) provider.Provider
+
 // Start returns a serial top-level ensure.Group named after the environment.
 // Its children are:
 //  1. A parallel "profiles" group: for each profile, a serial group containing
@@ -26,12 +32,17 @@ import (
 //     serial group of addon steps (the addon's cluster is passed as "" since
 //     global addons address clusters via their args).
 //
+// The providerFor selector is called once per profile to pick the correct
+// Provider backend (e.g. MinikubeProvider for normal profiles,
+// ExternalProvider for external ones).
+//
 // Addons not found in the registry are represented as no-op steps (Done=true)
 // named "addon/<name> (unimplemented)" so an env with not-yet-ported addons
 // still composes without error.
-func Start(e *envfile.Env, p provider.Provider, d addon.Deps, opts ensure.Options) ensure.Step {
+func Start(e *envfile.Env, providerFor ProviderSelector, d addon.Deps, opts ensure.Options) ensure.Step {
 	profileSteps := make([]ensure.Step, len(e.Profiles))
 	for i, prof := range e.Profiles {
+		p := providerFor(prof)
 		// Build per-worker steps for this profile.
 		workerSteps := make([]ensure.Step, len(prof.Workers))
 		for wi, w := range prof.Workers {
@@ -104,21 +115,22 @@ func (s noopStep) Done(_ context.Context) (bool, error) { return true, nil }
 func (s noopStep) Do(_ context.Context) error           { return nil }
 
 // Delete returns a parallel ensure.Group that removes every profile's cluster.
-func Delete(e *envfile.Env, p provider.Provider, opts ensure.Options) ensure.Step {
+// providerFor selects the backend per profile.
+func Delete(e *envfile.Env, providerFor ProviderSelector, opts ensure.Options) ensure.Step {
 	steps := make([]ensure.Step, len(e.Profiles))
 	for i, prof := range e.Profiles {
-		steps[i] = provider.ClusterAbsentStep(p, prof)
+		steps[i] = provider.ClusterAbsentStep(providerFor(prof), prof)
 	}
 	return ensure.NewGroup(e.Name+" delete", ensure.Parallel, opts, steps...)
 }
 
 // Stop returns a parallel ensure.Group that stops every profile's cluster.
 // A cluster that does not exist is treated as already stopped (see
-// provider.ClusterStoppedStep).
-func Stop(e *envfile.Env, p provider.Provider, opts ensure.Options) ensure.Step {
+// provider.ClusterStoppedStep). providerFor selects the backend per profile.
+func Stop(e *envfile.Env, providerFor ProviderSelector, opts ensure.Options) ensure.Step {
 	steps := make([]ensure.Step, len(e.Profiles))
 	for i, prof := range e.Profiles {
-		steps[i] = provider.ClusterStoppedStep(p, prof)
+		steps[i] = provider.ClusterStoppedStep(providerFor(prof), prof)
 	}
 	return ensure.NewGroup(e.Name+" stop", ensure.Parallel, opts, steps...)
 }

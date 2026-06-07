@@ -20,11 +20,10 @@ func newStopCommand() *cobra.Command {
 				return err
 			}
 
-			prov := newMinikubeProvider()
 			opts := ensure.DefaultOptions()
 			opts.Reporter = ensure.ConsoleReporter{W: cmd.OutOrStdout()}
 
-			step := build.Stop(env, prov, opts)
+			step := build.Stop(env, newProviderSelector(), opts)
 			_, err = ensure.Ensure(cmd.Context(), step, opts)
 			return err
 		},

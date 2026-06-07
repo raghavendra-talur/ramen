@@ -31,6 +31,11 @@ profiles:
     template: dr-cluster
   - name: hub
     template: hub-cluster
+  - name: ext-cluster
+    external: true
+    workers:
+      - addons:
+          - name: some-addon
 workers:
   - addons:
       - name: rbd-mirror
