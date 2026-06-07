@@ -55,4 +55,8 @@ type Provider interface {
 	Status(ctx context.Context, profile string) (Status, error)
 	// LoadImage loads a container image into the cluster's container runtime.
 	LoadImage(ctx context.Context, profile, image string) error
+	// Suspend pauses a running cluster, freezing its workloads in place.
+	Suspend(ctx context.Context, profile string) error
+	// Resume unpauses a suspended cluster, resuming its workloads.
+	Resume(ctx context.Context, profile string) error
 }

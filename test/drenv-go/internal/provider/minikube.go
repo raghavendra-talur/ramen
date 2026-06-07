@@ -105,3 +105,13 @@ func (mp MinikubeProvider) Delete(ctx context.Context, profile string) error {
 func (mp MinikubeProvider) LoadImage(ctx context.Context, profile, image string) error {
 	return mp.MK.LoadImage(ctx, profile, image)
 }
+
+// Suspend delegates to cli.Minikube.Pause, freezing the cluster's workloads.
+func (mp MinikubeProvider) Suspend(ctx context.Context, profile string) error {
+	return mp.MK.Pause(ctx, profile)
+}
+
+// Resume delegates to cli.Minikube.Unpause, resuming the cluster's workloads.
+func (mp MinikubeProvider) Resume(ctx context.Context, profile string) error {
+	return mp.MK.Unpause(ctx, profile)
+}
