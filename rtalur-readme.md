@@ -73,6 +73,7 @@ Parallel Go implementation of `drenv`. Reflects state as of Milestone 4D.
 | Module skeleton (mage, tools.mod, cobra, ensure pkg, envfile parser) | ✅ | |
 | envfile: parse profiles including `external: true` | ✅ | `Profile.External bool` added M4D |
 | minikube provider + cluster lifecycle (start / stop / delete / status) | 🚧 | Unit-tested via FakeRunner; clusters could not boot on this host (vfkit) |
+| minikube `start` flag parity (container_runtime, extra_disks, disk_size, cni, nodes, extra_config, feature_gates, service_cluster_ip_range, rosetta, wait-timeout) | ✅ | `Profile`/`Template` embed `MinikubeSpec`; flags emitted in Python's order. Fixes minikube defaulting to docker instead of `container_runtime: containerd` |
 | external provider (ExternalProvider) | 🚧 | No-ops for lifecycle; Status probes `/readyz` via kubectl; unit-tested M4D |
 | Per-profile provider selection (`provider.For`, `build.ProviderSelector`) | ✅ | External profiles get ExternalProvider; normal profiles get MinikubeProvider |
 | suspend / resume / load-image | 🚧 | Unit-tested; delegates to provider per profile |
@@ -147,6 +148,8 @@ These issues will surface when a real cluster run is possible:
 3. **rbd-mirror: daemon-restart-on-timeout + CSIAddonsNode retry** — The Python rbd-mirror addon restarts the Ceph rbd-mirror daemon if mirroring setup times out, and retries until all CSIAddonsNodes report "Connected". The Go port mirrors this logic but the wait intervals and retry counts have not been validated against real Rook output.
 
 4. **ocm: namespace-create waits** — The ocm-hub / ocm-cluster addons wait for `namespace/open-cluster-management` and `namespace/open-cluster-management-hub` to be created. The wait duration may need tuning against a real cluster.
+
+5. **per-node `containerd` plugin config** — regional-dr.yaml sets a `containerd:` block (`device_ownership_from_security_context: true`, needed by rook). Python drenv applies it post-start by SSHing into the node, writing `/etc/containerd` config, and restarting containerd (`_configure_containerd`). drenv-go now passes `--container-runtime containerd` so the runtime is correct, but does **not** yet apply this per-node plugin config. The YAML key is parsed-and-dropped. Implementing it needs an SSH/exec-into-node step.
 
 ## Conventions I follow here
 
