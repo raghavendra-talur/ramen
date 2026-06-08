@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ramendr/ramen/test/drenv-go/internal/cli"
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
 )
 
@@ -119,5 +120,36 @@ func buildRookCluster(d Deps, cluster string, _ []string) ensure.Step {
 	steps = append(steps, csiSteps...)
 	steps = append(steps, csiAddonsSteps...)
 
-	return Serial("addon/rook-cluster", d.Opts, steps...)
+	return gatedAddon("addon/rook-cluster", d.Opts, rookClusterReady(d.K, cluster), steps...)
+}
+
+// rookClusterReady is satisfied when the CephCluster is Ready, every CSI
+// component is rolled out, and every CSIAddonsNode is Connected — the full
+// end-state the steps wait for.
+func rookClusterReady(k *cli.Kubectl, cluster string) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		if !cephPhaseReady(ctx, k, cluster, "rook-ceph", "cephcluster/my-cluster") {
+			return false, nil
+		}
+		for _, c := range csiComponents {
+			ok := false
+			switch c.kind {
+			case "daemonset":
+				ok = daemonSetReady(ctx, k, cluster, "rook-ceph", c.name)
+			case "deployment":
+				ok = deploymentAvailable(ctx, k, cluster, "rook-ceph", c.name)
+			}
+			if !ok {
+				return false, nil
+			}
+		}
+		for _, suffix := range csiAddonsNodeSuffixes {
+			node := fmt.Sprintf("%s-rook-ceph-%s", cluster, suffix)
+			res := "csiaddonsnodes.csiaddons.openshift.io/" + node
+			if !jsonPathEquals(ctx, k, cluster, "rook-ceph", res, "{.status.state}", "Connected") {
+				return false, nil
+			}
+		}
+		return true, nil
+	}
 }

@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ramendr/ramen/test/drenv-go/internal/cli"
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
 )
 
@@ -194,5 +195,23 @@ func buildOCMCluster(d Deps, cluster string, args []string) ensure.Step {
 	steps = append(steps, labelStep, enableAddonsStep)
 	steps = append(steps, addonWaitSteps...)
 
-	return Serial("addon/ocm-cluster", d.Opts, steps...)
+	return gatedAddon("addon/ocm-cluster", d.Opts, ocmClusterReady(d.K, hub, cluster), steps...)
+}
+
+// ocmClusterReady is satisfied when the managed cluster is Available on the hub
+// and every cluster addon deployment is rolled out on the managed cluster.
+func ocmClusterReady(k *cli.Kubectl, hub, cluster string) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		avail := jsonPathEquals(ctx, k, hub, "", "managedcluster/"+cluster,
+			`{.status.conditions[?(@.type=="ManagedClusterConditionAvailable")].status}`, "True")
+		if !avail {
+			return false, nil
+		}
+		for _, a := range ocmClusterAddons {
+			if !deploymentAvailable(ctx, k, cluster, ocmClusterAddonsNamespace, a.deployment) {
+				return false, nil
+			}
+		}
+		return true, nil
+	}
 }
