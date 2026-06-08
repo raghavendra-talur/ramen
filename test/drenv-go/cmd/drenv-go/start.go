@@ -12,6 +12,7 @@ import (
 	"github.com/ramendr/ramen/test/drenv-go/internal/addon"
 	"github.com/ramendr/ramen/test/drenv-go/internal/build"
 	"github.com/ramendr/ramen/test/drenv-go/internal/cli"
+	"github.com/ramendr/ramen/test/drenv-go/internal/e2econfig"
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
 	"github.com/ramendr/ramen/test/drenv-go/internal/envfile"
 	"github.com/ramendr/ramen/test/drenv-go/internal/provider"
@@ -93,8 +94,27 @@ func newStartCommand() *cobra.Command {
 			}
 
 			step := build.Start(env, newProviderSelector(), deps, opts)
-			_, err = ensure.Ensure(cmd.Context(), step, opts)
-			return err
+			if _, err := ensure.Ensure(cmd.Context(), step, opts); err != nil {
+				return err
+			}
+
+			// When the env declares a ramen topology, dump the kubeconfig
+			// layout that the e2e framework and localrun consume, mirroring
+			// the Python `drenv start` (test/drenv/ramen.py dump_e2e_config).
+			if env.Ramen != nil {
+				baseDir, err := e2econfig.ConfigDir(env.Name)
+				if err != nil {
+					return err
+				}
+
+				fmt.Fprintf(cmd.OutOrStdout(), "[%s] Dumping ramen e2e config to %q\n", env.Name, baseDir)
+
+				if err := e2econfig.Dump(cmd.Context(), deps.K, baseDir, *env.Ramen); err != nil {
+					return fmt.Errorf("dump e2e config: %w", err)
+				}
+			}
+
+			return nil
 		},
 	}
 
