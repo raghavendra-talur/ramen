@@ -87,7 +87,7 @@ Parallel Go implementation of `drenv`. Reflects state as of Milestone 4D.
 
 | Command | Status | Notes |
 |---------|--------|-------|
-| `start` | ✅ | Cluster-validated (c1/qemu2): creates the cluster, skips it on re-run (reality-as-checkpoint), runs the worker/addon tree |
+| `start` | ✅ | **Full regional-dr cluster-validated** (hub+dr1+dr2 on vfkit/containerd): brings the whole environment up end-to-end (rook, ocm hub+cluster join, submariner, rbd-mirror, volsync, …), exit 0; re-run skips all satisfied addons via the reality gates |
 | `stop` | 🚧 | Parallel ensure; unit-tested |
 | `delete` | 🚧 | Parallel ensure; unit-tested |
 | `status` | ✅ | Cluster-validated against the real minikube binary (reads running/stopped/not-found per cluster) |
