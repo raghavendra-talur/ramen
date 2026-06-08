@@ -41,7 +41,7 @@ func TestArgocdClusterAddIssuesCorrectArgv(t *testing.T) {
 	f := &cli.FakeRunner{}
 	a := cli.Argocd{R: f}
 
-	if err := a.ClusterAdd(ctx, "/tmp/kubeconfig", "dr1"); err != nil {
+	if _, err := a.ClusterAdd(ctx, "/tmp/kubeconfig", "dr1"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(f.Calls) != 1 {

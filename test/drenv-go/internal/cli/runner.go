@@ -42,6 +42,13 @@ type Runner interface {
 	// Use this when a tool requires environment variables (e.g. KUBECONFIG for
 	// argocd) that cannot be expressed as CLI flags.
 	RunEnv(ctx context.Context, env []string, name string, args ...string) error
+
+	// OutputEnv is RunEnv plus output capture: it augments the process
+	// environment with env and returns the trimmed combined output (stdout +
+	// stderr). Like Output, the output is populated even on a non-zero exit so
+	// callers can inspect failure text (e.g. argocd's "NOAUTH" message) while
+	// also requiring a specific environment such as KUBECONFIG.
+	OutputEnv(ctx context.Context, env []string, name string, args ...string) (string, error)
 }
 
 // Exec is the real Runner that shells out via os/exec.CommandContext.
@@ -95,6 +102,25 @@ func (Exec) RunEnv(ctx context.Context, env []string, name string, args ...strin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// OutputEnv executes name with args with the process environment augmented by
+// env, capturing the combined stdout+stderr. The output is returned even on a
+// non-zero exit so callers can inspect failure text; on error it is wrapped
+// with the command line string.
+func (Exec) OutputEnv(ctx context.Context, env []string, name string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = append(os.Environ(), env...)
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+
+	err := cmd.Run()
+	out := strings.TrimSpace(buf.String())
+	if err != nil {
+		return out, fmt.Errorf("%s: %w", cmdLine(name, args), err)
+	}
+	return out, nil
 }
 
 // cmdLine formats a command name and its arguments as a single string for
