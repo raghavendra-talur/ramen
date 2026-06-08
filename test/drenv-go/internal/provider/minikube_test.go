@@ -7,12 +7,25 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/cli"
 	"github.com/ramendr/ramen/test/drenv-go/internal/envfile"
 	"github.com/ramendr/ramen/test/drenv-go/internal/provider"
 )
+
+// commonStartTail returns the flags MinikubeProvider.Start always appends after
+// the profile-derived flags: the mandatory --extra-config, the platform-gated
+// --rosetta (darwin/arm64 only), and --wait-timeout. Tests that go through the
+// real Start build their expected argv with this so they pass on any host.
+func commonStartTail() []string {
+	tail := []string{"--extra-config", "kubelet.serialize-image-pulls=false"}
+	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+		tail = append(tail, "--rosetta")
+	}
+	return append(tail, "--wait-timeout", "180s")
+}
 
 // statusJSON builds a minimal minikube status JSON payload.
 func runningJSON(name string) string {
@@ -115,11 +128,16 @@ func TestMinikubeProviderStartFullProfile(t *testing.T) {
 	p := newProvider(f)
 
 	prof := envfile.Profile{
-		Name:    "dr1",
-		Driver:  "kvm2",
-		Network: "mynet",
-		CPUs:    4,
-		Memory:  "8192m",
+		Name: "dr1",
+		MinikubeSpec: envfile.MinikubeSpec{
+			Driver:           "kvm2",
+			ContainerRuntime: "containerd",
+			Network:          "mynet",
+			CPUs:             4,
+			Memory:           "8192m",
+			ExtraDisks:       1,
+			DiskSize:         "50g",
+		},
 	}
 	if err := p.Start(context.Background(), prof); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -128,7 +146,16 @@ func TestMinikubeProviderStartFullProfile(t *testing.T) {
 		t.Fatalf("expected 1 call, got %d", len(f.Calls))
 	}
 	c := f.Calls[0]
-	want := []string{"start", "-p", "dr1", "--driver", "kvm2", "--network", "mynet", "--cpus", "4", "--memory", "8192m"}
+	want := append([]string{
+		"start", "-p", "dr1",
+		"--driver", "kvm2",
+		"--container-runtime", "containerd",
+		"--extra-disks", "1",
+		"--disk-size", "50g",
+		"--network", "mynet",
+		"--cpus", "4",
+		"--memory", "8192m",
+	}, commonStartTail()...)
 	if !reflect.DeepEqual(c.Args, want) {
 		t.Errorf("args = %v, want %v", c.Args, want)
 	}
@@ -139,16 +166,18 @@ func TestMinikubeProviderStartOmitsPlaceholderDriver(t *testing.T) {
 	p := newProvider(f)
 
 	prof := envfile.Profile{
-		Name:   "dr1",
-		Driver: "$vm", // unresolved placeholder — should be omitted
-		CPUs:   2,
-		Memory: "4096m",
+		Name: "dr1",
+		MinikubeSpec: envfile.MinikubeSpec{
+			Driver: "$vm", // unresolved placeholder — should be omitted
+			CPUs:   2,
+			Memory: "4096m",
+		},
 	}
 	if err := p.Start(context.Background(), prof); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	c := f.Calls[0]
-	want := []string{"start", "-p", "dr1", "--cpus", "2", "--memory", "4096m"}
+	want := append([]string{"start", "-p", "dr1", "--cpus", "2", "--memory", "4096m"}, commonStartTail()...)
 	if !reflect.DeepEqual(c.Args, want) {
 		t.Errorf("args = %v, want %v", c.Args, want)
 	}
@@ -159,24 +188,27 @@ func TestMinikubeProviderStartOmitsPlaceholderNetwork(t *testing.T) {
 	p := newProvider(f)
 
 	prof := envfile.Profile{
-		Name:    "dr1",
-		Driver:  "kvm2",
-		Network: "$network", // unresolved placeholder — should be omitted
-		CPUs:    2,
-		Memory:  "4096m",
+		Name: "dr1",
+		MinikubeSpec: envfile.MinikubeSpec{
+			Driver:  "kvm2",
+			Network: "$network", // unresolved placeholder — should be omitted
+			CPUs:    2,
+			Memory:  "4096m",
+		},
 	}
 	if err := p.Start(context.Background(), prof); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	c := f.Calls[0]
-	want := []string{"start", "-p", "dr1", "--driver", "kvm2", "--cpus", "2", "--memory", "4096m"}
+	want := append([]string{"start", "-p", "dr1", "--driver", "kvm2", "--cpus", "2", "--memory", "4096m"}, commonStartTail()...)
 	if !reflect.DeepEqual(c.Args, want) {
 		t.Errorf("args = %v, want %v", c.Args, want)
 	}
 }
 
 func TestMinikubeProviderStartMinimal(t *testing.T) {
-	// Only name set; no driver/network/cpus/memory — just "-p <name>".
+	// Only name set; no driver/network/cpus/memory. The profile-derived flags
+	// are all omitted, leaving just "-p <name>" plus the always-on tail.
 	f := &cli.FakeRunner{}
 	p := newProvider(f)
 
@@ -185,7 +217,7 @@ func TestMinikubeProviderStartMinimal(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	c := f.Calls[0]
-	want := []string{"start", "-p", "dr1"}
+	want := append([]string{"start", "-p", "dr1"}, commonStartTail()...)
 	if !reflect.DeepEqual(c.Args, want) {
 		t.Errorf("args = %v, want %v", c.Args, want)
 	}

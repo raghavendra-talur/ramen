@@ -29,25 +29,41 @@ type Ramen struct {
 	Topology string   `yaml:"topology"`
 }
 
+// MinikubeSpec holds the minikube cluster-creation knobs shared by templates and
+// profiles. These map directly to `minikube start` flags and mirror the same
+// fields in the Python drenv envfile schema (test/drenv/providers/minikube).
+type MinikubeSpec struct {
+	Driver                string   `yaml:"driver,omitempty"`
+	ContainerRuntime      string   `yaml:"container_runtime,omitempty"`
+	Network               string   `yaml:"network,omitempty"`
+	CPUs                  int      `yaml:"cpus,omitempty"`
+	Memory                string   `yaml:"memory,omitempty"`
+	ExtraDisks            int      `yaml:"extra_disks,omitempty"`
+	DiskSize              string   `yaml:"disk_size,omitempty"`
+	Nodes                 int      `yaml:"nodes,omitempty"`
+	CNI                   string   `yaml:"cni,omitempty"`
+	ServiceClusterIPRange string   `yaml:"service_cluster_ip_range,omitempty"`
+	ExtraConfig           []string `yaml:"extra_config,omitempty"`
+	FeatureGates          []string `yaml:"feature_gates,omitempty"`
+	// Rosetta is a pointer so an unset value (nil) can be distinguished from an
+	// explicit `rosetta: false`. Python defaults this to true and only emits
+	// --rosetta on darwin/arm64; the provider applies the same rule.
+	Rosetta *bool `yaml:"rosetta,omitempty"`
+}
+
 // Template is a reusable base for profiles.
 type Template struct {
-	Name    string   `yaml:"name"`
-	Driver  string   `yaml:"driver,omitempty"`
-	Network string   `yaml:"network,omitempty"`
-	CPUs    int      `yaml:"cpus,omitempty"`
-	Memory  string   `yaml:"memory,omitempty"`
-	Workers []Worker `yaml:"workers,omitempty"`
+	Name         string `yaml:"name"`
+	MinikubeSpec `yaml:",inline"`
+	Workers      []Worker `yaml:"workers,omitempty"`
 }
 
 // Profile is a single cluster definition.
 type Profile struct {
-	Name     string   `yaml:"name"`
-	Template string   `yaml:"template,omitempty"`
-	Driver   string   `yaml:"driver,omitempty"`
-	Network  string   `yaml:"network,omitempty"`
-	CPUs     int      `yaml:"cpus,omitempty"`
-	Memory   string   `yaml:"memory,omitempty"`
-	Workers  []Worker `yaml:"workers,omitempty"`
+	Name         string `yaml:"name"`
+	Template     string `yaml:"template,omitempty"`
+	MinikubeSpec `yaml:",inline"`
+	Workers      []Worker `yaml:"workers,omitempty"`
 	// External marks the cluster as pre-existing and externally managed.
 	// drenv-go will not create, stop, delete, suspend, or resume external
 	// clusters; it only runs the addons. This mirrors the Python drenv
@@ -74,8 +90,9 @@ func Load(path string) (*Env, error) {
 	}
 	var env Env
 	// yaml.v3 silently ignores fields absent from Env, so envfile keys the Go
-	// tool does not yet model (e.g. container_runtime, extra_disks) are dropped
-	// rather than rejected. Add them to the structs when the tool needs them.
+	// tool does not yet model (e.g. the per-node `containerd` plugin config,
+	// applied post-start over SSH by Python drenv) are dropped rather than
+	// rejected. Add them to the structs when the tool needs them.
 	if err := yaml.Unmarshal(data, &env); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
@@ -107,18 +124,47 @@ func (e *Env) expand() error {
 }
 
 func applyTemplate(p *Profile, t Template) {
+	// A profile value overrides the template; an unset profile value (zero value)
+	// inherits the template's. Counts use 0 as "unset" — a profile cannot
+	// explicitly request 0 CPUs/disks/nodes.
 	if p.Driver == "" {
 		p.Driver = t.Driver
+	}
+	if p.ContainerRuntime == "" {
+		p.ContainerRuntime = t.ContainerRuntime
 	}
 	if p.Network == "" {
 		p.Network = t.Network
 	}
-	// CPUs == 0 is treated as unset; a profile cannot explicitly request 0 CPUs.
 	if p.CPUs == 0 {
 		p.CPUs = t.CPUs
 	}
 	if p.Memory == "" {
 		p.Memory = t.Memory
+	}
+	if p.ExtraDisks == 0 {
+		p.ExtraDisks = t.ExtraDisks
+	}
+	if p.DiskSize == "" {
+		p.DiskSize = t.DiskSize
+	}
+	if p.Nodes == 0 {
+		p.Nodes = t.Nodes
+	}
+	if p.CNI == "" {
+		p.CNI = t.CNI
+	}
+	if p.ServiceClusterIPRange == "" {
+		p.ServiceClusterIPRange = t.ServiceClusterIPRange
+	}
+	if len(p.ExtraConfig) == 0 {
+		p.ExtraConfig = append([]string(nil), t.ExtraConfig...)
+	}
+	if len(p.FeatureGates) == 0 {
+		p.FeatureGates = append([]string(nil), t.FeatureGates...)
+	}
+	if p.Rosetta == nil {
+		p.Rosetta = t.Rosetta
 	}
 	if len(p.Workers) == 0 {
 		p.Workers = cloneWorkers(t.Workers)
