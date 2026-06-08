@@ -30,10 +30,10 @@
 //     site_name/secret_name/token. We combine into a wait + three Get calls,
 //     matching argv exactly.
 //   - wait_until_pool_mirroring_is_healthy: The Python watches the pool status
-//     with a streaming kubectl watch (kubectl.watch) and retries up to 3 times,
-//     restarting the rbd-mirror daemon on timeout. Here we use a single kubectl
-//     get (non-streaming) for argv faithfulness; the streaming watch retry loop
-//     needs real-cluster validation.
+//     with a streaming kubectl watch (kubectl.watch). Here we poll the same
+//     jsonpath with kubectl get on an interval, but keep Python's semantics:
+//     up to 3 attempts, each bounded by a timeout, restarting the rbd-mirror
+//     daemon between attempts (see waitRBDMirroringHealthy).
 //
 // NEEDS REAL-CLUSTER VALIDATION: cross-cluster secret exchange and mirroring
 // health check.
@@ -44,6 +44,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -133,12 +134,12 @@ func buildRBDMirror(d Deps, _ string, args []string) ensure.Step {
 
 	// ---- wait_until_pool_mirroring_is_healthy(cluster1/2) ----
 	// Do polls the pool's mirroringStatus.summary until daemon_health, health,
-	// and image_health are all OK (or the verify timeout elapses), giving the
-	// same "block until mirroring is healthy" guarantee as the Python addon.
-	// Using newApplyStep means the step latches Done after success, so the
-	// group's post-Do verification does not re-query. The Python extra of
-	// restarting the rbd-mirror daemon on timeout is not replicated and needs
-	// real-cluster validation.
+	// and image_health are all OK, giving the same "block until mirroring is
+	// healthy" guarantee as the Python addon. Matching Python, each attempt is
+	// bounded by rbdMirrorHealthTimeout; on timeout (but not the final attempt)
+	// the rbd-mirror daemon is restarted and the wait retried, recovering from
+	// the "random timeouts when rbd-mirror fails to connect to the peer" that
+	// the Python addon documents.
 	waitHealthyC1 := newApplyStep("wait-pool-mirroring-healthy/"+cluster1, func(ctx context.Context) error {
 		return waitRBDMirroringHealthy(ctx, d, cluster1)
 	})
@@ -294,17 +295,65 @@ func waitRBDMirrorReady(ctx context.Context, d Deps, cluster string) error {
 	return nil
 }
 
-// waitRBDMirroringHealthy polls rbdMirroringHealthy until it reports healthy,
-// the context is cancelled, or the verify timeout elapses. This mirrors the
-// Python wait_until_pool_mirroring_is_healthy loop (minus the daemon restart).
+// rbd-mirror daemon-restart knobs, matching wait_until_pool_mirroring_is_healthy
+// in the Python addon (attempts=3, per-attempt timeout=180s). They are package
+// vars so tests can shrink them to force the restart-on-timeout path quickly.
+var (
+	rbdMirrorHealthAttempts = 3
+	rbdMirrorHealthTimeout  = 180 * time.Second
+)
+
+const (
+	// rbdMirrorDaemonDeploy is the rbd-mirror daemon deployment restarted on a
+	// health-wait timeout. Python: "deploy/rook-ceph-rbd-mirror-a".
+	rbdMirrorDaemonDeploy = "deploy/rook-ceph-rbd-mirror-a"
+	// rbdMirrorDaemonRolloutTimeout bounds the post-restart rollout status wait.
+	rbdMirrorDaemonRolloutTimeout = 120 * time.Second
+)
+
+// errMirroringTimeout is the sentinel returned by pollRBDMirroringHealthy when
+// an attempt's deadline elapses before mirroring becomes healthy. It is the only
+// error the retry loop recovers from (by restarting the daemon); any other error
+// is a genuine failure and propagates immediately.
+var errMirroringTimeout = errors.New("timed out waiting for healthy pool mirroring")
+
+// waitRBDMirroringHealthy waits until pool mirroring is healthy, retrying up to
+// rbdMirrorHealthAttempts times and restarting the rbd-mirror daemon between
+// attempts. This mirrors the Python wait_until_pool_mirroring_is_healthy loop:
+// random peer-connection timeouts are recovered by a daemon restart; only the
+// final attempt's timeout is fatal.
 func waitRBDMirroringHealthy(ctx context.Context, d Deps, cluster string) error {
+	attempts := rbdMirrorHealthAttempts
+	if attempts < 1 {
+		attempts = 1
+	}
+	for i := 1; i <= attempts; i++ {
+		err := pollRBDMirroringHealthy(ctx, d, cluster, rbdMirrorHealthTimeout)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, errMirroringTimeout) {
+			return err // genuine failure (kubectl error or cancellation)
+		}
+		if i == attempts {
+			return fmt.Errorf("pool mirroring on %s not healthy after %d attempts: %w",
+				cluster, attempts, err)
+		}
+		// Recover from a stuck rbd-mirror daemon and retry.
+		if rerr := restartRBDMirrorDaemon(ctx, d, cluster); rerr != nil {
+			return rerr
+		}
+	}
+	return nil
+}
+
+// pollRBDMirroringHealthy polls rbdMirroringHealthy until it reports healthy
+// (returns nil), the context is cancelled (returns ctx.Err()), a kubectl call
+// fails (returns that error), or the timeout elapses (returns errMirroringTimeout).
+func pollRBDMirroringHealthy(ctx context.Context, d Deps, cluster string, timeout time.Duration) error {
 	interval := d.Opts.VerifyInterval
 	if interval <= 0 {
 		interval = 2 * time.Second
-	}
-	timeout := d.Opts.VerifyTimeout
-	if timeout <= 0 {
-		timeout = 5 * time.Minute
 	}
 	deadline := time.Now().Add(timeout)
 	for {
@@ -316,7 +365,7 @@ func waitRBDMirroringHealthy(ctx context.Context, d Deps, cluster string) error 
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out waiting for healthy pool mirroring on %s", cluster)
+			return errMirroringTimeout
 		}
 		select {
 		case <-ctx.Done():
@@ -324,6 +373,19 @@ func waitRBDMirroringHealthy(ctx context.Context, d Deps, cluster string) error 
 		case <-time.After(interval):
 		}
 	}
+}
+
+// restartRBDMirrorDaemon restarts the rbd-mirror daemon deployment and waits for
+// the rollout to complete, matching Python's _restart_rbd_mirror_daemon.
+func restartRBDMirrorDaemon(ctx context.Context, d Deps, cluster string) error {
+	if err := d.K.RolloutRestart(ctx, cluster, "rook-ceph", rbdMirrorDaemonDeploy); err != nil {
+		return fmt.Errorf("restart rbd-mirror daemon on %s: %w", cluster, err)
+	}
+	if err := d.K.RolloutStatus(ctx, cluster, "rook-ceph", rbdMirrorDaemonDeploy,
+		rbdMirrorDaemonRolloutTimeout); err != nil {
+		return fmt.Errorf("rollout rbd-mirror daemon on %s: %w", cluster, err)
+	}
+	return nil
 }
 
 // rbdMirroringHealthy reports whether the pool's mirroring is healthy on a

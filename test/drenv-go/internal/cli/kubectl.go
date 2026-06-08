@@ -99,6 +99,19 @@ func (k Kubectl) RolloutStatus(ctx context.Context, kubeContext, namespace, reso
 	)
 }
 
+// RolloutRestart runs:
+//
+//	kubectl --context <kubeContext> -n <namespace> rollout restart <resource>
+//
+// triggering a rolling restart of the resource's pods.
+func (k Kubectl) RolloutRestart(ctx context.Context, kubeContext, namespace, resource string) error {
+	return k.R.Run(ctx, "kubectl",
+		"--context", kubeContext,
+		"-n", namespace,
+		"rollout", "restart", resource,
+	)
+}
+
 // GetJSONPath runs:
 //
 //	kubectl --context <kubeContext> -n <namespace> get <resource> --output=jsonpath=<jsonpath>
