@@ -13,10 +13,64 @@ import (
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/addon"
 	"github.com/ramendr/ramen/test/drenv-go/internal/build"
+	"github.com/ramendr/ramen/test/drenv-go/internal/cli"
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
 	"github.com/ramendr/ramen/test/drenv-go/internal/envfile"
 	"github.com/ramendr/ramen/test/drenv-go/internal/provider"
 )
+
+// TestStartInsertsContainerdConfigStep verifies that a minikube profile carrying
+// a containerd block gets a "containerd-config/<name>" step right after its
+// cluster step, and that profiles without one (or external ones) do not.
+func TestStartInsertsContainerdConfigStep(t *testing.T) {
+	env := &envfile.Env{
+		Name: "env",
+		Profiles: []envfile.Profile{
+			{Name: "withcfg", MinikubeSpec: envfile.MinikubeSpec{
+				Containerd: map[string]any{"plugins": map[string]any{"x": true}},
+			}},
+			{Name: "nocfg"},
+			{Name: "extcfg", External: true, MinikubeSpec: envfile.MinikubeSpec{
+				Containerd: map[string]any{"plugins": map[string]any{"x": true}},
+			}},
+		},
+	}
+
+	fp := newFakeProvider()
+	fp.setStatus("withcfg", provider.StatusRunning)
+	fp.setStatus("nocfg", provider.StatusRunning)
+	fp.setStatus("extcfg", provider.StatusRunning)
+	opts := smallOpts()
+	deps := addon.Deps{MK: &cli.Minikube{R: &cli.FakeRunner{}}, Opts: opts}
+
+	step := build.Start(env, uniformSelector(fp), deps, opts)
+
+	top := asGroup(t, step, "top")
+	profiles := asGroup(t, top.Steps()[0], "profiles")
+
+	// withcfg: [cluster/withcfg, containerd-config/withcfg]
+	withcfg := asGroup(t, profiles.Steps()[0], "profile/withcfg")
+	if len(withcfg.Steps()) != 2 {
+		t.Fatalf("withcfg children = %d, want 2 (cluster + containerd)", len(withcfg.Steps()))
+	}
+	if got := withcfg.Steps()[1].Name(); got != "containerd-config/withcfg" {
+		t.Errorf("withcfg second step = %q, want containerd-config/withcfg", got)
+	}
+
+	// nocfg: only the cluster step.
+	nocfg := asGroup(t, profiles.Steps()[1], "profile/nocfg")
+	if len(nocfg.Steps()) != 1 {
+		t.Errorf("nocfg children = %d, want 1 (cluster only)", len(nocfg.Steps()))
+	}
+
+	// extcfg: external profiles never get a containerd step.
+	extcfg := asGroup(t, profiles.Steps()[2], "profile/extcfg")
+	for _, s := range extcfg.Steps() {
+		if s.Name() == "containerd-config/extcfg" {
+			t.Error("external profile must not get a containerd-config step")
+		}
+	}
+}
 
 // TestRegionalDRAddonsAllRegistered guards against the class of bug where an
 // addon's registry key does not match the name used in an environment file,

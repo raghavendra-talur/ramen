@@ -3,6 +3,7 @@ module github.com/ramendr/ramen/test/drenv-go
 go 1.25.7
 
 require (
+	github.com/pelletier/go-toml/v2 v2.2.2
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sync v0.20.0
 	gopkg.in/yaml.v3 v3.0.1

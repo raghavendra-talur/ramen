@@ -93,6 +93,19 @@ func (m Minikube) LoadImage(ctx context.Context, profile, image string) error {
 	return m.R.Run(ctx, "minikube", "image", "load", "-p", profile, image)
 }
 
+// Cp runs `minikube cp --profile <profile> <src> <dst>`. Either path may carry a
+// `<node>:` prefix to address a file inside the cluster node (e.g.
+// "<profile>:/etc/containerd/config.toml").
+func (m Minikube) Cp(ctx context.Context, profile, src, dst string) error {
+	return m.R.Run(ctx, "minikube", "cp", "--profile", profile, src, dst)
+}
+
+// SSH runs `minikube ssh --profile <profile> <command>`, executing a single
+// shell command inside the cluster node.
+func (m Minikube) SSH(ctx context.Context, profile, command string) error {
+	return m.R.Run(ctx, "minikube", "ssh", "--profile", profile, command)
+}
+
 // Pause runs `minikube pause -p <profile>`.
 func (m Minikube) Pause(ctx context.Context, profile string) error {
 	return m.R.Run(ctx, "minikube", "pause", "-p", profile)
