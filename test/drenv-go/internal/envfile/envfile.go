@@ -8,6 +8,7 @@ package envfile
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -102,8 +103,9 @@ func Load(path string) (*Env, error) {
 	return &env, nil
 }
 
-// expand merges each profile's referenced template and substitutes $name in
-// addon args with the profile's name.
+// expand merges each profile's referenced template, resolves the $vm/$container/
+// $network platform placeholders for the host, and substitutes $name in addon
+// args with the profile's name.
 func (e *Env) expand() error {
 	tmpls := make(map[string]Template, len(e.Templates))
 	for _, t := range e.Templates {
@@ -118,9 +120,84 @@ func (e *Env) expand() error {
 			}
 			applyTemplate(p, t)
 		}
+		resolvePlatform(p, runtime.GOOS, runtime.GOARCH)
 		expandArgs(p)
 	}
 	return nil
+}
+
+// Placeholder values for host-dependent profile fields, matching the Python
+// drenv envfile schema (test/drenv/envfile.py).
+const (
+	placeholderVM        = "$vm"
+	placeholderContainer = "$container"
+	placeholderNetwork   = "$network"
+)
+
+// platSpec holds the per-OS driver/network defaults. The VM driver and network
+// are keyed by normalized architecture; the container driver is a single value.
+// Mirrors _PLATFORM_DEFAULTS in test/drenv/envfile.py.
+type platSpec struct {
+	vm        map[string]string
+	container string
+	network   map[string]string
+}
+
+var platformDefaults = map[string]platSpec{
+	"linux": {
+		vm:        map[string]string{"x86_64": "kvm2", "arm64": ""},
+		container: "docker",
+		network:   map[string]string{"x86_64": "default", "arm64": ""},
+	},
+	"darwin": {
+		vm:        map[string]string{"x86_64": "vfkit", "arm64": "vfkit"},
+		container: "podman",
+		network:   map[string]string{"x86_64": "vmnet-shared", "arm64": "vmnet-shared"},
+	},
+}
+
+// normalizeArch maps Go's GOARCH to the architecture strings Python derives from
+// os.uname().machine (e.g. amd64 → x86_64). Unknown values pass through and
+// simply miss the platform table (resolving to "").
+func normalizeArch(goarch string) string {
+	switch goarch {
+	case "amd64":
+		return "x86_64"
+	default:
+		return goarch
+	}
+}
+
+// resolvePlatform replaces the $vm/$container/$network placeholders in a profile
+// with the concrete driver/network for the given host, mirroring Python's
+// _validate_platform_defaults. An unknown OS or architecture resolves to the
+// empty string, which the minikube provider treats as "omit the flag".
+func resolvePlatform(p *Profile, goos, goarch string) {
+	spec, ok := platformDefaults[goos]
+	arch := normalizeArch(goarch)
+
+	switch p.Driver {
+	case placeholderVM:
+		if ok {
+			p.Driver = spec.vm[arch]
+		} else {
+			p.Driver = ""
+		}
+	case placeholderContainer:
+		if ok {
+			p.Driver = spec.container
+		} else {
+			p.Driver = ""
+		}
+	}
+
+	if p.Network == placeholderNetwork {
+		if ok {
+			p.Network = spec.network[arch]
+		} else {
+			p.Network = ""
+		}
+	}
 }
 
 func applyTemplate(p *Profile, t Template) {
