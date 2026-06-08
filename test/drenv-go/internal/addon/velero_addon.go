@@ -48,5 +48,9 @@ func buildVelero(d Deps, cluster string, _ []string) ensure.Step {
 		)
 	})
 
-	return Serial("addon/velero", d.Opts, install)
+	// Gate: skip when velero is already deployed (its install --wait leaves
+	// deploy/velero Available in the velero namespace).
+	return gatedAddon("addon/velero", d.Opts,
+		gateDeploymentAvailable(d.K, cluster, "velero", "velero"),
+		install)
 }

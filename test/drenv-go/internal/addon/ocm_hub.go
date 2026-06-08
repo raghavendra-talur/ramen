@@ -103,5 +103,12 @@ func buildOCMHub(d Deps, cluster string, _ []string) ensure.Step {
 	steps = append(steps, addonInstallSteps...)
 	steps = append(steps, waitSteps...)
 
-	return Serial("addon/ocm-hub", d.Opts, steps...)
+	// Gate: skip when every hub deployment is already Available.
+	var refs []deploymentRef
+	for _, ns := range ocmHubDeployments {
+		for _, dep := range ns.deployments {
+			refs = append(refs, deploymentRef{kubeContext: cluster, namespace: ns.namespace, name: dep})
+		}
+	}
+	return gatedAddon("addon/ocm-hub", d.Opts, gateAllDeploymentsAvailable(d.K, refs), steps...)
 }

@@ -73,7 +73,10 @@ func buildOLM(d Deps, cluster string, _ []string) ensure.Step {
 		return d.K.RolloutStatus(ctx, cluster, "olm", "deploy/packageserver", olmRolloutTimeout)
 	})
 
-	return Serial("addon/olm", d.Opts,
+	// Gate on the packageserver Deployment (the terminal component): if it is
+	// Available, olm-operator and catalog-operator are necessarily up too.
+	return gatedAddon("addon/olm", d.Opts,
+		gateDeploymentAvailable(d.K, cluster, "olm", "packageserver"),
 		applyCRDs,
 		waitCRDs,
 		applyOperators,

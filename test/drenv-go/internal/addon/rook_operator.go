@@ -48,7 +48,8 @@ func buildRookOperator(d Deps, cluster string, _ []string) ensure.Step {
 		)
 	})
 
-	return Serial("addon/rook-operator", d.Opts,
+	return gatedAddon("addon/rook-operator", d.Opts,
+		gateDeploymentAvailable(d.K, cluster, "rook-ceph", "rook-ceph-operator"),
 		applyOperator, waitRollout, waitRunning,
 	)
 }

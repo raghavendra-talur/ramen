@@ -68,5 +68,10 @@ func buildVolsync(d Deps, _ string, args []string) ensure.Step {
 	steps = append(steps, installSteps...)
 	steps = append(steps, waitSteps...)
 
-	return Serial("addon/volsync", d.Opts, steps...)
+	// Gate: skip when volsync is already Available on every target cluster.
+	refs := make([]deploymentRef, len(clusters))
+	for i, c := range clusters {
+		refs[i] = deploymentRef{kubeContext: c, namespace: volsyncNamespace, name: volsyncDeployment}
+	}
+	return gatedAddon("addon/volsync", d.Opts, gateAllDeploymentsAvailable(d.K, refs), steps...)
 }
