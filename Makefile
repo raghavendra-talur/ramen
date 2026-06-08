@@ -219,9 +219,26 @@ test-ramendev: ## Run ramendev tests.
 e2e-rdr: generate manifests ## Run rdr-e2e tests.
 	cd e2e && ./run.sh
 
+# Environment file used by the drenv-go convenience targets. Override on the
+# command line, e.g. `make drenv-go-start DRENV_GO_ENV=test/envs/minio.yaml`.
+DRENV_GO_ENV ?= test/envs/regional-dr.yaml
+DRENV_GO_BIN := test/drenv-go/bin/drenv-go
+
 .PHONY: drenv-go
 drenv-go: ## Build the drenv-go binary (parallel Go rewrite of drenv).
 	$(MAKE) -C test/drenv-go build
+
+.PHONY: drenv-go-start
+drenv-go-start: drenv-go ## Build and start the env via drenv-go (DRENV_GO_ENV=<envfile>).
+	$(DRENV_GO_BIN) start --envfile $(DRENV_GO_ENV)
+
+.PHONY: drenv-go-stop
+drenv-go-stop: drenv-go ## Stop the env via drenv-go (DRENV_GO_ENV=<envfile>).
+	$(DRENV_GO_BIN) stop --envfile $(DRENV_GO_ENV)
+
+.PHONY: drenv-go-delete
+drenv-go-delete: drenv-go ## Delete the env via drenv-go (DRENV_GO_ENV=<envfile>).
+	$(DRENV_GO_BIN) delete --envfile $(DRENV_GO_ENV)
 
 coverage:
 	go tool cover -html=cover.out
