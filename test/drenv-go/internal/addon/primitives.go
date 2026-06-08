@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
 )
@@ -65,6 +66,21 @@ func (s waitStep) Do(ctx context.Context) error           { return s.doFn(ctx) }
 // newWaitStep returns a waitStep with the given name, done check, and do action.
 func newWaitStep(name string, doneFn func(ctx context.Context) (bool, error), doFn func(ctx context.Context) error) ensure.Step {
 	return waitStep{name: name, doneFn: doneFn, doFn: doFn}
+}
+
+// newCreateWaitStep returns a step that ensures a resource exists. It first does
+// a cheap one-shot GET and returns immediately if the resource is already
+// present; only when it is genuinely absent does it run the blocking `kubectl
+// wait --for=create`. This avoids the fragile create-watch (which can stall for
+// the full timeout under heavy host load) whenever the resource already exists —
+// e.g. the hub namespace and deployments by the time a managed cluster joins.
+func newCreateWaitStep(name string, d Deps, kubeContext, namespace, resource string, timeout time.Duration) ensure.Step {
+	return newApplyStep(name, func(ctx context.Context) error {
+		if resourceExists(ctx, d.K, kubeContext, namespace, resource) {
+			return nil
+		}
+		return d.K.WaitFor(ctx, kubeContext, namespace, "create", timeout, resource)
+	})
 }
 
 // ApplyTemplate reads a file from the AddonsDir and substitutes $key and ${key}

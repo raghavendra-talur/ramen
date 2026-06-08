@@ -92,3 +92,10 @@ type deploymentRef struct {
 	namespace   string
 	name        string
 }
+
+// resourceExists reports whether the resource is present (a cheap one-shot GET).
+// A not-found or any error reports false, so callers fall back to waiting.
+func resourceExists(ctx context.Context, k *cli.Kubectl, kubeContext, namespace, resource string) bool {
+	_, err := k.Get(ctx, kubeContext, namespace, resource, "--output=name")
+	return err == nil
+}
