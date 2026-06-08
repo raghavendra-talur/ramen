@@ -78,11 +78,22 @@ func assertArgsEqual(t *testing.T, label string, got, want []string) {
 //  2. wait --for=condition=established crd --all (with timeout)
 //  3. apply --kustomize <controller-dir>
 //  4. rollout status kube-system deploy/snapshot-controller (with timeout)
+//
+// gateNotReady scripts the leading readiness-gate probe so the gate reports
+// not-ready and the addon runs all its steps. Pair with stripGateCall.
+func gateNotReady(f *cli.FakeRunner) { f.Script(cli.FakeResult{Out: ""}) }
+
+// stripGateCall drops the leading readiness-gate probe call a gated addon
+// records, so argv assertions written before gating keep their indices.
+func stripGateCall(f *cli.FakeRunner) { f.Calls = f.Calls[1:] }
+
 func TestExternalSnapshotterArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
+	gateNotReady(f)
 
 	runStep(t, f, addonsDir, "external-snapshotter", testCluster, nil)
+	stripGateCall(f)
 
 	if len(f.Calls) != 4 {
 		t.Fatalf("expected 4 kubectl calls, got %d:\n%v", len(f.Calls), callNames(f))
@@ -112,8 +123,10 @@ func TestExternalSnapshotterArgv(t *testing.T) {
 func TestOLMArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
+	gateNotReady(f)
 
 	runStep(t, f, addonsDir, "olm", testCluster, nil)
+	stripGateCall(f)
 
 	if len(f.Calls) != 8 {
 		t.Fatalf("expected 8 kubectl calls, got %d:\n%v", len(f.Calls), callNames(f))
@@ -167,6 +180,7 @@ func TestMinioArgv(t *testing.T) {
 	// 3: kubectl get service ... nodePort (Output) → "30000"
 	// 4: mc alias set (Run) → nil error
 	// 5: mc mb (Run) → nil error
+	gateNotReady(f)                                // readiness gate: deploy/minio not ready → run
 	f.Script(cli.FakeResult{})                     // apply
 	f.Script(cli.FakeResult{})                     // rollout status
 	f.Script(cli.FakeResult{Out: "192.168.64.10"}) // pod hostIP
@@ -174,6 +188,7 @@ func TestMinioArgv(t *testing.T) {
 	// mc calls consume remaining (empty) queue entries → nil error
 
 	runStep(t, f, addonsDir, "minio", testCluster, nil)
+	stripGateCall(f)
 
 	// Calls:
 	// 0: kubectl apply --filename <minio.yaml>
@@ -270,7 +285,9 @@ func TestRecipeArgv(t *testing.T) {
 func TestCSIAddonsArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
+	gateNotReady(f)
 	runStep(t, f, addonsDir, "csi-addons", testCluster, nil)
+	stripGateCall(f)
 
 	if len(f.Calls) != 2 {
 		t.Fatalf("expected 2 kubectl calls, got %d: %v", len(f.Calls), callNames(f))
@@ -288,7 +305,9 @@ func TestCSIAddonsArgv(t *testing.T) {
 func TestOCMControllerArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
+	gateNotReady(f)
 	runStep(t, f, addonsDir, "ocm-controller", testCluster, nil)
+	stripGateCall(f)
 
 	if len(f.Calls) != 2 {
 		t.Fatalf("expected 2 kubectl calls, got %d: %v", len(f.Calls), callNames(f))

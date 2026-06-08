@@ -36,5 +36,7 @@ func buildCSIAddons(d Deps, cluster string, _ []string) ensure.Step {
 			"deployment/csi-addons-controller-manager", csiAddonsRolloutTimeout)
 	})
 
-	return Serial("addon/csi-addons", d.Opts, apply, waitRollout)
+	return gatedAddon("addon/csi-addons", d.Opts,
+		gateDeploymentAvailable(d.K, cluster, "csi-addons-system", "csi-addons-controller-manager"),
+		apply, waitRollout)
 }
