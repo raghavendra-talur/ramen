@@ -42,6 +42,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ramendr/ramen/test/drenv-go/internal/cli"
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
 )
 
@@ -85,7 +86,21 @@ func buildArgocd(d Deps, _ string, args []string) ensure.Step {
 
 	steps := []ensure.Step{deployStep, waitStep}
 	steps = append(steps, clusterSteps...)
-	return Serial("addon/argocd", d.Opts, steps...)
+	return gatedAddon("addon/argocd", d.Opts, argocdReady(d.K, hub, members), steps...)
+}
+
+// argocdReady is satisfied when the argocd server is Available on the hub and at
+// least one registered cluster secret exists per member. The secret count is a
+// conservative proxy for "all members added" — if fewer exist the addon re-runs.
+func argocdReady(k *cli.Kubectl, hub string, members []string) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		if !deploymentAvailable(ctx, k, hub, "argocd", "argocd-server") {
+			return false, nil
+		}
+		n := countLabeledResources(ctx, k, hub, "argocd", "secret",
+			"argocd.argoproj.io/secret-type=cluster")
+		return n >= len(members), nil
+	}
 }
 
 // argocdConfigDir returns the directory for per-environment argocd files:

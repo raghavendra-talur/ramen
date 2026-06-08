@@ -38,6 +38,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ramendr/ramen/test/drenv-go/internal/cli"
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
 )
 
@@ -175,7 +176,27 @@ func buildSubmariner(d Deps, _ string, args []string) ensure.Step {
 	steps = append(steps, brokerWaitSteps...)
 	steps = append(steps, memberSteps...)
 
-	return Serial("addon/submariner", d.Opts, steps...)
+	return gatedAddon("addon/submariner", d.Opts, submarinerReady(d.K, broker, members), steps...)
+}
+
+// submarinerReady is satisfied when every broker deployment is Available on the
+// broker cluster and every member deployment is Available on each member.
+func submarinerReady(k *cli.Kubectl, broker string, members []string) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		for _, dep := range submarinerBrokerDeployments {
+			if !deploymentAvailable(ctx, k, broker, submarinerNamespace, dep) {
+				return false, nil
+			}
+		}
+		for _, m := range members {
+			for _, dep := range submarinerClusterDeployments {
+				if !deploymentAvailable(ctx, k, m, submarinerNamespace, dep) {
+					return false, nil
+				}
+			}
+		}
+		return true, nil
+	}
 }
 
 // annotateSubmarinerNodes gets all nodes in cluster, finds each node's InternalIP,
