@@ -73,8 +73,10 @@ func TestRookOperatorArgv(t *testing.T) {
 func TestRookClusterArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
+	gateNotReady(f)
 
 	runStep(t, f, addonsDir, "rook-cluster", "dr1", nil)
+	stripGateCall(f)
 
 	expected := 1 + 1 + 1 + 4 + (3 * 2) // 13
 	if len(f.Calls) != expected {
@@ -226,8 +228,10 @@ func TestRookPoolArgv(t *testing.T) {
 	// Use the real addons directory to test actual template rendering.
 	addonsDir := rookAddonsDir(t)
 	f := &cli.FakeRunner{}
+	gateNotReady(f)
 
 	runStep(t, f, addonsDir, "rook-pool", "dr1", nil)
+	stripGateCall(f)
 
 	expected := 5 + 3 // 8 calls
 	if len(f.Calls) != expected {
@@ -322,8 +326,10 @@ func TestRookPoolArgv(t *testing.T) {
 func TestRookCephFSArgv(t *testing.T) {
 	addonsDir := rookAddonsDir(t)
 	f := &cli.FakeRunner{}
+	gateNotReady(f)
 
 	runStep(t, f, addonsDir, "rook-cephfs", "dr1", nil)
+	stripGateCall(f)
 
 	expected := 5 + 4 // 9 calls
 	if len(f.Calls) != expected {
@@ -436,6 +442,7 @@ func TestRookCephFSArgv(t *testing.T) {
 func TestRBDMirrorArgv(t *testing.T) {
 	addonsDir := rookAddonsDir(t)
 	f := &cli.FakeRunner{}
+	gateNotReady(f) // readiness gate: cephrbdmirror not Ready → run
 
 	// Script fetch_secret_info for dr1 (calls [0..3])
 	f.Script(cli.FakeResult{})                        // [0] wait site_name (dr1)
@@ -460,6 +467,7 @@ func TestRBDMirrorArgv(t *testing.T) {
 	}
 
 	runStepFull(t, f, addonsDir, "testenv", "rbd-mirror", "", []string{"dr1", "dr2"})
+	stripGateCall(f)
 
 	expected := 28
 	if len(f.Calls) != expected {

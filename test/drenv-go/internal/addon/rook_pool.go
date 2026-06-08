@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/ramendr/ramen/test/drenv-go/internal/cli"
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
 )
 
@@ -127,5 +128,19 @@ func buildRookPool(d Deps, cluster string, _ []string) ensure.Step {
 		}),
 	)
 
-	return Serial("addon/rook-pool", d.Opts, steps...)
+	return gatedAddon("addon/rook-pool", d.Opts, rookPoolReady(d.K, cluster), steps...)
+}
+
+// rookPoolReady is satisfied when the primary cephblockpool is Ready and has
+// published its mirroring peer-token secret name — the end-state the steps wait
+// for.
+func rookPoolReady(k *cli.Kubectl, cluster string) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		if !cephPhaseReady(ctx, k, cluster, "rook-ceph", "cephblockpool/replicapool") {
+			return false, nil
+		}
+		ok := jsonPathEquals(ctx, k, cluster, "rook-ceph", "cephblockpool/replicapool",
+			"{.status.info.rbdMirrorBootstrapPeerSecretName}", "pool-peer-token-replicapool")
+		return ok, nil
+	}
 }

@@ -147,12 +147,31 @@ func buildRBDMirror(d Deps, _ string, args []string) ensure.Step {
 		return waitRBDMirroringHealthy(ctx, d, cluster2)
 	})
 
-	return Serial("addon/rbd-mirror", d.Opts,
+	return gatedAddon("addon/rbd-mirror", d.Opts, rbdMirrorReadyGate(d, cluster1, cluster2),
 		fetchC1, fetchC2,
 		configureC1, configureC2,
 		waitReadyC1, waitReadyC2,
 		waitHealthyC1, waitHealthyC2,
 	)
+}
+
+// rbdMirrorReadyGate is satisfied when the CephRBDMirror is Ready and pool
+// mirroring is healthy on both clusters — the full end-state the steps wait for.
+func rbdMirrorReadyGate(d Deps, cluster1, cluster2 string) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		for _, c := range []string{cluster1, cluster2} {
+			if !cephPhaseReady(ctx, d.K, c, "rook-ceph", "cephrbdmirror/my-rbd-mirror") {
+				return false, nil
+			}
+		}
+		for _, c := range []string{cluster1, cluster2} {
+			ok, err := rbdMirroringHealthy(ctx, d, c)
+			if err != nil || !ok {
+				return false, nil
+			}
+		}
+		return true, nil
+	}
 }
 
 // fetchRBDSecretInfo fetches the peer secret information from a cluster,

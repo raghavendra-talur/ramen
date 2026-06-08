@@ -385,6 +385,7 @@ func TestOCMHubArgv(t *testing.T) {
 //	...  (3 more deployment pairs, indices 18–23)
 func TestOCMClusterArgv(t *testing.T) {
 	f := &cli.FakeRunner{}
+	gateNotReady(f) // readiness gate: managedcluster not Available → run
 
 	// Script the hub-wait calls to succeed.
 	// Layout: 1 ns-wait + 7*2 deploy waits for open-cluster-management
@@ -398,6 +399,7 @@ func TestOCMClusterArgv(t *testing.T) {
 	// Remaining calls: default (nil error, empty output)
 
 	runStepFull(t, f, "/fake/addons", "testenv", "ocm-cluster", "dr1", []string{"hub"})
+	stripGateCall(f)
 
 	expected := 24 + 2 + 5 + 1 + 1 + 6
 	if len(f.Calls) != expected {
@@ -532,6 +534,7 @@ func TestSubmarinerArgv(t *testing.T) {
 	}
 
 	f := &cli.FakeRunner{}
+	gateNotReady(f) // readiness gate: submariner deployments not Available → run
 
 	nodeJSON := `{"items":[{"metadata":{"name":"node1"},"status":{"addresses":[{"type":"InternalIP","address":"10.0.0.2"}]}}]}`
 
@@ -558,6 +561,7 @@ func TestSubmarinerArgv(t *testing.T) {
 	}
 
 	runStepFull(t, f, "/fake/addons", "myenv", "submariner", "", []string{"hub", "dr1", "dr2"})
+	stripGateCall(f)
 
 	expected := 3 + 2*9
 	if len(f.Calls) != expected {
@@ -666,6 +670,7 @@ func brokerInfoPathFor(envName string) string {
 func TestArgocdArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
+	gateNotReady(f) // readiness gate: argocd-server not Available → run
 
 	// Script the kubectl config view calls to return non-empty yaml.
 	f.Script(cli.FakeResult{})                        // apply
@@ -679,6 +684,7 @@ func TestArgocdArgv(t *testing.T) {
 	f.Script(cli.FakeResult{})                        // config set-context (dr2)
 
 	runStepFull(t, f, addonsDir, "myenv", "argocd", "", []string{"hub", "dr1", "dr2"})
+	stripGateCall(f)
 
 	expected := 12
 	if len(f.Calls) != expected {
@@ -760,6 +766,7 @@ func TestArgocdClusterAddNOAUTHSuppressed(t *testing.T) {
 
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
+	gateNotReady(f) // readiness gate: argocd-server not Available → run
 
 	f.Script(cli.FakeResult{})                        // apply
 	f.Script(cli.FakeResult{})                        // wait
@@ -786,6 +793,7 @@ func TestArgocdClusterAddExit20WithoutNOAUTHPropagated(t *testing.T) {
 
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
+	gateNotReady(f) // readiness gate: argocd-server not Available → run
 
 	f.Script(cli.FakeResult{})                        // apply
 	f.Script(cli.FakeResult{})                        // wait
@@ -818,6 +826,7 @@ func TestArgocdClusterAddOtherErrorPropagated(t *testing.T) {
 
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
+	gateNotReady(f) // readiness gate: argocd-server not Available → run
 
 	f.Script(cli.FakeResult{})                        // apply
 	f.Script(cli.FakeResult{})                        // wait
@@ -836,5 +845,30 @@ func TestArgocdClusterAddOtherErrorPropagated(t *testing.T) {
 	_, err := ensure.Ensure(context.Background(), step, d.Opts)
 	if err == nil {
 		t.Error("expected error for exit code 1, got nil")
+	}
+}
+
+// TestRookPoolSkippedWhenReady verifies a multi-condition gate short-circuits the
+// whole addon when every condition holds: only the gate probes run, no steps.
+func TestRookPoolSkippedWhenReady(t *testing.T) {
+	f := &cli.FakeRunner{}
+	// rookPoolReady probes: (1) cephblockpool phase Ready, (2) peer-token name.
+	f.Script(cli.FakeResult{Out: "Ready"})
+	f.Script(cli.FakeResult{Out: "pool-peer-token-replicapool"})
+
+	b, ok := addon.Lookup("rook-pool")
+	if !ok {
+		t.Fatal("rook-pool addon not registered")
+	}
+	d := testDepsFull(f, "/fake/addons", "testenv")
+	res, err := ensure.Ensure(context.Background(), b(d, "dr1", nil), d.Opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res != ensure.Skipped {
+		t.Errorf("result = %v, want Skipped", res)
+	}
+	if len(f.Calls) != 2 {
+		t.Errorf("expected only the 2 gate probes, got %d:\n%s", len(f.Calls), dumpCalls(f))
 	}
 }
