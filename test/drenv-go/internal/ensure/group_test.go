@@ -139,3 +139,72 @@ func TestGroupDoneTrueWhenAllChildrenDone(t *testing.T) {
 		t.Fatal("group Done = false, want true (all children done)")
 	}
 }
+
+func TestGatedGroupSkipsWhenGateTrue(t *testing.T) {
+	var mu sync.Mutex
+	var rec []string
+	a := &recordStep{name: "a", rec: &rec, mu: &mu}
+	gate := func(context.Context) (bool, error) { return true, nil }
+	g := NewGatedGroup("addon/x", Serial, testOpts(), gate, a)
+
+	res, err := Ensure(context.Background(), g, testOpts())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res != Skipped {
+		t.Fatalf("got %v, want Skipped", res)
+	}
+	if len(rec) != 0 {
+		t.Fatalf("children ran despite gate=true: %v", rec)
+	}
+}
+
+func TestGatedGroupRunsChildrenWhenGateFalse(t *testing.T) {
+	var mu sync.Mutex
+	var rec []string
+	a := &recordStep{name: "a", rec: &rec, mu: &mu}
+	gate := func(context.Context) (bool, error) { return false, nil }
+	g := NewGatedGroup("addon/x", Serial, testOpts(), gate, a)
+
+	res, err := Ensure(context.Background(), g, testOpts())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res != Changed {
+		t.Fatalf("got %v, want Changed", res)
+	}
+	if len(rec) != 1 || rec[0] != "a" {
+		t.Fatalf("expected child a to run, got %v", rec)
+	}
+}
+
+// TestGatedGroupLatchSurvivesFalseNegativeGate verifies that a gate which keeps
+// returning false after a successful Do does NOT cause a verification timeout —
+// the post-Do latch makes Done true. Worst case is re-running children, never a
+// false failure.
+func TestGatedGroupLatchSurvivesFalseNegativeGate(t *testing.T) {
+	var mu sync.Mutex
+	var rec []string
+	a := &recordStep{name: "a", rec: &rec, mu: &mu}
+	gate := func(context.Context) (bool, error) { return false, nil } // never true
+	g := NewGatedGroup("addon/x", Serial, testOpts(), gate, a)
+
+	res, err := Ensure(context.Background(), g, testOpts())
+	if err != nil {
+		t.Fatalf("unexpected error (verify should pass via latch): %v", err)
+	}
+	if res != Changed {
+		t.Fatalf("got %v, want Changed", res)
+	}
+}
+
+func TestGatedGroupPropagatesGateError(t *testing.T) {
+	sentinel := errors.New("probe failed")
+	gate := func(context.Context) (bool, error) { return false, sentinel }
+	g := NewGatedGroup("addon/x", Serial, testOpts(), gate)
+
+	_, err := Ensure(context.Background(), g, testOpts())
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("got %v, want sentinel gate error", err)
+	}
+}
