@@ -51,7 +51,8 @@ func buildExternalSnapshotter(d Deps, cluster string, _ []string) ensure.Step {
 			externalSnapshotterRolloutTimeout)
 	})
 
-	return Serial("addon/external-snapshotter", d.Opts,
+	return gatedAddon("addon/external-snapshotter", d.Opts,
+		gateDeploymentAvailable(d.K, cluster, "kube-system", "snapshot-controller"),
 		applyCRDs, waitCRDs, applyController, waitController,
 	)
 }

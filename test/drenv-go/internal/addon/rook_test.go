@@ -27,8 +27,10 @@ import (
 func TestRookOperatorArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
+	gateNotReady(f)
 
 	runStep(t, f, addonsDir, "rook-operator", "dr1", nil)
+	stripGateCall(f)
 
 	if len(f.Calls) != 3 {
 		t.Fatalf("expected 3 calls, got %d:\n%s", len(f.Calls), strings.Join(callNames(f), "\n"))
@@ -175,11 +177,13 @@ func TestRookToolboxArgv(t *testing.T) {
 	f := &cli.FakeRunner{}
 
 	// Script exec to return something
+	gateNotReady(f)                              // readiness gate: deploy/rook-ceph-tools not ready → run
 	f.Script(cli.FakeResult{})                   // apply
 	f.Script(cli.FakeResult{})                   // rollout
 	f.Script(cli.FakeResult{Out: "HEALTH_OK\n"}) // exec ceph status
 
 	runStep(t, f, addonsDir, "rook-toolbox", "dr1", nil)
+	stripGateCall(f)
 
 	if len(f.Calls) != 3 {
 		t.Fatalf("expected 3 calls, got %d:\n%s", len(f.Calls), strings.Join(callNames(f), "\n"))

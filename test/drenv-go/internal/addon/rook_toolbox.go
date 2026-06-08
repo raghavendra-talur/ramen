@@ -45,7 +45,8 @@ func buildRookToolbox(d Deps, cluster string, _ []string) ensure.Step {
 		return nil
 	})
 
-	return Serial("addon/rook-toolbox", d.Opts,
+	return gatedAddon("addon/rook-toolbox", d.Opts,
+		gateDeploymentAvailable(d.K, cluster, "rook-ceph", "rook-ceph-tools"),
 		applyToolbox, waitRollout, cephStatus,
 	)
 }
