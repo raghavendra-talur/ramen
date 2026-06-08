@@ -11,16 +11,18 @@
 // VERSION is fixed at 0.21.2 (0.22.0 is broken in minikube).
 //
 // Broker-info placement:
-//   Python writes broker-info.subm to the CWD and then moves it to
-//   drenv.config_dir(broker)/submariner/broker-info.subm, where config_dir is
-//   ~/.config/drenv/<profile>/. In drenv-go we pass the full target path to
-//   subctl via the --brokerfile flag; the Subctl.DeployBroker wrapper does not
-//   currently accept a brokerfile path, so we use the deterministic path:
+//   `subctl deploy-broker` has no flag to choose the output path: it always
+//   writes broker-info.subm into the process working directory. Python therefore
+//   runs it and then shutil.move()s the file to
+//   drenv.config_dir(broker)/submariner/broker-info.subm (config_dir is
+//   ~/.config/drenv/<profile>/). drenv-go mirrors this exactly: it runs
+//   DeployBroker and then os.Rename()s broker-info.subm from the CWD to the
+//   deterministic path
 //
 //     ~/.config/drenv/<EnvName>/submariner/broker-info.subm
 //
-//   NOTE: this path is asserted in unit tests for argv correctness. Real-cluster
-//   validation is required to confirm subctl respects the --brokerfile flag.
+//   which is later passed to `subctl join`. The path is asserted in unit tests;
+//   the CWD-write + rename still needs a real subctl run to confirm.
 //
 //   Nodes annotation: Python gets nodes as JSON, parses InternalIP, and annotates
 //   each node with gateway.submariner.io/public-ip=ipv4:<InternalIP>. The Go
