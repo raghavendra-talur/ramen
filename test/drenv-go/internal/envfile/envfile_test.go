@@ -33,8 +33,10 @@ func TestLoadAppliesTemplate(t *testing.T) {
 	if dr1.Name != "dr1" {
 		t.Fatalf("profile[0] = %q, want dr1", dr1.Name)
 	}
-	if dr1.Driver != "$vm" {
-		t.Fatalf("dr1.Driver = %q, want $vm (from template)", dr1.Driver)
+	// Driver is inherited from the template ("$vm") and then resolved to the
+	// host's platform default, so it must no longer be the raw placeholder.
+	if dr1.Driver == "$vm" {
+		t.Fatalf("dr1.Driver = %q, want resolved platform driver, not the placeholder", dr1.Driver)
 	}
 	if dr1.CPUs != 4 {
 		t.Fatalf("dr1.CPUs = %d, want 4 (from template)", dr1.CPUs)
@@ -159,6 +161,35 @@ func TestApplyTemplateInheritsMinikubeFields(t *testing.T) {
 	}
 	if p.DiskSize != "100g" {
 		t.Errorf("DiskSize = %q, want 100g (profile overrides template)", p.DiskSize)
+	}
+}
+
+// TestResolvePlatform covers the $vm/$container/$network placeholder resolution
+// for the supported (os, arch) combinations, matching Python's _PLATFORM_DEFAULTS.
+func TestResolvePlatform(t *testing.T) {
+	cases := []struct {
+		goos, goarch            string
+		inDriver, inNetwork     string
+		wantDriver, wantNetwork string
+	}{
+		{"darwin", "arm64", "$vm", "$network", "vfkit", "vmnet-shared"},
+		{"darwin", "amd64", "$vm", "$network", "vfkit", "vmnet-shared"},
+		{"linux", "amd64", "$vm", "$network", "kvm2", "default"},
+		{"linux", "arm64", "$vm", "$network", "", ""},
+		{"darwin", "arm64", "$container", "$network", "podman", "vmnet-shared"},
+		{"linux", "amd64", "$container", "$network", "docker", "default"},
+		{"windows", "amd64", "$vm", "$network", "", ""},          // unknown OS → empty
+		{"linux", "amd64", "custom", "mynet", "custom", "mynet"}, // non-placeholders untouched
+	}
+	for _, c := range cases {
+		p := &Profile{MinikubeSpec: MinikubeSpec{Driver: c.inDriver, Network: c.inNetwork}}
+		resolvePlatform(p, c.goos, c.goarch)
+		if p.Driver != c.wantDriver {
+			t.Errorf("%s/%s driver(%q) = %q, want %q", c.goos, c.goarch, c.inDriver, p.Driver, c.wantDriver)
+		}
+		if p.Network != c.wantNetwork {
+			t.Errorf("%s/%s network(%q) = %q, want %q", c.goos, c.goarch, c.inNetwork, p.Network, c.wantNetwork)
+		}
 	}
 }
 
