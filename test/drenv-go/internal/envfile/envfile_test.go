@@ -114,8 +114,8 @@ func TestLoadParsesExternalProfile(t *testing.T) {
 func TestApplyTemplateProfileOverrides(t *testing.T) {
 	// A field set on the profile wins over the template's value.
 	e := &Env{
-		Templates: []Template{{Name: "base", Driver: "$vm", CPUs: 4}},
-		Profiles:  []Profile{{Name: "p", Template: "base", Driver: "custom", CPUs: 2}},
+		Templates: []Template{{Name: "base", MinikubeSpec: MinikubeSpec{Driver: "$vm", CPUs: 4}}},
+		Profiles:  []Profile{{Name: "p", Template: "base", MinikubeSpec: MinikubeSpec{Driver: "custom", CPUs: 2}}},
 	}
 	if err := e.expand(); err != nil {
 		t.Fatalf("expand: %v", err)
@@ -126,6 +126,39 @@ func TestApplyTemplateProfileOverrides(t *testing.T) {
 	}
 	if p.CPUs != 2 {
 		t.Fatalf("CPUs = %d, want 2 (profile overrides template)", p.CPUs)
+	}
+}
+
+// TestApplyTemplateInheritsMinikubeFields covers the minikube-creation fields
+// added for parity with Python drenv: a profile inherits unset values from its
+// template (container_runtime, extra_disks, disk_size, cni) and overrides win.
+func TestApplyTemplateInheritsMinikubeFields(t *testing.T) {
+	e := &Env{
+		Templates: []Template{{Name: "base", MinikubeSpec: MinikubeSpec{
+			ContainerRuntime: "containerd",
+			ExtraDisks:       1,
+			DiskSize:         "50g",
+			CNI:              "calico",
+		}}},
+		Profiles: []Profile{{Name: "p", Template: "base", MinikubeSpec: MinikubeSpec{
+			DiskSize: "100g", // override
+		}}},
+	}
+	if err := e.expand(); err != nil {
+		t.Fatalf("expand: %v", err)
+	}
+	p := e.Profiles[0]
+	if p.ContainerRuntime != "containerd" {
+		t.Errorf("ContainerRuntime = %q, want containerd (inherited)", p.ContainerRuntime)
+	}
+	if p.ExtraDisks != 1 {
+		t.Errorf("ExtraDisks = %d, want 1 (inherited)", p.ExtraDisks)
+	}
+	if p.CNI != "calico" {
+		t.Errorf("CNI = %q, want calico (inherited)", p.CNI)
+	}
+	if p.DiskSize != "100g" {
+		t.Errorf("DiskSize = %q, want 100g (profile overrides template)", p.DiskSize)
 	}
 }
 
