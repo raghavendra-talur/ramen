@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/ramendr/ramen/test/drenv-go/internal/cli"
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
 )
 
@@ -109,5 +110,17 @@ func buildRookCephFS(d Deps, cluster string, _ []string) ensure.Step {
 		)
 	}
 
-	return Serial("addon/rook-cephfs", d.Opts, steps...)
+	return gatedAddon("addon/rook-cephfs", d.Opts, rookCephFSReady(d.K, cluster), steps...)
+}
+
+// rookCephFSReady is satisfied when every CephFilesystem is Ready.
+func rookCephFSReady(k *cli.Kubectl, cluster string) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		for _, fs := range cephfsFileSystems {
+			if !cephPhaseReady(ctx, k, cluster, "rook-ceph", "cephfilesystem/"+fs) {
+				return false, nil
+			}
+		}
+		return true, nil
+	}
 }
