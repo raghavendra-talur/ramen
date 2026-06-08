@@ -89,9 +89,7 @@ func buildOCMHub(d Deps, cluster string, _ []string) ensure.Step {
 			depName := dep // capture
 			resource := "deploy/" + depName
 			waitSteps = append(waitSteps,
-				newApplyStep("wait-create/"+namespace+"/"+depName, func(ctx context.Context) error {
-					return d.K.WaitFor(ctx, cluster, namespace, "create", ocmHubWaitTimeout, resource)
-				}),
+				newCreateWaitStep("wait-create/"+namespace+"/"+depName, d, cluster, namespace, resource, ocmHubWaitTimeout),
 				newApplyStep("rollout-status/"+namespace+"/"+depName, func(ctx context.Context) error {
 					return d.K.RolloutStatus(ctx, cluster, namespace, resource, ocmHubRolloutTimeout)
 				}),

@@ -4,8 +4,10 @@
 // Package addon: ocm/cluster joins a managed cluster to an OCM hub and enables
 // addons, mirroring addons/ocm/cluster/start.py.
 //
-// This is a CROSS-CLUSTER addon: cluster param = the managed cluster context
-// (clusterName), args[0] = the hub context.
+// This is a CROSS-CLUSTER addon. The environment file invokes it as
+// `ocm-cluster args: ["$name", "hub"]`, mirroring Python's start(cluster, hub):
+//   args[0] = the managed cluster context (same as the cluster param)
+//   args[1] = the hub context
 //
 // Steps (serial):
 //  1. wait_for_hub: for each hub deployment WaitFor(create) + RolloutStatus on hub
@@ -88,10 +90,14 @@ func init() {
 }
 
 func buildOCMCluster(d Deps, cluster string, args []string) ensure.Step {
-	if len(args) < 1 {
-		panic("ocm/cluster: args must contain at least one element (hub context)")
+	// Envfile passes ["$name", "hub"]: args[0] is the managed cluster (== the
+	// cluster param), args[1] is the hub. Reading the hub from args[0] would
+	// point every "wait for hub" step at the managed cluster, which never has
+	// the hub's namespaces/deployments → 300s timeouts.
+	if len(args) < 2 {
+		panic("ocm/cluster: args must be [cluster, hub]")
 	}
-	hub := args[0]
+	hub := args[1]
 
 	// --- wait_for_hub steps ---
 	// Mirror Python wait_for_hub: wait for each namespace to exist before
@@ -102,17 +108,13 @@ func buildOCMCluster(d Deps, cluster string, args []string) ensure.Step {
 		// Wait for the namespace to be created before probing deployments inside it.
 		// Mirrors: kubectl.wait("namespace/<ns>", "--for=create", context=hub)
 		hubWaitSteps = append(hubWaitSteps,
-			newApplyStep("wait-hub-namespace/"+namespace, func(ctx context.Context) error {
-				return d.K.WaitFor(ctx, hub, "", "create", ocmClusterWaitTimeout, "namespace/"+namespace)
-			}),
+			newCreateWaitStep("wait-hub-namespace/"+namespace, d, hub, "", "namespace/"+namespace, ocmClusterWaitTimeout),
 		)
 		for _, dep := range ns.deployments {
 			depName := dep // capture
 			resource := "deploy/" + depName
 			hubWaitSteps = append(hubWaitSteps,
-				newApplyStep("wait-hub-create/"+namespace+"/"+depName, func(ctx context.Context) error {
-					return d.K.WaitFor(ctx, hub, namespace, "create", ocmClusterWaitTimeout, resource)
-				}),
+				newCreateWaitStep("wait-hub-create/"+namespace+"/"+depName, d, hub, namespace, resource, ocmClusterWaitTimeout),
 				newApplyStep("rollout-hub/"+namespace+"/"+depName, func(ctx context.Context) error {
 					return d.K.RolloutStatus(ctx, hub, namespace, resource, ocmClusterRolloutTimeout)
 				}),
@@ -136,9 +138,7 @@ func buildOCMCluster(d Deps, cluster string, args []string) ensure.Step {
 
 	// --- wait_for_managed_cluster steps ---
 	managedCluster := "managedcluster/" + cluster
-	waitMCCreate := newApplyStep("wait-mc-create", func(ctx context.Context) error {
-		return d.K.WaitFor(ctx, hub, "", "create", ocmManagedClusterCreateTimeout, managedCluster)
-	})
+	waitMCCreate := newCreateWaitStep("wait-mc-create", d, hub, "", managedCluster, ocmManagedClusterCreateTimeout)
 	waitMCHubAccepts := newApplyStep("wait-mc-hubAcceptsClient", func(ctx context.Context) error {
 		return d.K.WaitFor(ctx, hub, "", "jsonpath={.spec.hubAcceptsClient}=true",
 			ocmManagedClusterConditionTimeout, managedCluster)
@@ -177,9 +177,7 @@ func buildOCMCluster(d Deps, cluster string, args []string) ensure.Step {
 		dep := a.deployment // capture
 		resource := "deploy/" + dep
 		addonWaitSteps = append(addonWaitSteps,
-			newApplyStep("wait-addon-create/"+dep, func(ctx context.Context) error {
-				return d.K.WaitFor(ctx, cluster, ocmClusterAddonsNamespace, "create", ocmClusterWaitTimeout, resource)
-			}),
+			newCreateWaitStep("wait-addon-create/"+dep, d, cluster, ocmClusterAddonsNamespace, resource, ocmClusterWaitTimeout),
 			newApplyStep("rollout-addon/"+dep, func(ctx context.Context) error {
 				return d.K.RolloutStatus(ctx, cluster, ocmClusterAddonsNamespace, resource, ocmClusterRolloutTimeout)
 			}),
