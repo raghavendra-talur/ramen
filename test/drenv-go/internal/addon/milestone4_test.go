@@ -333,10 +333,11 @@ func TestOCMHubArgv(t *testing.T) {
 		"--context", "hub",
 	})
 
-	// call[3]: wait --for=create deploy/cluster-manager in open-cluster-management
+	// call[3]: create-wait does a GET-first existence check (resource exists in
+	// the fake → no blocking wait) for deploy/cluster-manager.
 	assertCallContains(t, "wait-create-cluster-manager", f, 3,
 		"--context", "hub", "-n", "open-cluster-management",
-		"wait", "deploy/cluster-manager", "--for=create",
+		"get", "deploy/cluster-manager", "--output=name",
 	)
 
 	// call[4]: rollout status deploy/cluster-manager
@@ -350,7 +351,7 @@ func TestOCMHubArgv(t *testing.T) {
 	lastWaitIdx := 1 + 2 + (11-1)*2
 	assertCallContains(t, "wait-create-work-webhook", f, lastWaitIdx,
 		"--context", "hub", "-n", "open-cluster-management-hub",
-		"wait", "deploy/cluster-manager-work-webhook", "--for=create",
+		"get", "deploy/cluster-manager-work-webhook", "--output=name",
 	)
 	assertCallContains(t, "rollout-work-webhook", f, lastWaitIdx+1,
 		"--context", "hub", "-n", "open-cluster-management-hub",
@@ -398,7 +399,8 @@ func TestOCMClusterArgv(t *testing.T) {
 	f.Script(cli.FakeResult{Out: `{"hub-token":"tok123","hub-apiserver":"https://192.168.1.1:6443"}`})
 	// Remaining calls: default (nil error, empty output)
 
-	runStepFull(t, f, "/fake/addons", "testenv", "ocm-cluster", "dr1", []string{"hub"})
+	// Envfile shape: args = [cluster, hub]; the hub is args[1].
+	runStepFull(t, f, "/fake/addons", "testenv", "ocm-cluster", "dr1", []string{"dr1", "hub"})
 	stripGateCall(f)
 
 	expected := 24 + 2 + 5 + 1 + 1 + 6
@@ -406,29 +408,29 @@ func TestOCMClusterArgv(t *testing.T) {
 		t.Fatalf("expected %d calls, got %d:\n%s", expected, len(f.Calls), dumpCalls(f))
 	}
 
-	// call[0]: wait namespace/open-cluster-management --for=create on hub
+	// call[0]: create-wait GET-first for namespace/open-cluster-management on hub
 	assertCallContains(t, "wait-ns-ocm", f, 0,
 		"--context", "hub",
-		"wait", "namespace/open-cluster-management", "--for=create",
+		"get", "namespace/open-cluster-management", "--output=name",
 	)
 
-	// call[1]: first deploy wait in open-cluster-management
+	// call[1]: first deploy create-wait (GET-first) in open-cluster-management
 	assertCallContains(t, "first-hub-deploy-wait", f, 1,
 		"--context", "hub", "-n", "open-cluster-management",
-		"wait", "deploy/cluster-manager", "--for=create",
+		"get", "deploy/cluster-manager", "--output=name",
 	)
 
-	// call[15]: wait namespace/open-cluster-management-hub --for=create on hub
+	// call[15]: create-wait GET-first for namespace/open-cluster-management-hub on hub
 	// offset: 1 (ns-wait) + 7*2 (deploy pairs) = 15
 	assertCallContains(t, "wait-ns-ocm-hub", f, 15,
 		"--context", "hub",
-		"wait", "namespace/open-cluster-management-hub", "--for=create",
+		"get", "namespace/open-cluster-management-hub", "--output=name",
 	)
 
-	// call[16]: first deploy wait in open-cluster-management-hub
+	// call[16]: first deploy create-wait (GET-first) in open-cluster-management-hub
 	assertCallContains(t, "first-hub-deploy-wait-hub-ns", f, 16,
 		"--context", "hub", "-n", "open-cluster-management-hub",
-		"wait", "deploy/cluster-manager-placement-controller", "--for=create",
+		"get", "deploy/cluster-manager-placement-controller", "--output=name",
 	)
 
 	// call[24]: clusteradm get token
@@ -445,10 +447,10 @@ func TestOCMClusterArgv(t *testing.T) {
 		"--context", "dr1",
 	})
 
-	// call[26]: wait managedcluster/dr1 --for=create (180s) on hub
+	// call[26]: create-wait GET-first for managedcluster/dr1 on hub
 	assertCallContains(t, "wait-mc-create", f, hubWaitCalls+2,
 		"--context", "hub",
-		"wait", "managedcluster/dr1", "--for=create",
+		"get", "managedcluster/dr1", "--output=name",
 	)
 
 	// call[27]: wait managedcluster/dr1 --for=jsonpath={.spec.hubAcceptsClient}=true on hub
@@ -494,11 +496,11 @@ func TestOCMClusterArgv(t *testing.T) {
 		"--context", "hub",
 	})
 
-	// call[33]: wait deploy/application-manager create in open-cluster-management-agent-addon on dr1
+	// call[33]: create-wait GET-first for deploy/application-manager in open-cluster-management-agent-addon on dr1
 	assertCallContains(t, "wait-addon-create-application-manager", f, hubWaitCalls+9,
 		"--context", "dr1",
 		"-n", "open-cluster-management-agent-addon",
-		"wait", "deploy/application-manager", "--for=create",
+		"get", "deploy/application-manager", "--output=name",
 	)
 
 	// call[34]: rollout status deploy/application-manager on dr1
