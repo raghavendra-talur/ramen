@@ -99,3 +99,13 @@ func (f *FakeRunner) RunEnv(_ context.Context, env []string, name string, args .
 	f.Calls = append(f.Calls, Call{Name: name, Args: args, Env: env})
 	return f.nextResult().Err
 }
+
+// OutputEnv records the call (including env) and returns the next scripted
+// (output, error) pair.
+func (f *FakeRunner) OutputEnv(_ context.Context, env []string, name string, args ...string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Calls = append(f.Calls, Call{Name: name, Args: args, Env: env})
+	r := f.nextResult()
+	return r.Out, r.Err
+}
