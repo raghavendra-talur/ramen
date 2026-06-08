@@ -74,6 +74,8 @@ Parallel Go implementation of `drenv`. Reflects state as of Milestone 4D.
 | envfile: parse profiles including `external: true` | ✅ | `Profile.External bool` added M4D |
 | minikube provider + cluster lifecycle (start / stop / delete / status) | 🚧 | Unit-tested via FakeRunner; clusters could not boot on this host (vfkit) |
 | minikube `start` flag parity (container_runtime, extra_disks, disk_size, cni, nodes, extra_config, feature_gates, service_cluster_ip_range, rosetta, wait-timeout) | ✅ | `Profile`/`Template` embed `MinikubeSpec`; flags emitted in Python's order. Fixes minikube defaulting to docker instead of `container_runtime: containerd` |
+| `$vm`/`$container`/`$network` placeholder resolution | ✅ | `resolvePlatform` maps placeholders to per-host driver/network (vfkit/vmnet-shared on macOS, kvm2/default on linux-amd64), matching Python's `_PLATFORM_DEFAULTS` |
+| per-node containerd config (`ContainerdConfigStep`) | ✅ (unit-tested; cp/ssh needs real cluster) | post-start `minikube cp`+TOML-merge+`ssh restart containerd`; idempotent Done; mirrors `_configure_containerd` (minus the registry cache) |
 | external provider (ExternalProvider) | 🚧 | No-ops for lifecycle; Status probes `/readyz` via kubectl; unit-tested M4D |
 | Per-profile provider selection (`provider.For`, `build.ProviderSelector`) | ✅ | External profiles get ExternalProvider; normal profiles get MinikubeProvider |
 | suspend / resume / load-image | 🚧 | Unit-tested; delegates to provider per profile |
@@ -141,15 +143,15 @@ fully.
 
 These issues will surface when a real cluster run is possible:
 
-1. **submariner: broker-info CWD** — `subctl deploy-broker` writes `broker-info.subm` into its working directory. The Go port changes to a temp directory (`os.Chdir`) before calling subctl and renames the file afterward. Needs a real subctl run to confirm the rename path is correct.
+1. **submariner: broker-info CWD** — `subctl deploy-broker` has no output-path flag; it always writes `broker-info.subm` into the working directory. The Go port mirrors Python exactly: run deploy-broker, then `os.Rename` the file to the deterministic path. Needs a real subctl run to confirm the CWD-write + rename round-trip.
 
-2. **argocd: NOAUTH / temp-kubeconfig** — After `argocd cluster add`, argocd sometimes returns exit code 20 (NOAUTH transient error). The Go port suppresses it. The temp-kubeconfig creation also needs to be validated against a live argocd.
+2. **argocd: temp-kubeconfig** — **NOAUTH handling fixed:** the Go port now suppresses `argocd cluster add` failures only when the error is exit-20 AND the output contains "NOAUTH" (matching Python), via the new `OutputEnv` runner seam. The temp-kubeconfig creation still needs validation against a live argocd.
 
-3. **rbd-mirror: daemon-restart-on-timeout + CSIAddonsNode retry** — The Python rbd-mirror addon restarts the Ceph rbd-mirror daemon if mirroring setup times out, and retries until all CSIAddonsNodes report "Connected". The Go port mirrors this logic but the wait intervals and retry counts have not been validated against real Rook output.
+3. **rbd-mirror: daemon-restart-on-timeout** — **Implemented:** `waitRBDMirroringHealthy` now retries up to 3 attempts, restarting `deploy/rook-ceph-rbd-mirror-a` (`Kubectl.RolloutRestart` + rollout status) between attempts on a health timeout, mirroring Python. The retry/restart logic is unit-tested; the wait intervals still need validation against real Rook output.
 
 4. **ocm: namespace-create waits** — The ocm-hub / ocm-cluster addons wait for `namespace/open-cluster-management` and `namespace/open-cluster-management-hub` to be created. The wait duration may need tuning against a real cluster.
 
-5. **per-node `containerd` plugin config** — regional-dr.yaml sets a `containerd:` block (`device_ownership_from_security_context: true`, needed by rook). Python drenv applies it post-start by SSHing into the node, writing `/etc/containerd` config, and restarting containerd (`_configure_containerd`). drenv-go now passes `--container-runtime containerd` so the runtime is correct, but does **not** yet apply this per-node plugin config. The YAML key is parsed-and-dropped. Implementing it needs an SSH/exec-into-node step.
+5. **per-node `containerd` plugin config** — regional-dr.yaml sets a `containerd:` block (`device_ownership_from_security_context: true`, needed by rook). **Implemented:** after the cluster starts, `provider.ContainerdConfigStep` does `minikube cp` of `/etc/containerd/config.toml` out, deep-merges the profile block (TOML), copies it back, and `minikube ssh sudo systemctl restart containerd` — mirroring Python's `_configure_containerd`. The step is idempotent (Done skips when the block is already present, so re-runs don't restart a healthy containerd). The registry-mirror part of Python's helper stays out of scope with the registry cache. The merge/decision logic is unit-tested; the cp/ssh round-trip needs real-cluster validation.
 
 ## Conventions I follow here
 

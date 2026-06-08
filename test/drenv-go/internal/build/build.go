@@ -57,8 +57,15 @@ func Start(e *envfile.Env, providerFor ProviderSelector, d addon.Deps, opts ensu
 			)
 		}
 
-		// Profile group: [cluster-running, parallel-workers].
+		// Profile group: [cluster-running, (containerd-config), parallel-workers].
 		profileChildren := []ensure.Step{provider.ClusterRunningStep(p, prof)}
+		// After the cluster is up, apply the profile's containerd config (e.g.
+		// rook's device_ownership_from_security_context) before any addon runs.
+		// Only minikube profiles with a containerd block need this; external
+		// clusters are managed elsewhere.
+		if !prof.External && len(prof.Containerd) > 0 && d.MK != nil {
+			profileChildren = append(profileChildren, provider.ContainerdConfigStep(d.MK, prof))
+		}
 		if len(workerSteps) > 0 {
 			profileChildren = append(profileChildren,
 				ensure.NewGroup("workers", ensure.Parallel, opts, workerSteps...),

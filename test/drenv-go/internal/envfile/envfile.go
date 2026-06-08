@@ -50,6 +50,11 @@ type MinikubeSpec struct {
 	// explicit `rosetta: false`. Python defaults this to true and only emits
 	// --rosetta on darwin/arm64; the provider applies the same rule.
 	Rosetta *bool `yaml:"rosetta,omitempty"`
+	// Containerd is the per-node containerd plugin configuration merged into the
+	// node's /etc/containerd/config.toml after the cluster starts (e.g. rook's
+	// device_ownership_from_security_context). Mirrors the `containerd:` block in
+	// the Python drenv envfile schema. nil/empty means no containerd tweaks.
+	Containerd map[string]any `yaml:"containerd,omitempty"`
 }
 
 // Template is a reusable base for profiles.
@@ -242,6 +247,9 @@ func applyTemplate(p *Profile, t Template) {
 	}
 	if p.Rosetta == nil {
 		p.Rosetta = t.Rosetta
+	}
+	if len(p.Containerd) == 0 {
+		p.Containerd = t.Containerd
 	}
 	if len(p.Workers) == 0 {
 		p.Workers = cloneWorkers(t.Workers)
