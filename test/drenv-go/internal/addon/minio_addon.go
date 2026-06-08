@@ -54,7 +54,10 @@ func buildMinio(d Deps, cluster string, _ []string) ensure.Step {
 		return d.MC.MakeBucket(ctx, cluster+"/"+minioBucket, true)
 	})
 
-	return Serial("addon/minio", d.Opts,
+	// Gate on the minio Deployment being Available. The mc alias/bucket steps
+	// are idempotent, so skipping them on a satisfied re-run is safe.
+	return gatedAddon("addon/minio", d.Opts,
+		gateDeploymentAvailable(d.K, cluster, "minio", "minio"),
 		applyMinio, waitRollout, setAlias, makeBucket,
 	)
 }

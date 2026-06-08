@@ -81,6 +81,7 @@ Parallel Go implementation of `drenv`. Reflects state as of Milestone 4D.
 | suspend / resume / load-image | 🚧 | Unit-tested; delegates to provider per profile |
 | `cli.Kubectl` wrapper (Apply, ApplyKustomizeDir, WaitFor, WaitCondition, GetRaw, ClusterInfoDump, …) | ✅ | All methods argv-tested |
 | Addon-execution framework (registry, ensure integration, parallel workers) | ✅ | |
+| Reality-gated addon re-runs (`ensure.NewGatedGroup` + per-addon readiness probe) | ✅ (gated subset) | A satisfied addon reports `addon/X: skipped, already satisfied` and runs nothing, instead of replaying every apply/wait/rollout. Gated: external-snapshotter, olm, csi-addons, ocm-controller, ocm-hub, minio, velero, volsync, rook-operator, rook-toolbox. Ungated (safe replay, still idempotent): recipe, odf-external-snapshotter, rook-cluster/pool/cephfs, ocm-cluster, argocd, submariner, rbd-mirror — these are multi-phase and lack a single cheap end-state probe. |
 
 ### Commands
 

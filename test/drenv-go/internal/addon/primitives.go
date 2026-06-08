@@ -100,6 +100,16 @@ func Serial(name string, opts ensure.Options, steps ...ensure.Step) ensure.Step 
 	return ensure.NewGroup(name, ensure.Serial, opts, steps...)
 }
 
+// gatedAddon returns a serial group guarded by readyFn — a cheap reality probe
+// of the addon's end-state. When readyFn reports satisfied (e.g. on a re-run of
+// an already-installed addon) the whole addon is skipped without running any
+// step; otherwise the steps run and the group latches done. readyFn must be
+// conservative: report not-ready on any uncertainty so the addon is (re-)applied
+// rather than wrongly skipped.
+func gatedAddon(name string, opts ensure.Options, readyFn func(context.Context) (bool, error), steps ...ensure.Step) ensure.Step {
+	return ensure.NewGatedGroup(name, ensure.Serial, opts, readyFn, steps...)
+}
+
 // Parallel returns a parallel ensure.Group.
 func Parallel(name string, opts ensure.Options, steps ...ensure.Step) ensure.Step {
 	return ensure.NewGroup(name, ensure.Parallel, opts, steps...)

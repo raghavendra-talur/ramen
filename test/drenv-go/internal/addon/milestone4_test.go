@@ -139,34 +139,41 @@ func TestVeleroArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
 
-	// Script MinioServiceURL calls: hostIP then nodePort.
+	// Script the readiness gate (deploy/velero Available) as not-ready so the
+	// addon runs, then the MinioServiceURL calls: hostIP then nodePort.
+	f.Script(cli.FakeResult{Out: ""})         // gate: deploy/velero not yet Available
 	f.Script(cli.FakeResult{Out: "10.0.0.1"}) // kubectl get pod ... hostIP
 	f.Script(cli.FakeResult{Out: "30001"})    // kubectl get service ... nodePort
 
 	runStepFull(t, f, addonsDir, "testenv", "velero", "dr1", nil)
 
-	if len(f.Calls) != 3 {
-		t.Fatalf("expected 3 calls (hostIP, nodePort, velero install), got %d:\n%s",
+	if len(f.Calls) != 4 {
+		t.Fatalf("expected 4 calls (gate, hostIP, nodePort, velero install), got %d:\n%s",
 			len(f.Calls), dumpCalls(f))
 	}
 
-	// call[0]: kubectl get pod (hostIP) — checked via assertArgsContain
-	assertCallContains(t, "get-hostIP", f, 0,
+	// call[0]: readiness gate probe for deploy/velero
+	assertCallContains(t, "velero-gate", f, 0,
+		"--context", "dr1", "-n", "velero", "get", "deploy/velero",
+	)
+
+	// call[1]: kubectl get pod (hostIP) — checked via assertArgsContain
+	assertCallContains(t, "get-hostIP", f, 1,
 		"--context", "dr1", "-n", "minio", "get", "pod",
 		"--selector=component=minio",
 		"--output=jsonpath={.items[0].status.hostIP}",
 	)
 
-	// call[1]: kubectl get service (nodePort)
-	assertCallContains(t, "get-nodePort", f, 1,
+	// call[2]: kubectl get service (nodePort)
+	assertCallContains(t, "get-nodePort", f, 2,
 		"--context", "dr1", "-n", "minio", "get",
 		"service/minio",
 		"--output=jsonpath={.spec.ports[0].nodePort}",
 	)
 
-	// call[2]: velero install — exact argv
+	// call[3]: velero install — exact argv
 	credFile := filepath.Join(addonsDir, "velero", "start-data", "credentials.conf")
-	assertCall(t, "velero-install", f, 2, "velero", []string{
+	assertCall(t, "velero-install", f, 3, "velero", []string{
 		"install",
 		"--provider=aws",
 		"--image=quay.io/prd/velero:v1.16.1",
@@ -178,6 +185,31 @@ func TestVeleroArgv(t *testing.T) {
 		"--kubecontext=dr1",
 		"--wait",
 	})
+}
+
+// TestVeleroSkippedWhenReady verifies the readiness gate short-circuits the whole
+// addon (only the gate probe runs) when deploy/velero is already Available — the
+// cheap-checkpoint behavior on re-run.
+func TestVeleroSkippedWhenReady(t *testing.T) {
+	addonsDir := "/fake/addons"
+	f := &cli.FakeRunner{}
+	f.Script(cli.FakeResult{Out: "True"}) // gate: deploy/velero Available → skip
+
+	b, ok := addon.Lookup("velero")
+	if !ok {
+		t.Fatal("velero addon not registered")
+	}
+	d := testDepsFull(f, addonsDir, "testenv")
+	res, err := ensure.Ensure(context.Background(), b(d, "dr1", nil), d.Opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res != ensure.Skipped {
+		t.Errorf("result = %v, want Skipped", res)
+	}
+	if len(f.Calls) != 1 {
+		t.Errorf("expected only the gate probe call, got %d:\n%s", len(f.Calls), dumpCalls(f))
+	}
 }
 
 // ---- volsync ----
@@ -192,8 +224,10 @@ func TestVolsyncArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
 	clusters := []string{"dr1", "dr2"}
+	gateNotReady(f)
 
 	runStepFull(t, f, addonsDir, "testenv", "volsync", "", clusters)
+	stripGateCall(f)
 
 	// 1 repo-add + 2 installs + 2 rollout = 5 calls
 	if len(f.Calls) != 5 {
@@ -240,7 +274,9 @@ func TestVolsyncArgv(t *testing.T) {
 // TestVolsyncSingleCluster verifies volsync with a single cluster arg.
 func TestVolsyncSingleCluster(t *testing.T) {
 	f := &cli.FakeRunner{}
+	gateNotReady(f)
 	runStepFull(t, f, "/fake/addons", "testenv", "volsync", "", []string{"hub"})
+	stripGateCall(f)
 
 	// 1 repo-add + 1 install + 1 rollout = 3
 	if len(f.Calls) != 3 {
@@ -264,8 +300,10 @@ func TestVolsyncSingleCluster(t *testing.T) {
 func TestOCMHubArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
+	gateNotReady(f)
 
 	runStepFull(t, f, addonsDir, "testenv", "ocm-hub", "hub", nil)
+	stripGateCall(f)
 
 	// 1 init + 2 installs + (7+4)*2 wait/rollout = 25
 	expected := 1 + 2 + (7+4)*2

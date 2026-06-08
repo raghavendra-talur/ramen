@@ -39,5 +39,7 @@ func buildOCMController(d Deps, cluster string, _ []string) ensure.Step {
 			"deploy/ocm-controller", ocmControllerRolloutTimeout)
 	})
 
-	return Serial("addon/ocm-controller", d.Opts, apply, waitRollout)
+	return gatedAddon("addon/ocm-controller", d.Opts,
+		gateDeploymentAvailable(d.K, cluster, "open-cluster-management", "ocm-controller"),
+		apply, waitRollout)
 }
