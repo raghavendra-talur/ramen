@@ -219,3 +219,39 @@ func TestMinikubeUnpauseIssuesCorrectArgv(t *testing.T) {
 		t.Errorf("args = %v, want %v", c.Args, want)
 	}
 }
+
+func TestMinikubeCpIssuesCorrectArgv(t *testing.T) {
+	ctx := context.Background()
+	f := &cli.FakeRunner{}
+	mk := cli.Minikube{R: f}
+
+	if err := mk.Cp(ctx, "dr1", "dr1:/etc/containerd/config.toml", "/tmp/config.toml"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(f.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(f.Calls))
+	}
+	c := f.Calls[0]
+	want := []string{"cp", "--profile", "dr1", "dr1:/etc/containerd/config.toml", "/tmp/config.toml"}
+	if !reflect.DeepEqual(c.Args, want) {
+		t.Errorf("args = %v, want %v", c.Args, want)
+	}
+}
+
+func TestMinikubeSSHIssuesCorrectArgv(t *testing.T) {
+	ctx := context.Background()
+	f := &cli.FakeRunner{}
+	mk := cli.Minikube{R: f}
+
+	if err := mk.SSH(ctx, "dr1", "sudo systemctl restart containerd"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(f.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(f.Calls))
+	}
+	c := f.Calls[0]
+	want := []string{"ssh", "--profile", "dr1", "sudo systemctl restart containerd"}
+	if !reflect.DeepEqual(c.Args, want) {
+		t.Errorf("args = %v, want %v", c.Args, want)
+	}
+}
