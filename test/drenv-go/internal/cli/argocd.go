@@ -23,7 +23,9 @@ func (a Argocd) Login(ctx context.Context, kubeconfig string) error {
 }
 
 // ClusterAdd runs `argocd cluster add <cluster> -y` with KUBECONFIG=kubeconfig
-// in the environment. The -y flag skips the interactive confirmation prompt.
-func (a Argocd) ClusterAdd(ctx context.Context, kubeconfig, cluster string) error {
-	return a.R.RunEnv(ctx, []string{"KUBECONFIG=" + kubeconfig}, "argocd", "cluster", "add", cluster, "-y")
+// in the environment, returning the command's combined output. The -y flag skips
+// the interactive confirmation prompt. The output is returned even on error so
+// the caller can match argocd's "NOAUTH" message (a known transient failure).
+func (a Argocd) ClusterAdd(ctx context.Context, kubeconfig, cluster string) (string, error) {
+	return a.R.OutputEnv(ctx, []string{"KUBECONFIG=" + kubeconfig}, "argocd", "cluster", "add", cluster, "-y")
 }
