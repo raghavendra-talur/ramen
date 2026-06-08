@@ -39,6 +39,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
@@ -141,13 +142,14 @@ func argocdAddCluster(ctx context.Context, d Deps, hub, cluster string) error {
 	}
 
 	// Step 5: argocd cluster add <cluster> -y
-	// Mirror Python: ignore exit code 20 (NOAUTH), a known argocd bug after
-	// "argocd login --core". See https://github.com/argoproj/argo-cd/issues/18464.
-	// We cannot match the "NOAUTH" string (RunEnv does not capture stdout/stderr),
-	// so we match on exit code 20 alone — faithful as possible given the seam.
-	if err := d.Argocd.ClusterAdd(ctx, kubeconfig, cluster); err != nil {
+	// Mirror Python exactly: ignore the error only when it is exit code 20 AND
+	// the output contains "NOAUTH", a known argocd bug after "argocd login
+	// --core". See https://github.com/argoproj/argo-cd/issues/18464. Any other
+	// exit-20 (or a 20 without NOAUTH) is a real failure and propagates.
+	out, err := d.Argocd.ClusterAdd(ctx, kubeconfig, cluster)
+	if err != nil {
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 20 {
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 20 && strings.Contains(out, "NOAUTH") {
 			// Suppress: known argocd NOAUTH transient error.
 			return nil
 		}

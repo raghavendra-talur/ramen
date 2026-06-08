@@ -708,8 +708,9 @@ func TestArgocdArgv(t *testing.T) {
 }
 
 // TestArgocdClusterAddNOAUTHSuppressed verifies that an *exec.ExitError with
-// exit code 20 returned by argocd cluster add is silently suppressed, mirroring
-// the Python workaround for https://github.com/argoproj/argo-cd/issues/18464.
+// exit code 20 AND "NOAUTH" in the output returned by argocd cluster add is
+// silently suppressed, mirroring the Python workaround for
+// https://github.com/argoproj/argo-cd/issues/18464.
 func TestArgocdClusterAddNOAUTHSuppressed(t *testing.T) {
 	// Build a real *exec.ExitError with exit code 20 by running a short-lived
 	// subprocess — the only portable way to obtain one.
@@ -728,10 +729,44 @@ func TestArgocdClusterAddNOAUTHSuppressed(t *testing.T) {
 	f.Script(cli.FakeResult{})                        // config use-context (dr1)
 	f.Script(cli.FakeResult{})                        // config set-context (dr1)
 	f.Script(cli.FakeResult{})                        // argocd login (dr1)
-	f.Script(cli.FakeResult{Err: exitErr})            // argocd cluster add → NOAUTH exit 20
+	// argocd cluster add → NOAUTH exit 20 (output must contain NOAUTH).
+	f.Script(cli.FakeResult{Out: "FATA[0000] rpc error: code = Unauthenticated desc = NOAUTH", Err: exitErr})
 
-	// Ensure must succeed: exit 20 is suppressed.
+	// Ensure must succeed: exit 20 with NOAUTH is suppressed.
 	runStepFull(t, f, addonsDir, "myenv", "argocd", "", []string{"hub", "dr1"})
+}
+
+// TestArgocdClusterAddExit20WithoutNOAUTHPropagated verifies that exit code 20
+// WITHOUT "NOAUTH" in the output is treated as a real failure, matching Python's
+// `e.exitcode != 20 or "NOAUTH" not in e.error` guard.
+func TestArgocdClusterAddExit20WithoutNOAUTHPropagated(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "exit 20")
+	exitErr, ok := cmd.Run().(*exec.ExitError)
+	if !ok {
+		t.Fatal("could not construct *exec.ExitError with code 20")
+	}
+
+	addonsDir := "/fake/addons"
+	f := &cli.FakeRunner{}
+
+	f.Script(cli.FakeResult{})                        // apply
+	f.Script(cli.FakeResult{})                        // wait
+	f.Script(cli.FakeResult{Out: "apiVersion: v1\n"}) // config view (dr1)
+	f.Script(cli.FakeResult{})                        // config use-context (dr1)
+	f.Script(cli.FakeResult{})                        // config set-context (dr1)
+	f.Script(cli.FakeResult{})                        // argocd login (dr1)
+	// Exit 20 but a different message — must NOT be suppressed.
+	f.Script(cli.FakeResult{Out: "FATA[0000] some other error", Err: exitErr})
+
+	b, ok := addon.Lookup("argocd")
+	if !ok {
+		t.Fatal("argocd addon not registered")
+	}
+	d := testDepsFull(f, addonsDir, "myenv")
+	step := b(d, "", []string{"hub", "dr1"})
+	if _, err := ensure.Ensure(context.Background(), step, d.Opts); err == nil {
+		t.Error("expected error for exit 20 without NOAUTH, got nil")
+	}
 }
 
 // TestArgocdClusterAddOtherErrorPropagated verifies that exit codes other than
