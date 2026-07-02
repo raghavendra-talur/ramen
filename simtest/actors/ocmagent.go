@@ -119,7 +119,8 @@ func (a *workAgent) deleteManifests(ctx context.Context, mw *ocmworkv1.ManifestW
 	for i := range mw.Spec.Workload.Manifests {
 		obj, err := decodeManifest(mw.Spec.Workload.Manifests[i].Raw)
 		if err != nil {
-			continue
+			a.rt.Log.Logf("work@%s delete: manifest %d of %s/%s undecodable: %v", a.cluster, i, mw.Namespace, mw.Name, err)
+			return err
 		}
 		if err := a.managed.Delete(ctx, obj); err != nil && !errors.IsNotFound(err) {
 			return err
