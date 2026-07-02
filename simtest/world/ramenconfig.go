@@ -50,6 +50,27 @@ func RamenConfigYAML(controllerType, s3URL string) (string, error) {
 		return "", fmt.Errorf("marshal ramen config: %w", err)
 	}
 
+	// The ramen binary merges this YAML onto its built-in defaults, which set
+	// the DrClusterOperator automation flags to true. Those fields carry
+	// `omitempty`, so their false values vanish from the marshaled YAML and
+	// the defaults would win — the hub would then push an OLM
+	// OperatorGroup/Subscription ManifestWork that can never apply on an
+	// envtest managed cluster. Re-add them explicitly.
+	var m map[string]interface{}
+	if err := yaml.Unmarshal(b, &m); err != nil {
+		return "", fmt.Errorf("unmarshal ramen config: %w", err)
+	}
+
+	m["drClusterOperator"] = map[string]interface{}{
+		"deploymentAutomationEnabled": false,
+		"s3SecretDistributionEnabled": false,
+	}
+
+	b, err = yaml.Marshal(m)
+	if err != nil {
+		return "", fmt.Errorf("marshal ramen config: %w", err)
+	}
+
 	return string(b), nil
 }
 
