@@ -31,10 +31,23 @@ func TestRamenConfigYAML(t *testing.T) {
 		t.Fatalf("want 2 s3 profiles, got %d", len(cfg.S3StoreProfiles))
 	}
 	if !cfg.VolSync.Disabled || !cfg.KubeObjectProtection.Disabled {
-		t.Fatal("volsync and kubeObjectProtection must be disabled in v1")
+		t.Fatal("volsync and kubeObjectProtection must be disabled on the hub in v1")
 	}
 	if cfg.DrClusterOperator.DeploymentAutomationEnabled || cfg.DrClusterOperator.S3SecretDistributionEnabled {
 		t.Fatal("drClusterOperator automation and secret-distribution must be off")
+	}
+
+	dy, err := RamenConfigYAML("dr-cluster", "http://127.0.0.1:9999")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dcfg := rmn.RamenConfig{}
+	if err := yaml.Unmarshal([]byte(dy), &dcfg); err != nil {
+		t.Fatalf("generated dr-cluster config does not unmarshal into RamenConfig: %v", err)
+	}
+	if dcfg.KubeObjectProtection.Disabled {
+		t.Fatal("kubeObjectProtection must stay enabled on dr-cluster so admin-namespace VRGs reconcile")
 	}
 
 	cm, err := OperatorConfigMap("dr-cluster", "http://127.0.0.1:9999")

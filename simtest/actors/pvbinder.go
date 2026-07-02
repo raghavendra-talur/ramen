@@ -34,8 +34,24 @@ func setupPVBinder(mgr manager.Manager, cluster string, rt *Runtime) error {
 
 func (b *pvBinder) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	pvc := &corev1.PersistentVolumeClaim{}
-	if err := b.client.Get(ctx, req.NamespacedName, pvc); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+
+	err := b.client.Get(ctx, req.NamespacedName, pvc)
+	if errors.IsNotFound(err) {
+		// PVC is gone: reclaim its bound PV the way kube-controller-manager +
+		// a CSI provisioner would (reclaimPolicy Delete). Without this, a PV
+		// left Bound to a deleted claim wedges ramen's PV/PVC restore on the
+		// next relocate/failover back to this cluster ("found bound PV ... but
+		// unable to validate claim exists").
+		d := b.rt.Store.Decide(Binder(b.cluster), req.String())
+		if !d.Proceed {
+			return ctrl.Result{RequeueAfter: d.RequeueAfter}, nil
+		}
+
+		return ctrl.Result{}, b.reclaimPVs(ctx, req.NamespacedName)
+	}
+
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if pvc.GetDeletionTimestamp() != nil || pvc.Status.Phase == corev1.ClaimBound {
@@ -117,6 +133,39 @@ func (b *pvBinder) ensurePV(ctx context.Context, pvName string, pvc *corev1.Pers
 		if err := b.client.Status().Update(ctx, pv); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// reclaimPVs deletes every Bound, Delete-reclaim PV whose ClaimRef points at
+// the (now deleted) claim. PVs that were never bound by us (empty phase, e.g.
+// just restored from S3 by ramen and awaiting their PVC) are left alone.
+func (b *pvBinder) reclaimPVs(ctx context.Context, claim types.NamespacedName) error {
+	pvs := &corev1.PersistentVolumeList{}
+	if err := b.client.List(ctx, pvs); err != nil {
+		return err
+	}
+
+	for i := range pvs.Items {
+		pv := &pvs.Items[i]
+		ref := pv.Spec.ClaimRef
+
+		if ref == nil || ref.Namespace != claim.Namespace || ref.Name != claim.Name {
+			continue
+		}
+		if pv.Status.Phase != corev1.VolumeBound || pv.GetDeletionTimestamp() != nil {
+			continue
+		}
+		if pv.Spec.PersistentVolumeReclaimPolicy != corev1.PersistentVolumeReclaimDelete {
+			continue
+		}
+
+		if err := b.client.Delete(ctx, pv); err != nil && !errors.IsNotFound(err) {
+			return err
+		}
+
+		b.rt.Log.Logf("binder@%s reclaimed pv %s (claim %s deleted)", b.cluster, pv.Name, claim)
 	}
 
 	return nil

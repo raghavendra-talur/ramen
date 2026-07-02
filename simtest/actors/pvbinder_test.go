@@ -56,12 +56,40 @@ func TestPVBinder(t *testing.T) {
 	}
 
 	deadline := time.Now().Add(30 * time.Second)
+
+	bound := false
+
 	for time.Now().Before(deadline) {
 		_ = c.Client.Get(ctx, types.NamespacedName{Name: "data", Namespace: "default"}, pvc)
 		if pvc.Status.Phase == corev1.ClaimBound && pvc.Spec.VolumeName != "" {
-			return
+			bound = true
+
+			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatalf("PVC never bound: phase=%s volumeName=%q", pvc.Status.Phase, pvc.Spec.VolumeName)
+
+	if !bound {
+		t.Fatalf("PVC never bound: phase=%s volumeName=%q", pvc.Status.Phase, pvc.Spec.VolumeName)
+	}
+
+	// Deleting the PVC must reclaim the bound PV (kube-controller-manager +
+	// CSI provisioner emulation for reclaimPolicy Delete): a PV left Bound to
+	// a deleted claim wedges ramen's restore on the next DR action.
+	pvName := pvc.Spec.VolumeName
+	if err := c.Client.Delete(ctx, pvc); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline = time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		pv := &corev1.PersistentVolume{}
+
+		err := c.Client.Get(ctx, types.NamespacedName{Name: pvName}, pv)
+		if err != nil {
+			return // reclaimed
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("PV %s never reclaimed after PVC deletion", pvName)
 }

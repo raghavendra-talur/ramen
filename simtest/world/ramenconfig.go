@@ -41,7 +41,15 @@ func RamenConfigYAML(controllerType, s3URL string) (string, error) {
 		},
 	}
 	cfg.VolSync.Disabled = true
-	cfg.KubeObjectProtection.Disabled = true
+	// KubeObjectProtection must stay ENABLED on dr-cluster operators: the VRG
+	// reconciler only sets up its velero/recipe watches (veleroCRsAreWatched)
+	// when the config enables kube object protection, and every VRG living in
+	// an admin namespace (all discovered apps, which is what simtest drives)
+	// hard-fails reconciliation when those watches are missing. The velero and
+	// recipe CRDs are installed from hack/test, so the watch setup succeeds;
+	// no velero controller is needed because per-VRG protection stays off
+	// (VRG.Spec.KubeObjectProtection is nil — the DRPCs never set it).
+	cfg.KubeObjectProtection.Disabled = controllerType != "dr-cluster"
 	cfg.DrClusterOperator.DeploymentAutomationEnabled = false
 	cfg.DrClusterOperator.S3SecretDistributionEnabled = false
 
