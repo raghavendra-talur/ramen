@@ -29,52 +29,61 @@ type Runtime struct {
 // manager running pvbinder + janitor + volrep, and on the hub a manager
 // running the OCM work/view agents (one pair per managed cluster).
 func Start(ctx context.Context, scheme *runtime.Scheme, hub ClusterRef, managed []ClusterRef, log *EvLog,
-) (*Runtime, error) {
-	rt := &Runtime{Store: NewStore(), Log: log}
+) (rt *Runtime, err error) {
+	actorCtx, cancel := context.WithCancel(ctx)
+	defer func() {
+		if err != nil {
+			cancel()
+		}
+	}()
+
+	rt = &Runtime{Store: NewStore(), Log: log}
 
 	managedClients := map[string]client.Client{}
 
 	for _, m := range managed {
-		mgr, err := newManager(m.Cfg, scheme)
-		if err != nil {
-			return nil, fmt.Errorf("actor manager %s: %w", m.Name, err)
+		mgr, mgrErr := newManager(m.Cfg, scheme)
+		if mgrErr != nil {
+			err = fmt.Errorf("actor manager %s: %w", m.Name, mgrErr)
+			return
 		}
 
 		managedClients[m.Name] = mgr.GetClient()
 
-		if err := setupPVBinder(mgr, m.Name, rt); err != nil {
-			return nil, err
+		if err = setupPVBinder(mgr, m.Name, rt); err != nil {
+			return
 		}
-		if err := setupVolRep(mgr, m.Name, rt); err != nil {
-			return nil, err
+		if err = setupVolRep(mgr, m.Name, rt); err != nil {
+			return
 		}
 
-		go runJanitor(ctx, mgr.GetClient(), m.Name, rt)
+		go runJanitor(actorCtx, mgr.GetClient(), m.Name, rt)
 		go func(m manager.Manager, name string) {
-			if err := m.Start(ctx); err != nil {
+			if err := m.Start(actorCtx); err != nil {
 				rt.Log.Logf("actor-manager %s exited: %v", name, err)
 			}
 		}(mgr, m.Name)
 	}
 
-	hubMgr, err := newManager(hub.Cfg, scheme)
-	if err != nil {
-		return nil, fmt.Errorf("actor manager hub: %w", err)
+	hubMgr, hubErr := newManager(hub.Cfg, scheme)
+	if hubErr != nil {
+		err = fmt.Errorf("actor manager hub: %w", hubErr)
+		return
 	}
 
 	for _, m := range managed {
-		if err := setupOCMAgents(hubMgr, m.Name, managedClients[m.Name], rt); err != nil {
-			return nil, err
+		if err = setupOCMAgents(hubMgr, m.Name, managedClients[m.Name], rt); err != nil {
+			return
 		}
 	}
 
 	go func() {
-		if err := hubMgr.Start(ctx); err != nil {
+		if err := hubMgr.Start(actorCtx); err != nil {
 			rt.Log.Logf("actor-manager hub exited: %v", err)
 		}
 	}()
 
-	return rt, nil
+	return
 }
 
 func newManager(cfg *rest.Config, scheme *runtime.Scheme) (manager.Manager, error) {
