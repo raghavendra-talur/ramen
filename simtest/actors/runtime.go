@@ -1,0 +1,95 @@
+// SPDX-FileCopyrightText: The RamenDR authors
+// SPDX-License-Identifier: Apache-2.0
+
+package actors
+
+import (
+	"context"
+	"fmt"
+
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+)
+
+type ClusterRef struct {
+	Name string
+	Cfg  *rest.Config
+}
+
+type Runtime struct {
+	Store *Store
+	Log   *EvLog
+}
+
+// Start launches the framework-side external actors: per managed cluster a
+// manager running pvbinder + janitor + volrep, and on the hub a manager
+// running the OCM work/view agents (one pair per managed cluster).
+func Start(ctx context.Context, scheme *runtime.Scheme, hub ClusterRef, managed []ClusterRef, log *EvLog,
+) (*Runtime, error) {
+	rt := &Runtime{Store: NewStore(), Log: log}
+
+	managedClients := map[string]client.Client{}
+
+	for _, m := range managed {
+		mgr, err := newManager(m.Cfg, scheme)
+		if err != nil {
+			return nil, fmt.Errorf("actor manager %s: %w", m.Name, err)
+		}
+
+		managedClients[m.Name] = mgr.GetClient()
+
+		if err := setupPVBinder(mgr, m.Name, rt); err != nil {
+			return nil, err
+		}
+		if err := setupVolRep(mgr, m.Name, rt); err != nil {
+			return nil, err
+		}
+
+		go runJanitor(ctx, mgr.GetClient(), m.Name, rt)
+		go func(m manager.Manager, name string) {
+			if err := m.Start(ctx); err != nil {
+				rt.Log.Logf("actor-manager %s exited: %v", name, err)
+			}
+		}(mgr, m.Name)
+	}
+
+	hubMgr, err := newManager(hub.Cfg, scheme)
+	if err != nil {
+		return nil, fmt.Errorf("actor manager hub: %w", err)
+	}
+
+	for _, m := range managed {
+		if err := setupOCMAgents(hubMgr, m.Name, managedClients[m.Name], rt); err != nil {
+			return nil, err
+		}
+	}
+
+	go func() {
+		if err := hubMgr.Start(ctx); err != nil {
+			rt.Log.Logf("actor-manager hub exited: %v", err)
+		}
+	}()
+
+	return rt, nil
+}
+
+func newManager(cfg *rest.Config, scheme *runtime.Scheme) (manager.Manager, error) {
+	return ctrl.NewManager(cfg, ctrl.Options{
+		Scheme:         scheme,
+		Metrics:        metricsserver.Options{BindAddress: "0"},
+		LeaderElection: false,
+	})
+}
+
+// setupVolRep and setupOCMAgents are stubs for now; Task 8 replaces
+// setupVolRep with a real VolumeReplication actor (its own file), and Task 9
+// replaces setupOCMAgents with real OCM work/view agents (its own file).
+func setupVolRep(mgr manager.Manager, cluster string, rt *Runtime) error { return nil }
+
+func setupOCMAgents(mgr manager.Manager, cluster string, managedClient client.Client, rt *Runtime) error {
+	return nil
+}
