@@ -9,8 +9,10 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
@@ -91,11 +93,12 @@ func newManager(cfg *rest.Config, scheme *runtime.Scheme) (manager.Manager, erro
 		Scheme:         scheme,
 		Metrics:        metricsserver.Options{BindAddress: "0"},
 		LeaderElection: false,
+		// Tests reuse conventional cluster names ("hub", "dr1", ...) across
+		// independent Test funcs in this package, each starting its own
+		// manager. Controller name uniqueness is enforced via a process-global
+		// registry that a stopped manager never clears, so repeat names would
+		// otherwise collide the second time a test binary runs setupOCMAgents
+		// et al. for the same cluster name.
+		Controller: config.Controller{SkipNameValidation: ptr.To(true)},
 	})
-}
-
-// setupOCMAgents is a stub for now; Task 9 replaces it with real OCM
-// work/view agents (its own file).
-func setupOCMAgents(mgr manager.Manager, cluster string, managedClient client.Client, rt *Runtime) error {
-	return nil
 }
