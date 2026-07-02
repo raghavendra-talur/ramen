@@ -44,3 +44,38 @@ func TestPolicyStore(t *testing.T) {
 		t.Fatal("reset to normal must proceed")
 	}
 }
+
+func TestPolicyStoreKeyIsolation(t *testing.T) {
+	s := NewStore()
+	keyA := VolRep("dr1")
+	keyB := Work("dr2")
+
+	// Set Delayed policy on key A with 200ms deadline
+	s.Set(keyA, Delayed{After: 200 * time.Millisecond})
+
+	// Start the clock on key A
+	if d := s.Decide(keyA, "pvc-1"); d.Proceed {
+		t.Fatal("delayed must hold before deadline")
+	}
+
+	// Set key B to Normal (non-Delayed) — must NOT reset key A's clock
+	s.Set(keyB, Normal{})
+
+	// Sleep past key A's deadline
+	time.Sleep(250 * time.Millisecond)
+
+	// Key A's clock should NOT have been reset; it must Proceed
+	if d := s.Decide(keyA, "pvc-1"); !d.Proceed {
+		t.Fatal("key A's clock must NOT be reset by setting key B to Normal")
+	}
+
+	// Verify that setting key A itself to Normal resets its clock
+	s.Set(keyA, Delayed{After: 200 * time.Millisecond})
+	if d := s.Decide(keyA, "pvc-1"); d.Proceed {
+		t.Fatal("after reset, delayed must hold before deadline")
+	}
+	time.Sleep(250 * time.Millisecond)
+	if d := s.Decide(keyA, "pvc-1"); !d.Proceed {
+		t.Fatal("after reset and wait, delayed must proceed")
+	}
+}

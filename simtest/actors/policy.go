@@ -4,6 +4,7 @@
 package actors
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -63,9 +64,12 @@ func (s *Store) Set(k Key, p Policy) {
 
 	s.policies[k] = p
 
-	if _, ok := p.(Delayed); !ok { // reset delay clocks on any policy change
-		for key := range s.firstSeen {
-			delete(s.firstSeen, key)
+	if _, ok := p.(Delayed); !ok { // reset delay clocks for this key only
+		keyPrefix := k.String() + "/"
+		for id := range s.firstSeen {
+			if strings.HasPrefix(id, keyPrefix) {
+				delete(s.firstSeen, id)
+			}
 		}
 	}
 }
@@ -93,6 +97,8 @@ func (s *Store) Decide(k Key, obj string) Decision {
 			return Decision{Proceed: false, RequeueAfter: pollInterval, Policy: pol}
 		}
 
+		// cleanup: deadline passed, remove from tracking to prevent unbounded growth
+		delete(s.firstSeen, id)
 		return Decision{Proceed: true, Policy: pol}
 	default:
 		return Decision{Proceed: true, Policy: p}
