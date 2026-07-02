@@ -94,11 +94,8 @@ func newManager(cfg *rest.Config, scheme *runtime.Scheme) (manager.Manager, erro
 	})
 }
 
-// setupVolRep and setupOCMAgents are stubs for now; Task 8 replaces
-// setupVolRep with a real VolumeReplication actor (its own file), and Task 9
-// replaces setupOCMAgents with real OCM work/view agents (its own file).
-func setupVolRep(mgr manager.Manager, cluster string, rt *Runtime) error { return nil }
-
+// setupOCMAgents is a stub for now; Task 9 replaces it with real OCM
+// work/view agents (its own file).
 func setupOCMAgents(mgr manager.Manager, cluster string, managedClient client.Client, rt *Runtime) error {
 	return nil
 }
