@@ -28,8 +28,22 @@ type World struct {
 }
 
 // New brings up the full world: 3 envtest clusters, S3, bootstrap objects,
-// framework actors, and the two ramen operator flavors as subprocesses.
+// framework actors, and the two ramen operator flavors as subprocesses. The
+// returned World's teardown is registered via t.Cleanup, so it is torn down
+// when t completes.
 func New(t *testing.T) *World {
+	t.Helper()
+	w := build(t)
+	t.Cleanup(w.Teardown)
+
+	return w
+}
+
+// build does the actual work of bringing up the world but, unlike New, does
+// NOT register a cleanup on t. Callers that need the world to outlive a
+// single top-level test (e.g. SharedWorld) must arrange to call Teardown
+// themselves.
+func build(t *testing.T) *World {
 	t.Helper()
 	EnsureAssets(t)
 
@@ -40,7 +54,6 @@ func New(t *testing.T) *World {
 	}
 
 	w := &World{Dir: dir, procs: map[string]*ManagerProcess{}}
-	t.Cleanup(w.teardown)
 
 	for _, name := range []string{HubName, DR1Name, DR2Name} {
 		c, err := StartCluster(name, dir)
@@ -121,7 +134,10 @@ func (w *World) Cluster(name string) *Cluster {
 func (w *World) KillManager(name string) error    { return w.procs[name].Kill() }
 func (w *World) RestartManager(name string) error { return w.procs[name].Restart() }
 
-func (w *World) teardown() {
+// Teardown stops all managers, actors, and clusters owned by the world. It
+// is safe to call directly for worlds built via build() that are not wired
+// to t.Cleanup (e.g. the shared world; see StopShared).
+func (w *World) Teardown() {
 	for _, p := range w.procs {
 		p.Stop()
 	}
@@ -143,16 +159,39 @@ var (
 	shared   *World
 )
 
-// SharedWorld returns a world shared by the whole test binary. The first
-// caller's t owns the cleanup, so it must be created from TestMain-driven
-// code paths that outlive individual subtests — tests/main_test.go does this.
+// SharedWorld returns a world shared by the whole test binary: the world is
+// built at most once (lazily, on the first call) and is NOT torn down when
+// the calling test's t completes — unlike New, it does not register a
+// t.Cleanup. This is required because package-level test binaries run
+// multiple independent top-level Test* functions against the same shared
+// world, and t.Cleanup on the first caller's t would tear the world down as
+// soon as that first top-level test finished, leaving a dead world for
+// later sibling tests.
+//
+// The caller is responsible for arranging a single call to StopShared once
+// all tests that might use the shared world have finished — normally from
+// TestMain, after m.Run() returns. See tests/main_test.go for the contract.
 func SharedWorld(t *testing.T) *World {
 	sharedMu.Lock()
 	defer sharedMu.Unlock()
 
 	if shared == nil {
-		shared = New(t)
+		shared = build(t)
 	}
 
 	return shared
+}
+
+// StopShared tears down the world created by SharedWorld, if any, and clears
+// the singleton so a subsequent SharedWorld call would build a fresh world.
+// It must be called from TestMain after m.Run() returns, not from any
+// individual test's t.Cleanup.
+func StopShared() {
+	sharedMu.Lock()
+	defer sharedMu.Unlock()
+
+	if shared != nil {
+		shared.Teardown()
+		shared = nil
+	}
 }
