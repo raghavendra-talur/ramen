@@ -61,7 +61,9 @@ func runEnable(t *testing.T, w *world.World, app user.App) *observe.Recorder {
 	return rec
 }
 
-// runMove drives one failover/relocate and gates on its completion. It uses a
+// runMove drives one failover/relocate and gates on its completion, returning
+// the progression sequence its recorder observed (the matrix seed run uses it
+// to discover checkpoints; other callers ignore it). It uses a
 // fresh recorder rather than the lifecycle one from runEnable: OnProgression
 // fires immediately for values the recorder has already seen, so reusing one
 // recorder across moves would fire the second move's WaitOnUserToCleanUp
@@ -69,7 +71,7 @@ func runEnable(t *testing.T, w *world.World, app user.App) *observe.Recorder {
 // delete the app's PVC on the current primary before the move even starts.
 func runMove(t *testing.T, w *world.World, app user.App,
 	action func(context.Context) error, cleanupCluster string, donePhase rmn.DRState, hooks []Hook,
-) {
+) []string {
 	t.Helper()
 	ctx := context.Background()
 
@@ -115,6 +117,8 @@ func runMove(t *testing.T, w *world.World, app user.App,
 	if err := lastCleanupErr(); err != nil {
 		t.Fatalf("cleanup app on %s: %v", cleanupCluster, err)
 	}
+
+	return rec.Progressions()
 }
 
 func runFailover(t *testing.T, w *world.World, app user.App, hooks ...Hook) {
