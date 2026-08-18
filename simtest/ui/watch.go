@@ -12,6 +12,7 @@ import (
 	rmn "github.com/ramendr/ramen/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -53,24 +54,40 @@ func watchInto(ctx context.Context, h *Hub, wc client.WithWatch,
 ) {
 	for ctx.Err() == nil {
 		wi, err := wc.Watch(ctx, list)
-		if err != nil {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(time.Second):
-				continue
-			}
+		if err == nil {
+			consume(ctx, h, wi, extract)
 		}
-		for ev := range wi.ResultChan() {
-			obj, ok := ev.Object.(client.Object)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+// consume drains one established watch until the server closes it or ctx is
+// canceled, feeding extracted objects into the hub.
+func consume(ctx context.Context, h *Hub, wi watch.Interface,
+	extract func(client.Object) (ObjectState, bool),
+) {
+	defer wi.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-wi.ResultChan():
 			if !ok {
+				return
+			}
+			obj, isObj := ev.Object.(client.Object)
+			if !isObj {
 				continue
 			}
-			if o, ok := extract(obj); ok {
+			if o, k := extract(obj); k {
 				h.ObserveObject(o)
 			}
 		}
-		// channel closed: loop re-establishes the watch
 	}
 }
 

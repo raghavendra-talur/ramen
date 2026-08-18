@@ -104,3 +104,28 @@ func TestWatchPVCFeedsHub(t *testing.T) {
 		t.Fatalf("object: %+v", objs[0])
 	}
 }
+
+func TestWatchExitsOnContextDone(t *testing.T) {
+	h := New()
+	s := testScheme(t)
+	wc := fake.NewClientBuilder().WithScheme(s).Build()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		watchInto(ctx, h, wc, &corev1.PersistentVolumeClaimList{}, extractPVC("dr1"))
+		close(done)
+	}()
+
+	// Give the watch a moment to establish.
+	time.Sleep(100 * time.Millisecond)
+
+	// Cancel context and wait for goroutine to exit.
+	cancel()
+	select {
+	case <-done:
+		// Goroutine exited as expected.
+	case <-time.After(2 * time.Second):
+		t.Fatal("watchInto did not exit when context was canceled")
+	}
+}
