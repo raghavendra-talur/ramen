@@ -19,8 +19,8 @@ const (
 )
 
 // TestInfo is one scenario row in the TESTS rail. ID is the full subtest
-// name (e.g. "failover/at=wrr/fault=s3-down"); the frontend groups rows by
-// the "at=..." element.
+// name (e.g. "failover/at=wrr/fault=s3-down"); rows render flat in v1.
+// Grouping rows by the "at=..." element is a planned follow-up.
 type TestInfo struct {
 	ID         string     `json:"id"`
 	Status     TestStatus `json:"status"`

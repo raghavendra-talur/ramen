@@ -120,7 +120,7 @@ Producers and their hooks (each a one-line call into the hub):
 
 Hard rules:
 
-- Every hub write is non-blocking: buffered channel, drop-oldest on
+- Every hub write is non-blocking: buffered channel, drop-newest on
   overflow. A slow or absent browser can never stall a scenario.
 - A nil `*Hub` is a no-op receiver: hooks are called unconditionally; UI off
   costs nothing and no call site needs a nil check.
@@ -157,6 +157,19 @@ build step (the approved mockup's HTML/CSS is the implementation skeleton).
 - Timeline as flex bands per track; playhead driven by event timestamps;
   finished scenarios render from retained segments.
 - Selection (pinned scenario, inspected object) lives in the client store.
+
+**v1 implementation notes.** The shipped frontend deviates from the plan
+above in scope, not in wire protocol:
+
+- Rendering is coalesced full-snapshot refetch + full re-render, not
+  per-event targeted DOM updates: each `EventSource` event (and reconnect,
+  via `onopen`) schedules a debounced `GET /api/snapshot` (at most ~5/s) and
+  the whole page re-renders from the result. No client-side incremental
+  model.
+- The stage ships cluster cards, PVC state colors, and an S3 outage flash.
+  Deferred to follow-ups: SVG edges with message-dot animation along paths,
+  timeline playhead and violation flags, rail grouping of timeline rows,
+  and the inspector's "waiting on" explainer.
 
 ## Testing
 

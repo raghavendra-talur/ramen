@@ -16,7 +16,8 @@ import (
 func TestUISmoke(t *testing.T) {
 	w, _ := getWorld(t)
 	if w.UI == nil {
-		t.Skip("SIMTEST_UI not set; run: SIMTEST_UI=1 go test ./tests/ -run TestUISmoke")
+		t.Skip("simtest ui is not running (SIMTEST_UI unset, or UI launch failed); " +
+			"run: SIMTEST_UI=1 go test ./tests/ -run TestUISmoke")
 	}
 
 	resp, err := http.Get(w.UI.URL() + "/")
