@@ -46,7 +46,7 @@ func getWorld(t *testing.T) (*world.World, *invariants.Checker) {
 		}
 
 		sharedW.UIHub().RunStart("simtest")
-		sharedC.OnViolation = sharedW.UIHub().ObserveInvariant
+		sharedC.SetOnViolation(sharedW.UIHub().ObserveInvariant)
 	})
 
 	if sharedW == nil {

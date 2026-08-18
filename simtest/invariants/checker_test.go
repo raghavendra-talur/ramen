@@ -47,7 +47,7 @@ func TestCheckerOnViolation(t *testing.T) {
 	c := &Checker{}
 
 	var got string
-	c.OnViolation = func(v string) { got = v }
+	c.SetOnViolation(func(v string) { got = v })
 	c.addViolation("dual primary")
 
 	if got != "dual primary" {

@@ -86,17 +86,10 @@ func build(t *testing.T) *World {
 		t.Fatal(err)
 	}
 
-	rt, err := actors.Start(ctx, NewScheme(),
-		actors.ClusterRef{Name: w.Hub.Name, Cfg: w.Hub.Cfg},
-		[]actors.ClusterRef{
-			{Name: w.DR1.Name, Cfg: w.DR1.Cfg},
-			{Name: w.DR2.Name, Cfg: w.DR2.Cfg},
-		}, evlog)
-	if err != nil {
-		t.Fatalf("start actors: %v", err)
-	}
-	w.Actors = rt
-
+	// The UI, when enabled, is launched before actors.Start so that
+	// evlog.OnLine is wired up before any actor goroutines that call Logf
+	// exist. Assigning OnLine after actors start would race with reads of
+	// it under evlog's mutex (reader-side locking alone is not enough).
 	if ui.Enabled() {
 		u, err := ui.Launch(ctx, ui.Options{
 			Addr:   os.Getenv("SIMTEST_UI"),
@@ -114,21 +107,41 @@ func build(t *testing.T) *World {
 		} else {
 			w.UI = u
 			evlog.OnLine = u.Hub.ObserveActorEvent
-			rt.Store.OnChange = func(k actors.Key, p actors.Policy) {
-				_, isNormal := p.(actors.Normal)
-				u.Hub.ObserveFault(k.String(), fmt.Sprintf("%T", p), !isNormal)
-			}
 			w.S3.OnChange = func(down bool) {
 				u.Hub.ObserveFault("s3", "s3 outage", down)
 			}
 			fmt.Printf("simtest ui: %s\n", u.URL())
-			go w.pollManagers(ctx)
+		}
+	}
+
+	rt, err := actors.Start(ctx, NewScheme(),
+		actors.ClusterRef{Name: w.Hub.Name, Cfg: w.Hub.Cfg},
+		[]actors.ClusterRef{
+			{Name: w.DR1.Name, Cfg: w.DR1.Cfg},
+			{Name: w.DR2.Name, Cfg: w.DR2.Cfg},
+		}, evlog)
+	if err != nil {
+		t.Fatalf("start actors: %v", err)
+	}
+	w.Actors = rt
+
+	if w.UI != nil {
+		rt.Store.OnChange = func(k actors.Key, p actors.Policy) {
+			_, isNormal := p.(actors.Normal)
+			w.UI.Hub.ObserveFault(k.String(), fmt.Sprintf("%T", p), !isNormal)
 		}
 	}
 
 	w.startManager(t, HubName, w.Hub.KubeconfigPath, "dr-hub", "drpolicy,drcluster,drpc")
 	w.startManager(t, DR1Name, w.DR1.KubeconfigPath, "dr-cluster", "vrg,drclusterconfig")
 	w.startManager(t, DR2Name, w.DR2.KubeconfigPath, "dr-cluster", "vrg,drclusterconfig")
+
+	// Started only after all managers are registered in w.procs, to avoid a
+	// concurrent map read (pollManagers ranging w.procs) racing the writes
+	// above (w.procs[name] = p in startManager).
+	if w.UI != nil {
+		go w.pollManagers(ctx)
+	}
 
 	return w
 }

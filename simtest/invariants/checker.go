@@ -28,8 +28,20 @@ type Checker struct {
 	cancel     context.CancelFunc
 	done       chan struct{}
 
-	// OnViolation, when set, is notified once per recorded violation.
-	OnViolation func(string)
+	// onViolation, when set, is notified once per recorded violation. It is
+	// read and written under mu; use SetOnViolation to assign it safely
+	// while the checker goroutine may be concurrently invoking it.
+	onViolation func(string)
+}
+
+// SetOnViolation sets the callback notified once per newly recorded
+// violation. It is safe to call concurrently with the checker's background
+// goroutine.
+func (c *Checker) SetOnViolation(fn func(string)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.onViolation = fn
 }
 
 func StartChecker(ctx context.Context, w *world.World, edgePath string) (*Checker, error) {
@@ -132,30 +144,33 @@ func peerReady(drpc *rmn.DRPlacementControl) bool {
 }
 
 func (c *Checker) addViolation(v string) {
-	if !c.recordViolation(v) {
+	fresh, cb := c.recordViolation(v)
+	if !fresh {
 		return
 	}
 
-	if c.OnViolation != nil {
-		c.OnViolation(v)
+	if cb != nil {
+		cb(v)
 	}
 }
 
 // recordViolation appends v to the violation log under the lock if it is not
-// already present, returning whether it was newly added. Violations() shares
-// c.mu, so the lock must be released before addViolation invokes OnViolation.
-func (c *Checker) recordViolation(v string) bool {
+// already present, returning whether it was newly added and the current
+// onViolation callback (captured under the lock so it cannot race with
+// SetOnViolation). Violations() shares c.mu, so the lock must be released
+// before addViolation invokes the callback.
+func (c *Checker) recordViolation(v string) (fresh bool, cb func(string)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	for _, existing := range c.violations {
 		if existing == v {
-			return false
+			return false, nil
 		}
 	}
 	c.violations = append(c.violations, v)
 
-	return true
+	return true, c.onViolation
 }
 
 func (c *Checker) Violations() []string {
