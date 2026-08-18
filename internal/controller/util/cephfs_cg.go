@@ -328,10 +328,18 @@ func GetVolumeSnapshotsOwnedByVolumeGroupSnapshot(
 
 	var volumeSnapshots []vsv1.VolumeSnapshot
 
-	for _, snapshot := range volumeSnapshotList.Items {
+	for i, snapshot := range volumeSnapshotList.Items {
 		for _, owner := range snapshot.ObjectMeta.OwnerReferences {
 			if owner.Kind == "VolumeGroupSnapshot" && owner.Name == vgs.Name && owner.UID == vgs.UID {
-				volumeSnapshots = append(volumeSnapshots, snapshot)
+				err := NewResourceUpdater(&volumeSnapshotList.Items[i]).
+					AddLabel(CreatedByRamenLabel, "transitive").
+					Update(ctx, k8sClient)
+				if err != nil {
+					logger.V(1).Info("Failed to label VGS child VolumeSnapshot",
+						"volumeSnapshot", snapshot.Name, "error", err)
+				}
+
+				volumeSnapshots = append(volumeSnapshots, volumeSnapshotList.Items[i])
 
 				break
 			}
