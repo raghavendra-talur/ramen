@@ -4,6 +4,8 @@
 package ui
 
 import (
+	"bytes"
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -132,5 +134,32 @@ func TestSnapshotIsACopy(t *testing.T) {
 	s.Tests[0].Status = TestFailed // mutate the copy
 	if h.Snapshot().Tests[0].Status != TestRunning {
 		t.Fatal("snapshot aliases hub state")
+	}
+}
+
+func TestZeroTimeFieldsOmittedInJSON(t *testing.T) {
+	// Verify that zero time.Time fields with omitzero tags are absent from JSON,
+	// not serialized as "0001-01-01T00:00:00Z".
+	var data []byte
+	var err error
+
+	// TestInfo with zero StartedAt/FinishedAt should omit those fields.
+	ti := TestInfo{ID: "s1", Status: TestRunning}
+	data, err = json.Marshal(ti)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte("startedAt")) || bytes.Contains(data, []byte("finishedAt")) {
+		t.Fatalf("zero TestInfo times not omitted: %s", string(data))
+	}
+
+	// Segment with zero End should omit the end field.
+	seg := Segment{Value: "primary", Start: time.Now()}
+	data, err = json.Marshal(seg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte(`"end"`)) {
+		t.Fatalf("zero Segment.End not omitted: %s", string(data))
 	}
 }

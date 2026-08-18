@@ -25,8 +25,8 @@ type TestInfo struct {
 	ID         string     `json:"id"`
 	Status     TestStatus `json:"status"`
 	Reason     string     `json:"reason,omitempty"`
-	StartedAt  time.Time  `json:"startedAt,omitempty"`
-	FinishedAt time.Time  `json:"finishedAt,omitempty"`
+	StartedAt  time.Time  `json:"startedAt,omitzero"`
+	FinishedAt time.Time  `json:"finishedAt,omitzero"`
 }
 
 // RunInfo summarizes the whole run for the top-left panel.
@@ -75,7 +75,7 @@ type Event struct {
 type Segment struct {
 	Value string    `json:"value"`
 	Start time.Time `json:"start"`
-	End   time.Time `json:"end,omitempty"`
+	End   time.Time `json:"end,omitzero"`
 }
 
 // Timeline maps track name (drpc-phase, drpc-progression, vrg-dr1, vrg-dr2,
