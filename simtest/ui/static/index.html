@@ -86,6 +86,7 @@ async function refetch() {
 
 function connect() {
   const es = new EventSource("/api/stream");
+  es.onopen = () => scheduleRefetch();  // resync snapshot on (re)connect
   es.onmessage = () => {};       // typed events only
   ["run_started","test_started","test_finished","state_changed","actor_event",
    "fault_changed","manager_changed","invariant_violated"].forEach(t =>
