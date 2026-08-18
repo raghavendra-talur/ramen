@@ -5,7 +5,9 @@ package tests
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -63,6 +65,13 @@ func getWorld(t *testing.T) (*world.World, *invariants.Checker) {
 // holding a dead world.
 func TestMain(m *testing.M) {
 	code := m.Run()
+
+	if os.Getenv("SIMTEST_UI_HOLD") != "" && sharedW != nil && sharedW.UI != nil {
+		fmt.Printf("simtest ui: holding at %s — Ctrl-C to exit\n", sharedW.UI.URL())
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		<-ctx.Done()
+		stop()
+	}
 
 	if sharedC != nil {
 		sharedC.Stop()
