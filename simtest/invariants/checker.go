@@ -27,6 +27,9 @@ type Checker struct {
 	w          *world.World
 	cancel     context.CancelFunc
 	done       chan struct{}
+
+	// OnViolation, when set, is notified once per recorded violation.
+	OnViolation func(string)
 }
 
 func StartChecker(ctx context.Context, w *world.World, edgePath string) (*Checker, error) {
@@ -129,15 +132,30 @@ func peerReady(drpc *rmn.DRPlacementControl) bool {
 }
 
 func (c *Checker) addViolation(v string) {
+	if !c.recordViolation(v) {
+		return
+	}
+
+	if c.OnViolation != nil {
+		c.OnViolation(v)
+	}
+}
+
+// recordViolation appends v to the violation log under the lock if it is not
+// already present, returning whether it was newly added. Violations() shares
+// c.mu, so the lock must be released before addViolation invokes OnViolation.
+func (c *Checker) recordViolation(v string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	for _, existing := range c.violations {
 		if existing == v {
-			return
+			return false
 		}
 	}
 	c.violations = append(c.violations, v)
+
+	return true
 }
 
 func (c *Checker) Violations() []string {

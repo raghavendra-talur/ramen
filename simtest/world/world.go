@@ -113,6 +113,14 @@ func build(t *testing.T) *World {
 			fmt.Printf("simtest ui: disabled (launch failed: %v)\n", err)
 		} else {
 			w.UI = u
+			evlog.OnLine = u.Hub.ObserveActorEvent
+			rt.Store.OnChange = func(k actors.Key, p actors.Policy) {
+				_, isNormal := p.(actors.Normal)
+				u.Hub.ObserveFault(k.String(), fmt.Sprintf("%T", p), !isNormal)
+			}
+			w.S3.OnChange = func(down bool) {
+				u.Hub.ObserveFault("s3", "s3 outage", down)
+			}
 			fmt.Printf("simtest ui: %s\n", u.URL())
 			go w.pollManagers(ctx)
 		}

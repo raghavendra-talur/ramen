@@ -141,10 +141,18 @@ func TestBaselines(t *testing.T) {
 
 	rec := runEnable(t, w, app)
 
-	t.Run("failover", func(t *testing.T) { runFailover(t, w, app) })
-	t.Run("relocate", func(t *testing.T) { runRelocate(t, w, app) })
+	t.Run("failover", func(t *testing.T) {
+		uiScenario(t, w, "failover")
+		runFailover(t, w, app)
+	})
+	t.Run("relocate", func(t *testing.T) {
+		uiScenario(t, w, "relocate")
+		runRelocate(t, w, app)
+	})
 
 	t.Run("disable", func(t *testing.T) {
+		uiScenario(t, w, "disable")
+
 		if err := user.Disable(ctx, w, app, observe.Scale(2*time.Minute)); err != nil {
 			t.Fatal(err)
 		}

@@ -18,6 +18,9 @@ type S3Server struct {
 	URL  string
 	srv  *httptest.Server
 	down atomic.Bool
+
+	// OnChange, when set, is notified on every outage toggle.
+	OnChange func(down bool)
 }
 
 func StartS3(buckets ...string) *S3Server {
@@ -43,5 +46,11 @@ func StartS3(buckets ...string) *S3Server {
 	return s
 }
 
-func (s *S3Server) SetDown(down bool) { s.down.Store(down) }
-func (s *S3Server) Stop()             { s.srv.Close() }
+func (s *S3Server) SetDown(down bool) {
+	s.down.Store(down)
+	if s.OnChange != nil {
+		s.OnChange(down)
+	}
+}
+
+func (s *S3Server) Stop() { s.srv.Close() }

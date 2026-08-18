@@ -42,3 +42,15 @@ func TestSinglePrimaryRule(t *testing.T) {
 		t.Fatal("relocate demotes before promoting; two primaries during relocate violate")
 	}
 }
+
+func TestCheckerOnViolation(t *testing.T) {
+	c := &Checker{}
+
+	var got string
+	c.OnViolation = func(v string) { got = v }
+	c.addViolation("dual primary")
+
+	if got != "dual primary" {
+		t.Fatalf("OnViolation got %q", got)
+	}
+}

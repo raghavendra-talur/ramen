@@ -145,6 +145,8 @@ func runCombo(t *testing.T, w *world.World, idx int, cp checkpoint, f fault) {
 	name := fmt.Sprintf("failover/at=%s/fault=%s", cp.code, f.name)
 
 	t.Run(name, func(t *testing.T) {
+		uiScenario(t, w, name)
+
 		begin := time.Now()
 		app := user.App{Name: sanitize(fmt.Sprintf("mx%02d-%s-%s", idx, cp.code, f.name))}
 

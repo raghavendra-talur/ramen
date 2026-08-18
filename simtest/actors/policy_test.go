@@ -79,3 +79,20 @@ func TestPolicyStoreKeyIsolation(t *testing.T) {
 		t.Fatal("after reset and wait, delayed must proceed")
 	}
 }
+
+func TestStoreOnChange(t *testing.T) {
+	s := NewStore()
+
+	var gotKey Key
+	var gotPolicy Policy
+	s.OnChange = func(k Key, p Policy) { gotKey, gotPolicy = k, p }
+
+	s.Set(VolRep("dr1"), Silent{})
+
+	if gotKey != VolRep("dr1") {
+		t.Fatalf("OnChange key = %v", gotKey)
+	}
+	if _, ok := gotPolicy.(Silent); !ok {
+		t.Fatalf("OnChange policy = %T", gotPolicy)
+	}
+}

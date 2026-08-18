@@ -14,6 +14,11 @@ import (
 type EvLog struct {
 	mu sync.Mutex
 	f  *os.File
+
+	// OnLine, when set, receives every formatted line (the UI hub tee).
+	// Called synchronously under the log mutex; keep it fast and never
+	// call back into the EvLog.
+	OnLine func(string)
 }
 
 func NewEvLog(path string) (*EvLog, error) {
@@ -29,7 +34,13 @@ func (l *EvLog) Logf(format string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	fmt.Fprintf(l.f, "%s "+format+"\n", append([]any{time.Now().Format(time.RFC3339Nano)}, args...)...)
+	line := fmt.Sprintf("%s "+format,
+		append([]any{time.Now().Format(time.RFC3339Nano)}, args...)...)
+	fmt.Fprintln(l.f, line)
+
+	if l.OnLine != nil {
+		l.OnLine(line)
+	}
 }
 
 func (l *EvLog) Close() {

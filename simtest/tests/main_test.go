@@ -42,6 +42,9 @@ func getWorld(t *testing.T) (*world.World, *invariants.Checker) {
 		if err != nil {
 			t.Fatalf("start invariant checker: %v", err)
 		}
+
+		sharedW.UIHub().RunStart("simtest")
+		sharedC.OnViolation = sharedW.UIHub().ObserveInvariant
 	})
 
 	if sharedW == nil {
@@ -67,4 +70,19 @@ func TestMain(m *testing.M) {
 	world.StopShared()
 
 	os.Exit(code)
+}
+
+// uiScenario reports one scenario's lifecycle to the UI hub (no-op when the
+// UI is off). Call it first thing inside a subtest.
+func uiScenario(t *testing.T, w *world.World, id string) {
+	t.Helper()
+	h := w.UIHub()
+	h.ScenarioStart(id)
+	t.Cleanup(func() {
+		result, reason := "passed", ""
+		if t.Failed() {
+			result, reason = "failed", "see test log"
+		}
+		h.ScenarioEnd(id, result, reason)
+	})
 }

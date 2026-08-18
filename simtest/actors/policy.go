@@ -52,6 +52,9 @@ type Store struct {
 	mu        sync.Mutex
 	policies  map[Key]Policy
 	firstSeen map[string]time.Time // key.String()+"/"+obj -> first Decide under Delayed
+
+	// OnChange, when set, is notified after every Set (the UI hub tee).
+	OnChange func(Key, Policy)
 }
 
 func NewStore() *Store {
@@ -60,7 +63,6 @@ func NewStore() *Store {
 
 func (s *Store) Set(k Key, p Policy) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	s.policies[k] = p
 
@@ -71,6 +73,12 @@ func (s *Store) Set(k Key, p Policy) {
 				delete(s.firstSeen, id)
 			}
 		}
+	}
+
+	s.mu.Unlock()
+
+	if s.OnChange != nil {
+		s.OnChange(k, p)
 	}
 }
 
