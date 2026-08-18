@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ramendr/ramen/simtest/actors"
+	"github.com/ramendr/ramen/simtest/ui"
 )
 
 type World struct {
@@ -22,6 +23,7 @@ type World struct {
 	DR2    *Cluster
 	S3     *S3Server
 	Actors *actors.Runtime
+	UI     *ui.UI // nil unless SIMTEST_UI is set
 
 	procs  map[string]*ManagerProcess
 	cancel context.CancelFunc
@@ -95,6 +97,27 @@ func build(t *testing.T) *World {
 	}
 	w.Actors = rt
 
+	if ui.Enabled() {
+		u, err := ui.Launch(ctx, ui.Options{
+			Addr:   os.Getenv("SIMTEST_UI"),
+			Dir:    dir,
+			Scheme: NewScheme(),
+			Hub:    ui.ClusterRef{Name: HubName, Cfg: w.Hub.Cfg},
+			Managed: []ui.ClusterRef{
+				{Name: DR1Name, Cfg: w.DR1.Cfg},
+				{Name: DR2Name, Cfg: w.DR2.Cfg},
+			},
+		})
+		if err != nil {
+			// Per spec: UI failures never fail a test.
+			fmt.Printf("simtest ui: disabled (launch failed: %v)\n", err)
+		} else {
+			w.UI = u
+			fmt.Printf("simtest ui: %s\n", u.URL())
+			go w.pollManagers(ctx)
+		}
+	}
+
 	w.startManager(t, HubName, w.Hub.KubeconfigPath, "dr-hub", "drpolicy,drcluster,drpc")
 	w.startManager(t, DR1Name, w.DR1.KubeconfigPath, "dr-cluster", "vrg,drclusterconfig")
 	w.startManager(t, DR2Name, w.DR2.KubeconfigPath, "dr-cluster", "vrg,drclusterconfig")
@@ -118,6 +141,15 @@ func (w *World) startManager(t *testing.T, name, kubeconfig, ctype, reconcilers 
 
 func (w *World) Managed() []*Cluster { return []*Cluster{w.DR1, w.DR2} }
 
+// UIHub returns the live hub or nil; a nil *ui.Hub is a no-op receiver, so
+// callers never need to check.
+func (w *World) UIHub() *ui.Hub {
+	if w.UI == nil {
+		return nil
+	}
+	return w.UI.Hub
+}
+
 func (w *World) Cluster(name string) *Cluster {
 	switch name {
 	case HubName:
@@ -138,6 +170,9 @@ func (w *World) RestartManager(name string) error { return w.procs[name].Restart
 // is safe to call directly for worlds built via build() that are not wired
 // to t.Cleanup (e.g. the shared world; see StopShared).
 func (w *World) Teardown() {
+	if w.UI != nil {
+		w.UI.Close()
+	}
 	for _, p := range w.procs {
 		p.Stop()
 	}
@@ -193,5 +228,22 @@ func StopShared() {
 	if shared != nil {
 		shared.Teardown()
 		shared = nil
+	}
+}
+
+// pollManagers feeds manager subprocess liveness into the UI hub. The hub
+// suppresses no-change updates, so a tight-ish interval is cheap.
+func (w *World) pollManagers(ctx context.Context) {
+	t := time.NewTicker(500 * time.Millisecond)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			for name, p := range w.procs {
+				w.UIHub().ObserveManager(name, p.Alive())
+			}
+		}
 	}
 }
