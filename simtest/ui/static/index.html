@@ -3,8 +3,221 @@
 <head>
 <meta charset="utf-8">
 <title>simtest</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { background:#0b0e14; color:#e6edf3; font:12px ui-monospace,SFMono-Regular,Menlo,monospace; padding:10px; }
+  .cols { display:flex; gap:10px; align-items:stretch; }
+  .panel { background:#11151ccc; border:1px solid #2a3140; border-radius:6px; padding:10px; font-size:11px; line-height:1.7; }
+  .panel h4 { font-size:9px; letter-spacing:1.5px; color:#7d8590; margin-bottom:4px; }
+  .left { width:230px; flex-shrink:0; display:flex; flex-direction:column; gap:10px; }
+  .right { width:210px; flex-shrink:0; }
+  .kv { display:flex; justify-content:space-between; gap:8px; }
+  .kv b { font-weight:600; text-align:right; }
+  .ok { color:#2ea043; } .bad { color:#f85149; } .warn { color:#d29922; } .run { color:#58a6ff; }
+  .bar { height:6px; background:#21262d; border-radius:3px; overflow:hidden; margin:3px 0 6px; }
+  .bar div { height:100%; background:#58a6ff; transition:width .3s; }
+  #tests { flex:1; min-height:120px; display:flex; flex-direction:column; }
+  #tests .rows { overflow-y:auto; flex:1; }
+  .trow { display:flex; gap:6px; align-items:center; padding:2px 4px; border-radius:4px; cursor:pointer; }
+  .trow:hover { background:#1c2431; }
+  .trow.pinned { outline:1px solid #58a6ff55; }
+  .trow .dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+  .trow .id { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .trow .why { color:#7d8590; font-size:9px; }
+  .d-passed { background:#2ea043; } .d-failed { background:#f85149; }
+  .d-running { border:2px solid #58a6ff; border-top-color:transparent; background:none; animation:spin 1s linear infinite; }
+  .d-queued { border:1.5px solid #30363d; background:none; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #stage { flex:1; position:relative; min-height:360px; }
+  .cluster { position:absolute; width:180px; background:#141a23; border:1.5px solid #3d4657; border-radius:8px; padding:8px; }
+  .cluster .name { font-size:11px; font-weight:700; letter-spacing:1px; }
+  .cluster .sub { font-size:9px; color:#7d8590; }
+  .pvcs { display:flex; gap:5px; margin-top:6px; flex-wrap:wrap; }
+  .pvc { width:14px; height:14px; border-radius:3px; background:#21262d; border:1px solid #30363d; transition:background .6s, box-shadow .6s; }
+  .pvc.Bound { background:#2ea043; border:none; box-shadow:0 0 5px #2ea04366; }
+  .pvc.Pending, .pvc.Lost { background:#f85149; border:none; box-shadow:0 0 8px #f8514999; }
+  #s3 { position:absolute; left:50%; top:54%; transform:translate(-50%,-50%); width:90px; text-align:center; background:#11251c; border:1.5px dashed #2ea043; border-radius:8px; padding:6px; font-size:10px; }
+  #s3.down { background:#2d0f0f; border-color:#f85149; animation:blink 1.2s infinite; }
+  @keyframes blink { 50% { border-color:#7d1a1a; } }
+  #timeline { margin-top:10px; }
+  .tlrow { display:flex; align-items:center; margin-bottom:4px; }
+  .tllabel { width:110px; font-size:9px; color:#7d8590; flex-shrink:0; }
+  .tlband { flex:1; display:flex; height:14px; border-radius:2px; overflow:hidden; background:#0e1117; position:relative; }
+  .seg { height:100%; position:absolute; top:0; }
+  .seg span { position:absolute; left:3px; top:1px; font-size:8px; color:#fff9; overflow:hidden; white-space:nowrap; max-width:95%; }
+  #events { max-height:110px; overflow-y:auto; font-size:9px; color:#7d8590; }
+</style>
 </head>
 <body>
-<div id="app">simtest ui: placeholder (Task 8 builds the real page)</div>
+<div class="cols">
+  <div class="left">
+    <div class="panel" id="run"></div>
+    <div class="panel" id="tests"><h4>TESTS</h4><div class="rows"></div></div>
+    <div class="panel" id="faults"></div>
+  </div>
+  <div id="stage">
+    <div class="cluster" id="c-hub" style="left:50%;top:0;transform:translateX(-50%)"></div>
+    <div class="cluster" id="c-dr1" style="left:0;bottom:0"></div>
+    <div class="cluster" id="c-dr2" style="right:0;bottom:0"></div>
+    <div id="s3">S3</div>
+  </div>
+  <div class="panel right" id="inspector"></div>
+</div>
+<div class="panel" id="timeline"></div>
+<div class="panel" style="margin-top:10px"><h4>RECENT EVENTS</h4><div id="events"></div></div>
+
+<script>
+"use strict";
+const S = { snap: null, pinned: null }; // pinned: scenario id or null = follow current
+
+const PALETTE = ["#2ea043","#58a6ff","#a371f7","#d29922","#f85149","#8957e5","#1f6feb","#6e40c9"];
+const colorOf = (() => { const m = new Map(); return v => {
+  if (!v) return "#21262d";
+  if (!m.has(v)) m.set(v, PALETTE[m.size % PALETTE.length]);
+  return m.get(v);
+};})();
+
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function refetch() {
+  S.snap = await (await fetch("/api/snapshot")).json();
+  render();
+}
+
+function connect() {
+  const es = new EventSource("/api/stream");
+  es.onmessage = () => {};       // typed events only
+  ["run_started","test_started","test_finished","state_changed","actor_event",
+   "fault_changed","manager_changed","invariant_violated"].forEach(t =>
+    es.addEventListener(t, () => scheduleRefetch()));
+  es.onerror = () => {};         // EventSource auto-reconnects
+}
+
+// Events arrive in bursts; coalesce into at most ~5 snapshot fetches/sec.
+let fetchTimer = null;
+function scheduleRefetch() {
+  if (fetchTimer) return;
+  fetchTimer = setTimeout(() => { fetchTimer = null; refetch(); }, 200);
+}
+
+function scenario() {
+  if (!S.snap) return null;
+  return S.pinned || S.snap.current || lastFinished();
+}
+function lastFinished() {
+  const t = (S.snap.tests || []).filter(t => t.finishedAt);
+  return t.length ? t[t.length - 1].id : null;
+}
+
+function render() {
+  const s = S.snap; if (!s) return;
+  renderRun(s); renderTests(s); renderFaults(s); renderStage(s);
+  renderInspector(s); renderTimeline(s); renderEvents(s);
+}
+
+function renderRun(s) {
+  const total = (s.tests || []).length;
+  const done = (s.run.passed || 0) + (s.run.failed || 0);
+  document.getElementById("run").innerHTML = `
+    <h4>RUN · ${esc(s.run.name || "simtest")}</h4>
+    <div class="kv"><span>progress</span><b>${done} / ${total}</b></div>
+    <div class="bar"><div style="width:${total ? 100 * done / total : 0}%"></div></div>
+    <div class="kv"><span><span class="ok">${s.run.passed || 0}✓</span>
+      <span class="bad">${s.run.failed || 0}✗</span>
+      <span class="warn">${s.run.violations || 0}⚑</span></span></div>`;
+}
+
+function renderTests(s) {
+  const rows = document.querySelector("#tests .rows");
+  rows.innerHTML = (s.tests || []).map(t => {
+    const why = t.status === "failed" ? esc(t.reason) : "";
+    const pin = scenario() === t.id ? " pinned" : "";
+    return `<div class="trow${pin}" data-id="${esc(t.id)}">
+      <span class="dot d-${t.status}"></span>
+      <span class="id">${esc(t.id)}</span><span class="why">${why}</span></div>`;
+  }).join("");
+  rows.querySelectorAll(".trow").forEach(el =>
+    el.onclick = () => { S.pinned = S.pinned === el.dataset.id ? null : el.dataset.id; render(); });
+}
+
+function renderFaults(s) {
+  const f = (s.faults || []).map(f => `<div class="kv"><span>${esc(f.key)}</span>
+    <b class="${f.active ? "bad" : "ok"}">${f.active ? "ACTIVE" : "clear"}</b></div>`).join("");
+  const m = Object.entries(s.managers || {}).map(([n, alive]) =>
+    `<div class="kv"><span>${esc(n)}</span><b class="${alive ? "ok" : "bad"}">${alive ? "●" : "✗"}</b></div>`).join("");
+  document.getElementById("faults").innerHTML = `<h4>FAULTS · MANAGERS</h4>${f}${m}`;
+}
+
+function objectsFor(s, cluster, kind) {
+  return (s.objects || []).filter(o => o.cluster === cluster && o.kind === kind);
+}
+
+function renderStage(s) {
+  const drpc = objectsFor(s, "hub", "DRPlacementControl")[0];
+  document.getElementById("c-hub").innerHTML = `<div class="name run">HUB</div>` + (drpc ? `
+    <div class="sub">${esc(drpc.namespace)}/${esc(drpc.name)}</div>
+    <div class="sub">phase <b>${esc(drpc.fields.phase)}</b></div>
+    <div class="sub">progression ${esc(drpc.fields.progression)}</div>` : `<div class="sub">no DRPC</div>`);
+
+  for (const c of ["dr1", "dr2"]) {
+    const vrg = objectsFor(s, c, "VolumeReplicationGroup")[0];
+    const pvcs = objectsFor(s, c, "PersistentVolumeClaim");
+    document.getElementById("c-" + c).innerHTML = `
+      <div class="name">${c.toUpperCase()}</div>
+      <div class="sub">VRG: ${vrg ? esc(vrg.fields.state) : "—"}</div>
+      <div class="pvcs">${pvcs.map(p =>
+        `<div class="pvc ${esc(p.fields.phase)}" title="${esc(p.namespace)}/${esc(p.name)}"></div>`).join("")}</div>`;
+  }
+
+  const s3fault = (s.faults || []).find(f => f.key === "s3");
+  document.getElementById("s3").className = s3fault && s3fault.active ? "down" : "";
+  document.getElementById("s3").textContent = s3fault && s3fault.active ? "S3 · OUTAGE" : "S3";
+}
+
+function renderInspector(s) {
+  const id = scenario();
+  const drpc = objectsFor(s, "hub", "DRPlacementControl")[0];
+  const conds = drpc ? Object.entries(drpc.fields)
+    .filter(([k]) => k.startsWith("cond-"))
+    .map(([k, v]) => `<div class="kv"><span>${esc(k.slice(5))}</span>
+      <b class="${v === "True" ? "ok" : "bad"}">${esc(v)}</b></div>`).join("") : "";
+  document.getElementById("inspector").innerHTML = `
+    <h4>SELECTED · ${esc(id || "—")}</h4>` + (drpc ? `
+    <div class="kv"><span>phase</span><b>${esc(drpc.fields.phase)}</b></div>
+    <div class="kv"><span>progression</span><b>${esc(drpc.fields.progression)}</b></div>
+    <h4 style="margin-top:8px">CONDITIONS</h4>${conds}` : `<div class="sub">no DRPC observed</div>`);
+}
+
+function renderTimeline(s) {
+  const id = scenario();
+  const tl = id && s.timelines ? s.timelines[id] : null;
+  const el = document.getElementById("timeline");
+  if (!tl) { el.innerHTML = `<h4>STATE TIMELINE</h4><div class="sub">no scenario selected</div>`; return; }
+
+  let t0 = Infinity, t1 = -Infinity;
+  for (const segs of Object.values(tl)) for (const g of segs) {
+    t0 = Math.min(t0, Date.parse(g.start));
+    t1 = Math.max(t1, Date.parse(g.end || new Date().toISOString()));
+  }
+  const span = Math.max(t1 - t0, 1);
+  const order = ["drpc-phase", "drpc-progression", "vrg-dr1", "vrg-dr2", "s3", "invariants"];
+  el.innerHTML = `<h4>STATE TIMELINE · ${esc(id)}</h4>` + order.filter(k => tl[k]).map(track => `
+    <div class="tlrow"><div class="tllabel">${esc(track)}</div><div class="tlband">` +
+    tl[track].map(g => {
+      const a = Date.parse(g.start), b = Date.parse(g.end || new Date().toISOString());
+      const w = 100 * (b - a) / span, x = 100 * (a - t0) / span;
+      return `<div class="seg" style="left:${x}%;width:${w}%;background:${colorOf(g.value)}"
+        title="${esc(g.value)}"><span>${esc(g.value)}</span></div>`;
+    }).join("") + `</div></div>`).join("");
+}
+
+function renderEvents(s) {
+  document.getElementById("events").innerHTML = (s.events || []).slice(-40).reverse()
+    .map(e => `<div>${esc((e.data && (e.data.line || e.data.violation)) || e.type)}</div>`).join("");
+}
+
+refetch();
+connect();
+</script>
 </body>
 </html>

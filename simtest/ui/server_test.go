@@ -6,6 +6,7 @@ package ui
 import (
 	"bufio"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -108,6 +109,24 @@ func TestStreamDeliversEvents(t *testing.T) {
 			}
 		case <-deadline:
 			t.Fatal("no SSE event within deadline")
+		}
+	}
+}
+
+func TestIndexHasAppRegions(t *testing.T) {
+	_, s := startTestServer(t)
+	resp, err := http.Get(s.URL() + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body := new(strings.Builder)
+	if _, err := io.Copy(body, resp.Body); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{`id="run"`, `id="tests"`, `id="stage"`, `id="inspector"`, `id="timeline"`} {
+		if !strings.Contains(body.String(), id) {
+			t.Fatalf("index.html missing %s", id)
 		}
 	}
 }
