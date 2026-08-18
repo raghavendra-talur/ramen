@@ -74,3 +74,6 @@ out/
 
 # macOS system files
 .DS_Store
+
+# superpowers brainstorm mockups
+.superpowers/
