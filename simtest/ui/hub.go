@@ -249,6 +249,9 @@ func (h *Hub) Subscribe() (<-chan Event, func()) {
 	return ch, func() {
 		h.mu.Lock()
 		defer h.mu.Unlock()
-		delete(h.subs, id)
+		if _, ok := h.subs[id]; ok {
+			delete(h.subs, id)
+			close(ch)
+		}
 	}
 }

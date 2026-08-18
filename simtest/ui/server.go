@@ -78,6 +78,8 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case ev, ok := <-ch:
+			// Channel is closed when hub.Subscribe's cancel is called,
+			// allowing this goroutine to terminate cleanly.
 			if !ok {
 				return
 			}
