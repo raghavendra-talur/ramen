@@ -129,6 +129,15 @@ func violatesSinglePrimary(primaries int, drpc *rmn.DRPlacementControl) bool {
 		return false
 	}
 
+	// The window opens on recorded spec intent, not the phase: ramen updates
+	// the peer MW to primary before persisting Phase=FailingOver, so with
+	// millisecond actors two primaries are observable while status still
+	// reads the prior stable phase. PeerReady=True marks cleanup complete
+	// and closes the window regardless of the lingering spec action.
+	if drpc.Spec.Action == rmn.ActionFailover && !peerReady(drpc) {
+		return false
+	}
+
 	switch drpc.Status.Phase {
 	case rmn.FailingOver:
 		return false

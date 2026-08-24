@@ -54,3 +54,40 @@ func TestCheckerOnViolation(t *testing.T) {
 		t.Fatalf("OnViolation got %q", got)
 	}
 }
+
+// Ramen updates the peer MW to primary before persisting the FailingOver
+// phase, so with millisecond-speed actors the checker can observe two
+// primaries while status still reads a stable phase. The transitional window
+// must therefore open on recorded spec intent (Action=Failover), not the
+// lagging phase, and close when PeerReady reports cleanup complete.
+func TestSinglePrimaryAllowsSpecFailoverBeforePhaseCatchesUp(t *testing.T) {
+	drpc := &rmn.DRPlacementControl{}
+	drpc.Spec.Action = rmn.ActionFailover
+	drpc.Status.Phase = rmn.Deployed
+
+	if violatesSinglePrimary(2, drpc) {
+		t.Fatal("2 primaries with spec.Action=Failover and lagging phase must be transitional, not a violation")
+	}
+}
+
+func TestSinglePrimaryStillViolatedWithoutAction(t *testing.T) {
+	drpc := &rmn.DRPlacementControl{}
+	drpc.Status.Phase = rmn.Deployed
+
+	if !violatesSinglePrimary(2, drpc) {
+		t.Fatal("2 primaries in steady Deployed with no action must violate")
+	}
+}
+
+func TestSinglePrimaryViolatedAfterFailoverCleanupCompletes(t *testing.T) {
+	drpc := &rmn.DRPlacementControl{}
+	drpc.Spec.Action = rmn.ActionFailover
+	drpc.Status.Phase = rmn.FailedOver
+	drpc.Status.Conditions = []metav1.Condition{{
+		Type: rmn.ConditionPeerReady, Status: metav1.ConditionTrue, Reason: "Ready",
+	}}
+
+	if !violatesSinglePrimary(2, drpc) {
+		t.Fatal("2 primaries after PeerReady=True must violate even with spec.Action still set")
+	}
+}
