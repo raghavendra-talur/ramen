@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -186,6 +188,29 @@ func (w *World) Cluster(name string) *Cluster {
 
 func (w *World) KillManager(name string) error    { return w.procs[name].Kill() }
 func (w *World) RestartManager(name string) error { return w.procs[name].Restart() }
+
+// ManagersAlive returns an error naming every dead ramen manager subprocess.
+// Test drivers call it between scenarios to fail fast: one dead operator
+// otherwise poisons every later scenario with timeouts that blame the wrong
+// combo (a manager that exits on startup errors, e.g. a CRD/cache-sync
+// failure, takes the whole DR control plane for that cluster with it).
+func (w *World) ManagersAlive() error {
+	var dead []string
+
+	for name, p := range w.procs {
+		if !p.Alive() {
+			dead = append(dead, name)
+		}
+	}
+
+	if len(dead) > 0 {
+		sort.Strings(dead)
+
+		return fmt.Errorf("manager(s) dead: %s — see the corresponding .log in the world dir", strings.Join(dead, ", "))
+	}
+
+	return nil
+}
 
 // Teardown stops all managers, actors, and clusters owned by the world. It
 // is safe to call directly for worlds built via build() that are not wired

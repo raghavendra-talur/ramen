@@ -4,6 +4,7 @@
 package world
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -80,4 +81,40 @@ func TestManagerProcessConcurrentAccess(t *testing.T) {
 	wg.Wait()
 
 	p.Stop()
+}
+
+// A dead manager must be reported by name so test drivers can abort a combo
+// immediately instead of poisoning every later scenario with a half-dead
+// world.
+func TestManagersAliveReportsDeadManager(t *testing.T) {
+	p, err := StartManager(ManagerOpts{
+		Name: "fake", Bin: "/bin/sleep", Kubeconfig: "600", LogDir: t.TempDir(),
+		ControllerType: "dr-hub", Reconcilers: "drpc",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Stop)
+
+	w := &World{procs: map[string]*ManagerProcess{"dr1": p}}
+
+	if err := w.ManagersAlive(); err != nil {
+		t.Fatalf("all managers alive, expected nil, got: %v", err)
+	}
+
+	if err := p.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for p.Alive() && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	err = w.ManagersAlive()
+	if err == nil {
+		t.Fatal("expected error for dead manager")
+	}
+	if !strings.Contains(err.Error(), "dr1") {
+		t.Fatalf("error must name the dead manager, got: %v", err)
+	}
 }

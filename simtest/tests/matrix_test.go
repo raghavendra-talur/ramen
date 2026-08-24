@@ -147,6 +147,13 @@ func runCombo(t *testing.T, w *world.World, idx int, cp checkpoint, f fault) {
 	t.Run(name, func(t *testing.T) {
 		uiScenario(t, w, name)
 
+		// Fail fast on a half-dead world: a manager that died during an
+		// earlier combo would otherwise time this combo out and blame the
+		// wrong fault, silently poisoning every combo after it too.
+		if err := w.ManagersAlive(); err != nil {
+			t.Fatalf("aborting combo, world unhealthy before injection: %v", err)
+		}
+
 		begin := time.Now()
 		app := user.App{Name: sanitize(fmt.Sprintf("mx%02d-%s-%s", idx, cp.code, f.name))}
 
