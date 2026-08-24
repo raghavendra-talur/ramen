@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/rest"
@@ -22,14 +23,48 @@ type Cluster struct {
 	KubeconfigPath string
 }
 
+// hackTestCRDPaths lists the hack/test CRD files to install, excluding the
+// public groupsnapshot.storage.k8s.io group: its hack/test CRDs serve only
+// v1beta1 while the ramen binary's public VGS client is v1, and ramen
+// prefers the public API whenever that CRD is present — the version mismatch
+// then kills the dr-cluster manager on informer cache-sync timeout. The
+// private openshift.io variant matches its client and stays.
+func hackTestCRDPaths() ([]string, error) {
+	dir := filepath.Join(RepoRoot(), "hack", "test")
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("list hack/test CRDs: %w", err)
+	}
+
+	var paths []string
+
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		if strings.HasPrefix(e.Name(), "groupsnapshot.storage.k8s.io_") {
+			continue
+		}
+		paths = append(paths, filepath.Join(dir, e.Name()))
+	}
+
+	return paths, nil
+}
+
 // StartCluster boots one envtest control plane with all ramen + third-party
 // CRDs and writes an admin kubeconfig into dir.
 func StartCluster(name, dir string) (*Cluster, error) {
+	crdPaths, err := hackTestCRDPaths()
+	if err != nil {
+		return nil, fmt.Errorf("cluster %s: %w", name, err)
+	}
+
 	env := &envtest.Environment{
-		CRDDirectoryPaths: []string{
-			filepath.Join(RepoRoot(), "config", "crd", "bases"),
-			filepath.Join(RepoRoot(), "hack", "test"),
-		},
+		CRDDirectoryPaths: append(
+			[]string{filepath.Join(RepoRoot(), "config", "crd", "bases")},
+			crdPaths...,
+		),
 		ErrorIfCRDPathMissing: true,
 	}
 
