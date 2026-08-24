@@ -6,79 +6,94 @@
 <style>
   * { box-sizing: border-box; margin: 0; }
   html, body { height: 100%; }
-  body { background:#0b0e14; color:#e6edf3; font:12px ui-monospace,SFMono-Regular,Menlo,monospace;
-         padding:10px; display:flex; flex-direction:column; gap:10px; }
-  .cols { display:flex; gap:10px; align-items:stretch; flex:1; min-height:0; }
-  .panel { background:#11151ccc; border:1px solid #2a3140; border-radius:6px; padding:10px; font-size:11px; line-height:1.7; }
-  .panel h4 { font-size:9px; letter-spacing:1.5px; color:#7d8590; margin-bottom:4px; }
-  .left { width:240px; flex-shrink:0; display:flex; flex-direction:column; gap:10px; min-height:0; }
-  .right { width:220px; flex-shrink:0; overflow-y:auto; }
-  .kv { display:flex; justify-content:space-between; gap:8px; }
+  body { background:#0b0e14; color:#e6edf3; font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;
+         padding:10px; display:grid; grid-template-rows:auto 1fr auto; gap:10px; }
+  .panel { background:#11151ccc; border:1px solid #2a3140; border-radius:6px; padding:12px; }
+  h4 { font-size:10px; letter-spacing:1.5px; color:#7d8590; margin-bottom:6px; font-weight:600; }
+  .kv { display:flex; justify-content:space-between; gap:10px; font-size:12px; }
   .kv b { font-weight:600; text-align:right; }
   .ok { color:#2ea043; } .bad { color:#f85149; } .warn { color:#d29922; } .run { color:#58a6ff; }
-  .bar { height:6px; background:#21262d; border-radius:3px; overflow:hidden; margin:3px 0 6px; }
-  .bar div { height:100%; background:#58a6ff; transition:width .3s; }
-  #tests { flex:1; min-height:120px; display:flex; flex-direction:column; }
+  .muted { color:#7d8590; }
+
+  /* header strip: the run at a glance, plus loud chips for anything hurting */
+  #run { display:flex; align-items:center; gap:16px; padding:9px 14px; }
+  #run .name { font-weight:700; letter-spacing:1px; }
+  #run .bar { flex:1; max-width:420px; height:8px; background:#21262d; border-radius:4px; overflow:hidden; }
+  #run .bar div { height:100%; background:#58a6ff; transition:width .3s; }
+  .chip { font-size:11px; padding:1px 8px; border-radius:9px; background:#2d0f0f; color:#f85149; border:1px solid #f8514966; }
+
+  .cols { display:flex; gap:10px; min-height:0; }
+  #tests { width:250px; flex-shrink:0; display:flex; flex-direction:column; min-height:0; }
   #tests .rows { overflow-y:auto; flex:1; }
-  .tgroup { font-size:8px; letter-spacing:1px; color:#7d8590; margin:6px 0 2px; text-transform:uppercase; }
-  .trow { display:flex; gap:6px; align-items:center; padding:2px 4px; border-radius:4px; cursor:pointer; }
+  .tgroup { font-size:9px; letter-spacing:1px; color:#7d8590; margin:8px 0 3px; text-transform:uppercase; }
+  .trow { display:flex; gap:7px; align-items:center; padding:3px 5px; border-radius:4px; cursor:pointer; font-size:12px; }
   .trow:hover { background:#1c2431; }
-  .trow.pinned { outline:1px solid #58a6ff55; }
+  .trow.pinned { outline:1px solid #58a6ff55; background:#151d2a; }
   .trow .dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
   .trow .id { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .trow .why { color:#7d8590; font-size:9px; flex-shrink:0; }
+  .trow .why { color:#7d8590; font-size:10px; flex-shrink:0; }
   .d-passed { background:#2ea043; } .d-failed { background:#f85149; }
   .d-running { border:2px solid #58a6ff; border-top-color:transparent; background:none; animation:spin 1s linear infinite; }
   .d-queued { border:1.5px solid #30363d; background:none; }
   @keyframes spin { to { transform:rotate(360deg); } }
-  #stage { flex:1; position:relative; min-height:0; max-width:1080px; width:100%; margin:0 auto; align-self:center; height:100%; }
+
   #stagewrap { flex:1; min-width:0; display:flex; }
-  .cluster { position:absolute; width:200px; background:#141a23; border:1.5px solid #3d4657; border-radius:8px; padding:9px; }
-  .cluster .name { font-size:11px; font-weight:700; letter-spacing:1px; }
-  .cluster .sub { font-size:9px; color:#7d8590; }
-  .pvcs { display:flex; gap:5px; margin-top:6px; flex-wrap:wrap; }
-  .pvc { width:14px; height:14px; border-radius:3px; background:#21262d; border:1px solid #30363d; transition:background .6s, box-shadow .6s; }
-  .pvc.Bound { background:#2ea043; border:none; box-shadow:0 0 5px #2ea04366; }
-  .pvc.Pending, .pvc.Lost { background:#f85149; border:none; box-shadow:0 0 8px #f8514999; }
+  #stage { flex:1; position:relative; min-height:0; max-width:980px; width:100%; margin:0 auto; }
   #edges { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
   #edges line { stroke:#2a3140; stroke-width:2; }
-  #s3 { position:absolute; left:50%; top:56%; transform:translate(-50%,-50%); width:96px; text-align:center; background:#11251c; border:1.5px dashed #2ea043; border-radius:8px; padding:6px; font-size:10px; }
+  .cluster { position:absolute; width:240px; background:#141a23; border:1.5px solid #3d4657; border-radius:9px; padding:11px 13px; }
+  .cluster.dead { border-color:#f85149; }
+  .cluster .name { font-size:14px; font-weight:700; letter-spacing:1px; display:flex; align-items:center; gap:8px; }
+  .cluster .led { width:8px; height:8px; border-radius:50%; background:#2ea043; box-shadow:0 0 6px #2ea04388; margin-left:auto; }
+  .cluster.dead .led { background:#f85149; box-shadow:0 0 8px #f85149; animation:blink 1s infinite; }
+  .cluster .sub { font-size:11px; color:#7d8590; }
+  .badges { display:flex; gap:5px; flex-wrap:wrap; margin-top:6px; }
+  .badge { font-size:10px; padding:0 7px; border-radius:8px; background:#2d0f0f; color:#f85149; border:1px solid #f8514666; }
+  .pvcs { display:flex; gap:5px; margin-top:8px; flex-wrap:wrap; }
+  .pvc { width:15px; height:15px; border-radius:3px; background:#21262d; border:1px solid #30363d; transition:background .6s, box-shadow .6s; }
+  .pvc.Bound { background:#2ea043; border:none; box-shadow:0 0 5px #2ea04366; }
+  .pvc.Pending, .pvc.Lost { background:#f85149; border:none; box-shadow:0 0 8px #f8514999; }
+  #s3 { position:absolute; left:50%; top:56%; transform:translate(-50%,-50%); width:110px; text-align:center; background:#11251c; border:1.5px dashed #2ea043; border-radius:9px; padding:8px; font-size:12px; }
   #s3.down { background:#2d0f0f; border-color:#f85149; animation:blink 1.2s infinite; }
-  @keyframes blink { 50% { border-color:#7d1a1a; } }
-  #timeline { flex-shrink:0; }
-  .tlrow { display:flex; align-items:center; margin-bottom:4px; }
-  .tllabel { width:110px; font-size:9px; color:#7d8590; flex-shrink:0; }
-  .tlband { flex:1; display:flex; height:14px; border-radius:2px; overflow:hidden; background:#0e1117; position:relative; }
-  .tlband.flags { overflow:visible; background:none; height:14px; }
-  .seg { height:100%; position:absolute; top:0; }
-  .seg span { position:absolute; left:3px; top:1px; font-size:8px; color:#fff9; overflow:hidden; white-space:nowrap; max-width:95%; }
-  .flag { position:absolute; top:-2px; color:#f85149; font-size:11px; cursor:default; }
-  .axis { display:flex; justify-content:space-between; font-size:8px; color:#57606a; margin-left:110px; }
-  #eventspanel { flex-shrink:0; }
-  #events { height:110px; overflow-y:auto; font-size:9px; color:#7d8590; }
+  @keyframes blink { 50% { opacity:.55; } }
+
+  .rightcol { width:310px; flex-shrink:0; display:flex; flex-direction:column; gap:10px; min-height:0; }
+  #inspector { flex-shrink:0; }
+  #eventspanel { flex:1; min-height:0; display:flex; flex-direction:column; }
+  #events { overflow-y:auto; flex:1; font-size:11px; line-height:1.7; color:#7d8590; }
+  #events > div { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #events .t { color:#57606a; }
   #events .actor { color:#58a6ff; }
   #events .viol { color:#f85149; }
+
+  #timeline { flex-shrink:0; }
+  .tlrow { display:flex; align-items:center; margin-bottom:5px; }
+  .tllabel { width:130px; font-size:11px; color:#7d8590; flex-shrink:0; }
+  .tlband { flex:1; display:flex; height:18px; border-radius:3px; overflow:hidden; background:#0e1117; position:relative; }
+  .tlband.flags { overflow:visible; background:none; }
+  .seg { height:100%; position:absolute; top:0; }
+  .seg span { position:absolute; left:4px; top:2px; font-size:10px; color:#fffb; overflow:hidden; white-space:nowrap; max-width:95%; }
+  .flag { position:absolute; top:-2px; color:#f85149; font-size:13px; cursor:default; }
+  .axis { display:flex; justify-content:space-between; font-size:10px; color:#57606a; margin-left:130px; margin-top:2px; }
 </style>
 </head>
 <body>
+<div class="panel" id="run"></div>
 <div class="cols">
-  <div class="left">
-    <div class="panel" id="run"></div>
-    <div class="panel" id="tests"><h4>TESTS</h4><div class="rows"></div></div>
-    <div class="panel" id="faults"></div>
-  </div>
+  <div class="panel" id="tests"><h4>TESTS</h4><div class="rows"></div></div>
   <div id="stagewrap"><div id="stage">
     <svg id="edges"></svg>
     <div class="cluster" id="c-hub" style="left:50%;top:2%;transform:translateX(-50%)"></div>
-    <div class="cluster" id="c-dr1" style="left:4%;bottom:4%"></div>
-    <div class="cluster" id="c-dr2" style="right:4%;bottom:4%"></div>
+    <div class="cluster" id="c-dr1" style="left:3%;bottom:3%"></div>
+    <div class="cluster" id="c-dr2" style="right:3%;bottom:3%"></div>
     <div id="s3">S3</div>
   </div></div>
-  <div class="panel right" id="inspector"></div>
+  <div class="rightcol">
+    <div class="panel" id="inspector"></div>
+    <div class="panel" id="eventspanel"><h4>EVENTS</h4><div id="events"></div></div>
+  </div>
 </div>
 <div class="panel" id="timeline"></div>
-<div class="panel" id="eventspanel"><h4>RECENT EVENTS</h4><div id="events"></div></div>
 
 <script>
 "use strict";
@@ -156,25 +171,33 @@ function keepScroll(el, fn) {
 
 function render() {
   const s = S.snap; if (!s) return;
-  renderRun(s); renderTests(s); renderFaults(s); renderStage(s);
+  renderRun(s); renderTests(s); renderStage(s);
   renderInspector(s); renderTimeline(s); renderEvents(s);
 }
+
+// "actors.Silent" reads like a stack trace; "silent" reads like a fault.
+const policyName = d => String(d || "").replace(/^actors\./, "").toLowerCase();
 
 function renderRun(s) {
   const total = (s.tests || []).length;
   const done = (s.run.passed || 0) + (s.run.failed || 0);
+  const chips = (s.faults || []).filter(f => f.active)
+    .map(f => `<span class="chip">${esc(f.key)} ${esc(policyName(f.desc).replace(/^s3 /, ""))}</span>`).join(" ");
+  const deadMgrs = Object.entries(s.managers || {}).filter(([, alive]) => !alive)
+    .map(([n]) => `<span class="chip">mgr ${esc(n)} DEAD</span>`).join(" ");
   document.getElementById("run").innerHTML = `
-    <h4>RUN · ${esc(s.run.name || "simtest")}</h4>
-    <div class="kv"><span>progress</span><b>${done} / ${total}</b></div>
+    <span class="name">SIMTEST · ${esc(s.run.name || "run")}</span>
     <div class="bar"><div style="width:${total ? 100 * done / total : 0}%"></div></div>
-    <div class="kv"><span><span class="ok">${s.run.passed || 0}✓</span>
+    <span>${done}/${total}</span>
+    <span><span class="ok">${s.run.passed || 0}✓</span>
       <span class="bad">${s.run.failed || 0}✗</span>
       <span class="warn">${s.run.violations || 0}⚑</span></span>
-      <b>${s.run.startedAt ? dur(Date.now() - Date.parse(s.run.startedAt)) : ""}</b></div>`;
+    ${chips}${deadMgrs}
+    <span class="muted" style="margin-left:auto">${s.run.startedAt ? dur(Date.now() - Date.parse(s.run.startedAt)) : ""}</span>`;
 }
 
 // splitID turns "failover/at=wrr/fault=s3-down" into a group header
-// ("failover · at=wrr") and a short row label ("s3-down"); ungrouped ids
+// ("failover · at wrr") and a short row label ("s3-down"); ungrouped ids
 // (the baselines) fall under "baseline".
 function splitID(id) {
   const parts = id.split("/");
@@ -205,17 +228,6 @@ function renderTests(s) {
     el.onclick = () => { S.pinned = S.pinned === el.dataset.id ? null : el.dataset.id; render(); });
 }
 
-// "actors.Silent" reads like a stack trace; "silent" reads like a fault.
-const policyName = d => String(d || "").replace(/^actors\./, "").toLowerCase();
-
-function renderFaults(s) {
-  const f = (s.faults || []).map(f => `<div class="kv"><span>${esc(f.key)}</span>
-    <b class="${f.active ? "bad" : "ok"}">${f.active ? esc(policyName(f.desc).replace(/^s3 /, "")).toUpperCase() : "clear"}</b></div>`).join("");
-  const m = Object.entries(s.managers || {}).map(([n, alive]) =>
-    `<div class="kv"><span>mgr ${esc(n)}</span><b class="${alive ? "ok" : "bad"}">${alive ? "●" : "DEAD"}</b></div>`).join("");
-  document.getElementById("faults").innerHTML = `<h4>FAULTS · MANAGERS</h4>${f}${m}`;
-}
-
 function objectsFor(s, cluster, kind) {
   return (s.objects || []).filter(o => o.cluster === cluster && o.kind === kind);
 }
@@ -233,21 +245,39 @@ function drawEdges() {
     .map(([a, b]) => `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`).join("");
 }
 
+// Faults live on the component they break: policy-store keys are
+// "actor@cluster", so each cluster card wears its own active faults.
+function badgesFor(s, cluster) {
+  return (s.faults || [])
+    .filter(f => f.active && f.key.endsWith("@" + cluster))
+    .map(f => `<span class="badge">${esc(f.key.split("@")[0])} ${esc(policyName(f.desc))}</span>`).join("");
+}
+
+function clusterCard(s, id, title, body, badges) {
+  const alive = (s.managers || {})[id] !== false;
+  const el = document.getElementById("c-" + id);
+  el.className = "cluster" + (alive ? "" : " dead");
+  el.innerHTML = `<div class="name">${title}<span class="led" title="manager ${alive ? "running" : "DEAD"}"></span></div>`
+    + (alive ? "" : `<div class="sub bad">manager DEAD — see ${esc(id)}.log</div>`)
+    + body + (badges ? `<div class="badges">${badges}</div>` : "");
+}
+
 function renderStage(s) {
   const drpc = objectsFor(s, "hub", "DRPlacementControl")[0];
-  document.getElementById("c-hub").innerHTML = `<div class="name run">HUB</div>` + (drpc ? `
+  clusterCard(s, "hub", `<span class="run">HUB</span>`, drpc ? `
     <div class="sub">${esc(drpc.namespace)}/${esc(drpc.name)}</div>
     <div class="sub">phase <b style="color:${colorOf(drpc.fields.phase)}">${esc(drpc.fields.phase)}</b></div>
-    <div class="sub">progression ${esc(drpc.fields.progression)}</div>` : `<div class="sub">no DRPC</div>`);
+    <div class="sub">progression ${esc(drpc.fields.progression)}</div>` : `<div class="sub">no DRPC</div>`,
+    badgesFor(s, "hub"));
 
   for (const c of ["dr1", "dr2"]) {
     const vrg = objectsFor(s, c, "VolumeReplicationGroup")[0];
     const pvcs = objectsFor(s, c, "PersistentVolumeClaim");
-    document.getElementById("c-" + c).innerHTML = `
-      <div class="name">${c.toUpperCase()}</div>
+    clusterCard(s, c, c.toUpperCase(), `
       <div class="sub">VRG: ${vrg ? `<b style="color:${colorOf(vrg.fields.state)}">${esc(vrg.fields.state)}</b>` : "—"}</div>
       <div class="pvcs">${pvcs.map(p =>
-        `<div class="pvc ${esc(p.fields.phase)}" title="${esc(p.namespace)}/${esc(p.name)}"></div>`).join("")}</div>`;
+        `<div class="pvc ${esc(p.fields.phase)}" title="${esc(p.namespace)}/${esc(p.name)}"></div>`).join("")}</div>`,
+      badgesFor(s, c));
   }
 
   const s3fault = (s.faults || []).find(f => f.key === "s3");
@@ -277,15 +307,15 @@ function renderInspector(s) {
     <h4>SELECTED · ${esc(id || "—")}</h4>${lifecycle}` + (drpc ? `
     <div class="kv"><span>phase</span><b style="color:${colorOf(drpc.fields.phase)}">${esc(drpc.fields.phase)}</b></div>
     <div class="kv"><span>progression</span><b>${esc(drpc.fields.progression)}</b></div>
-    <h4 style="margin-top:8px">CONDITIONS</h4>${conds}
-    <h4 style="margin-top:8px">VRGS</h4>${vrgs}` : `<div class="sub">no DRPC observed</div>`);
+    <h4 style="margin-top:10px">CONDITIONS</h4>${conds}
+    <h4 style="margin-top:10px">VRGS</h4>${vrgs}` : `<div class="sub muted">no DRPC observed</div>`);
 }
 
 function renderTimeline(s) {
   const id = scenario();
   const tl = id && s.timelines ? s.timelines[id] : null;
   const el = document.getElementById("timeline");
-  if (!tl) { el.innerHTML = `<h4>STATE TIMELINE</h4><div class="sub">no scenario selected</div>`; return; }
+  if (!tl) { el.innerHTML = `<h4>STATE TIMELINE</h4><div class="muted">no scenario selected</div>`; return; }
 
   let t0 = Infinity, t1 = -Infinity;
   for (const segs of Object.values(tl)) for (const g of segs) {
@@ -310,8 +340,10 @@ function renderTimeline(s) {
           title="${esc(g.value)}"><span>${esc(g.value)}</span></div>`;
       }).join("") + `</div></div>`;
   }).join("");
+  // Sub-10s spans floor every axis label to the same value; show tenths.
+  const durAxis = ms => span < 10000 ? `${(ms / 1000).toFixed(1)}s` : dur(ms);
   const axis = `<div class="axis">${[0, .25, .5, .75, 1]
-    .map(f => `<span>${dur(span * f)}</span>`).join("")}</div>`;
+    .map(f => `<span>${durAxis(span * f)}</span>`).join("")}</div>`;
   el.innerHTML = `<h4>STATE TIMELINE · ${esc(id)}</h4>` + rows + axis;
 }
 
@@ -329,7 +361,7 @@ function renderEvents(s) {
   const el = document.getElementById("events");
   keepScroll(el, () => {
     el.innerHTML = (s.events || []).slice(-40).reverse()
-      .map(e => `<div>${fmtEvent(e)}</div>`).join("");
+      .map(e => `<div title="${esc((e.data && (e.data.line || e.data.violation)) || e.type)}">${fmtEvent(e)}</div>`).join("");
   });
 }
 
