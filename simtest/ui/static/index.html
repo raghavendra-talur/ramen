@@ -5,12 +5,14 @@
 <title>simtest</title>
 <style>
   * { box-sizing: border-box; margin: 0; }
-  body { background:#0b0e14; color:#e6edf3; font:12px ui-monospace,SFMono-Regular,Menlo,monospace; padding:10px; }
-  .cols { display:flex; gap:10px; align-items:stretch; }
+  html, body { height: 100%; }
+  body { background:#0b0e14; color:#e6edf3; font:12px ui-monospace,SFMono-Regular,Menlo,monospace;
+         padding:10px; display:flex; flex-direction:column; gap:10px; }
+  .cols { display:flex; gap:10px; align-items:stretch; flex:1; min-height:0; }
   .panel { background:#11151ccc; border:1px solid #2a3140; border-radius:6px; padding:10px; font-size:11px; line-height:1.7; }
   .panel h4 { font-size:9px; letter-spacing:1.5px; color:#7d8590; margin-bottom:4px; }
-  .left { width:230px; flex-shrink:0; display:flex; flex-direction:column; gap:10px; }
-  .right { width:210px; flex-shrink:0; }
+  .left { width:240px; flex-shrink:0; display:flex; flex-direction:column; gap:10px; min-height:0; }
+  .right { width:220px; flex-shrink:0; overflow-y:auto; }
   .kv { display:flex; justify-content:space-between; gap:8px; }
   .kv b { font-weight:600; text-align:right; }
   .ok { color:#2ea043; } .bad { color:#f85149; } .warn { color:#d29922; } .run { color:#58a6ff; }
@@ -18,34 +20,45 @@
   .bar div { height:100%; background:#58a6ff; transition:width .3s; }
   #tests { flex:1; min-height:120px; display:flex; flex-direction:column; }
   #tests .rows { overflow-y:auto; flex:1; }
+  .tgroup { font-size:8px; letter-spacing:1px; color:#7d8590; margin:6px 0 2px; text-transform:uppercase; }
   .trow { display:flex; gap:6px; align-items:center; padding:2px 4px; border-radius:4px; cursor:pointer; }
   .trow:hover { background:#1c2431; }
   .trow.pinned { outline:1px solid #58a6ff55; }
   .trow .dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
   .trow .id { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .trow .why { color:#7d8590; font-size:9px; }
+  .trow .why { color:#7d8590; font-size:9px; flex-shrink:0; }
   .d-passed { background:#2ea043; } .d-failed { background:#f85149; }
   .d-running { border:2px solid #58a6ff; border-top-color:transparent; background:none; animation:spin 1s linear infinite; }
   .d-queued { border:1.5px solid #30363d; background:none; }
   @keyframes spin { to { transform:rotate(360deg); } }
-  #stage { flex:1; position:relative; min-height:360px; }
-  .cluster { position:absolute; width:180px; background:#141a23; border:1.5px solid #3d4657; border-radius:8px; padding:8px; }
+  #stage { flex:1; position:relative; min-height:0; max-width:1080px; width:100%; margin:0 auto; align-self:center; height:100%; }
+  #stagewrap { flex:1; min-width:0; display:flex; }
+  .cluster { position:absolute; width:200px; background:#141a23; border:1.5px solid #3d4657; border-radius:8px; padding:9px; }
   .cluster .name { font-size:11px; font-weight:700; letter-spacing:1px; }
   .cluster .sub { font-size:9px; color:#7d8590; }
   .pvcs { display:flex; gap:5px; margin-top:6px; flex-wrap:wrap; }
   .pvc { width:14px; height:14px; border-radius:3px; background:#21262d; border:1px solid #30363d; transition:background .6s, box-shadow .6s; }
   .pvc.Bound { background:#2ea043; border:none; box-shadow:0 0 5px #2ea04366; }
   .pvc.Pending, .pvc.Lost { background:#f85149; border:none; box-shadow:0 0 8px #f8514999; }
-  #s3 { position:absolute; left:50%; top:54%; transform:translate(-50%,-50%); width:90px; text-align:center; background:#11251c; border:1.5px dashed #2ea043; border-radius:8px; padding:6px; font-size:10px; }
+  #edges { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+  #edges line { stroke:#2a3140; stroke-width:2; }
+  #s3 { position:absolute; left:50%; top:56%; transform:translate(-50%,-50%); width:96px; text-align:center; background:#11251c; border:1.5px dashed #2ea043; border-radius:8px; padding:6px; font-size:10px; }
   #s3.down { background:#2d0f0f; border-color:#f85149; animation:blink 1.2s infinite; }
   @keyframes blink { 50% { border-color:#7d1a1a; } }
-  #timeline { margin-top:10px; }
+  #timeline { flex-shrink:0; }
   .tlrow { display:flex; align-items:center; margin-bottom:4px; }
   .tllabel { width:110px; font-size:9px; color:#7d8590; flex-shrink:0; }
   .tlband { flex:1; display:flex; height:14px; border-radius:2px; overflow:hidden; background:#0e1117; position:relative; }
+  .tlband.flags { overflow:visible; background:none; height:14px; }
   .seg { height:100%; position:absolute; top:0; }
   .seg span { position:absolute; left:3px; top:1px; font-size:8px; color:#fff9; overflow:hidden; white-space:nowrap; max-width:95%; }
-  #events { max-height:110px; overflow-y:auto; font-size:9px; color:#7d8590; }
+  .flag { position:absolute; top:-2px; color:#f85149; font-size:11px; cursor:default; }
+  .axis { display:flex; justify-content:space-between; font-size:8px; color:#57606a; margin-left:110px; }
+  #eventspanel { flex-shrink:0; }
+  #events { height:110px; overflow-y:auto; font-size:9px; color:#7d8590; }
+  #events .t { color:#57606a; }
+  #events .actor { color:#58a6ff; }
+  #events .viol { color:#f85149; }
 </style>
 </head>
 <body>
@@ -55,29 +68,49 @@
     <div class="panel" id="tests"><h4>TESTS</h4><div class="rows"></div></div>
     <div class="panel" id="faults"></div>
   </div>
-  <div id="stage">
-    <div class="cluster" id="c-hub" style="left:50%;top:0;transform:translateX(-50%)"></div>
-    <div class="cluster" id="c-dr1" style="left:0;bottom:0"></div>
-    <div class="cluster" id="c-dr2" style="right:0;bottom:0"></div>
+  <div id="stagewrap"><div id="stage">
+    <svg id="edges"></svg>
+    <div class="cluster" id="c-hub" style="left:50%;top:2%;transform:translateX(-50%)"></div>
+    <div class="cluster" id="c-dr1" style="left:4%;bottom:4%"></div>
+    <div class="cluster" id="c-dr2" style="right:4%;bottom:4%"></div>
     <div id="s3">S3</div>
-  </div>
+  </div></div>
   <div class="panel right" id="inspector"></div>
 </div>
 <div class="panel" id="timeline"></div>
-<div class="panel" style="margin-top:10px"><h4>RECENT EVENTS</h4><div id="events"></div></div>
+<div class="panel" id="eventspanel"><h4>RECENT EVENTS</h4><div id="events"></div></div>
 
 <script>
 "use strict";
 const S = { snap: null, pinned: null }; // pinned: scenario id or null = follow current
 
-const PALETTE = ["#2ea043","#58a6ff","#a371f7","#d29922","#f85149","#8957e5","#1f6feb","#6e40c9"];
-const colorOf = (() => { const m = new Map(); return v => {
+// Known DR states and progressions keep fixed, meaningful colors: green for
+// healthy/steady, blue for the secondary/ready side, purple for in-flight
+// action phases, amber for cleanup, red strictly for trouble. Unknown values
+// fall back to a deterministic hash so a value keeps its color across
+// reloads instead of depending on observation order.
+const SEMANTIC = {
+  "primary": "#2ea043", "secondary": "#58a6ff",
+  "Deployed": "#2ea043", "Completed": "#2ea043", "up": "#2ea043",
+  "FailingOver": "#a371f7", "Relocating": "#a371f7", "Initiating": "#d29922",
+  "FailedOver": "#1f6feb", "Relocated": "#39c5cf",
+  "Deploying": "#58a6ff", "WaitForReadiness": "#8957e5",
+  "WaitingForResourceRestore": "#6e40c9", "WaitForFencing": "#6e40c9",
+  "Cleaning Up": "#d29922", "WaitOnUserToCleanUp": "#bb8009",
+  "Deleting": "#f85149", "down": "#f85149", "Paused": "#f85149",
+};
+const PALETTE = ["#2ea043","#58a6ff","#a371f7","#d29922","#8957e5","#1f6feb","#6e40c9","#39c5cf"];
+function colorOf(v) {
   if (!v) return "#21262d";
-  if (!m.has(v)) m.set(v, PALETTE[m.size % PALETTE.length]);
-  return m.get(v);
-};})();
+  if (SEMANTIC[v]) return SEMANTIC[v];
+  let h = 0;
+  for (let i = 0; i < v.length; i++) h = (h * 31 + v.charCodeAt(i)) >>> 0;
+  return PALETTE[h % PALETTE.length];
+}
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const short = t => t ? new Date(t).toTimeString().slice(0, 8) : "";
+const dur = ms => ms >= 60000 ? `${Math.floor(ms/60000)}m${Math.floor(ms%60000/1000)}s` : `${Math.floor(ms/1000)}s`;
 
 async function refetch() {
   S.snap = await (await fetch("/api/snapshot")).json();
@@ -101,6 +134,10 @@ function scheduleRefetch() {
   fetchTimer = setTimeout(() => { fetchTimer = null; refetch(); }, 200);
 }
 
+// A running scenario keeps its elapsed clock and open timeline moving even
+// between events (quiet waits are exactly when you stare at the page).
+setInterval(() => { if (S.snap && S.snap.current) render(); }, 1000);
+
 function scenario() {
   if (!S.snap) return null;
   return S.pinned || S.snap.current || lastFinished();
@@ -108,6 +145,13 @@ function scenario() {
 function lastFinished() {
   const t = (S.snap.tests || []).filter(t => t.finishedAt);
   return t.length ? t[t.length - 1].id : null;
+}
+
+// Full re-renders replace scroll containers; keep the user's place in them.
+function keepScroll(el, fn) {
+  const top = el.scrollTop;
+  fn();
+  el.scrollTop = top;
 }
 
 function render() {
@@ -125,27 +169,50 @@ function renderRun(s) {
     <div class="bar"><div style="width:${total ? 100 * done / total : 0}%"></div></div>
     <div class="kv"><span><span class="ok">${s.run.passed || 0}✓</span>
       <span class="bad">${s.run.failed || 0}✗</span>
-      <span class="warn">${s.run.violations || 0}⚑</span></span></div>`;
+      <span class="warn">${s.run.violations || 0}⚑</span></span>
+      <b>${s.run.startedAt ? dur(Date.now() - Date.parse(s.run.startedAt)) : ""}</b></div>`;
+}
+
+// splitID turns "failover/at=wrr/fault=s3-down" into a group header
+// ("failover · at=wrr") and a short row label ("s3-down"); ungrouped ids
+// (the baselines) fall under "baseline".
+function splitID(id) {
+  const parts = id.split("/");
+  if (parts.length === 1) return { group: "baseline", label: id };
+  const label = parts[parts.length - 1].replace(/^fault=/, "");
+  return { group: parts.slice(0, -1).join(" · ").replace(/at=/, "at "), label };
 }
 
 function renderTests(s) {
   const rows = document.querySelector("#tests .rows");
-  rows.innerHTML = (s.tests || []).map(t => {
-    const why = t.status === "failed" ? esc(t.reason) : "";
-    const pin = scenario() === t.id ? " pinned" : "";
-    return `<div class="trow${pin}" data-id="${esc(t.id)}">
-      <span class="dot d-${t.status}"></span>
-      <span class="id">${esc(t.id)}</span><span class="why">${why}</span></div>`;
-  }).join("");
+  keepScroll(rows, () => {
+    let lastGroup = null, html = "";
+    for (const t of (s.tests || [])) {
+      const { group, label } = splitID(t.id);
+      if (group !== lastGroup) { html += `<div class="tgroup">${esc(group)}</div>`; lastGroup = group; }
+      let extra = "";
+      if (t.status === "failed") extra = esc(t.reason);
+      else if (t.status === "running" && t.startedAt) extra = dur(Date.now() - Date.parse(t.startedAt));
+      else if (t.finishedAt && t.startedAt) extra = dur(Date.parse(t.finishedAt) - Date.parse(t.startedAt));
+      const pin = scenario() === t.id ? " pinned" : "";
+      html += `<div class="trow${pin}" data-id="${esc(t.id)}" title="${esc(t.id)}">
+        <span class="dot d-${t.status}"></span>
+        <span class="id">${esc(label)}</span><span class="why">${extra}</span></div>`;
+    }
+    rows.innerHTML = html;
+  });
   rows.querySelectorAll(".trow").forEach(el =>
     el.onclick = () => { S.pinned = S.pinned === el.dataset.id ? null : el.dataset.id; render(); });
 }
 
+// "actors.Silent" reads like a stack trace; "silent" reads like a fault.
+const policyName = d => String(d || "").replace(/^actors\./, "").toLowerCase();
+
 function renderFaults(s) {
   const f = (s.faults || []).map(f => `<div class="kv"><span>${esc(f.key)}</span>
-    <b class="${f.active ? "bad" : "ok"}">${f.active ? "ACTIVE" : "clear"}</b></div>`).join("");
+    <b class="${f.active ? "bad" : "ok"}">${f.active ? esc(policyName(f.desc).replace(/^s3 /, "")).toUpperCase() : "clear"}</b></div>`).join("");
   const m = Object.entries(s.managers || {}).map(([n, alive]) =>
-    `<div class="kv"><span>${esc(n)}</span><b class="${alive ? "ok" : "bad"}">${alive ? "●" : "✗"}</b></div>`).join("");
+    `<div class="kv"><span>mgr ${esc(n)}</span><b class="${alive ? "ok" : "bad"}">${alive ? "●" : "DEAD"}</b></div>`).join("");
   document.getElementById("faults").innerHTML = `<h4>FAULTS · MANAGERS</h4>${f}${m}`;
 }
 
@@ -153,11 +220,24 @@ function objectsFor(s, cluster, kind) {
   return (s.objects || []).filter(o => o.cluster === cluster && o.kind === kind);
 }
 
+function drawEdges() {
+  const stage = document.getElementById("stage"), svg = document.getElementById("edges");
+  const r = stage.getBoundingClientRect();
+  const box = id => {
+    const b = document.getElementById(id).getBoundingClientRect();
+    return { x: b.left - r.left + b.width / 2, y: b.top - r.top + b.height / 2 };
+  };
+  const hub = box("c-hub"), dr1 = box("c-dr1"), dr2 = box("c-dr2"), s3 = box("s3");
+  svg.setAttribute("viewBox", `0 0 ${r.width} ${r.height}`);
+  svg.innerHTML = [[hub, dr1], [hub, dr2], [dr1, s3], [dr2, s3]]
+    .map(([a, b]) => `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`).join("");
+}
+
 function renderStage(s) {
   const drpc = objectsFor(s, "hub", "DRPlacementControl")[0];
   document.getElementById("c-hub").innerHTML = `<div class="name run">HUB</div>` + (drpc ? `
     <div class="sub">${esc(drpc.namespace)}/${esc(drpc.name)}</div>
-    <div class="sub">phase <b>${esc(drpc.fields.phase)}</b></div>
+    <div class="sub">phase <b style="color:${colorOf(drpc.fields.phase)}">${esc(drpc.fields.phase)}</b></div>
     <div class="sub">progression ${esc(drpc.fields.progression)}</div>` : `<div class="sub">no DRPC</div>`);
 
   for (const c of ["dr1", "dr2"]) {
@@ -165,7 +245,7 @@ function renderStage(s) {
     const pvcs = objectsFor(s, c, "PersistentVolumeClaim");
     document.getElementById("c-" + c).innerHTML = `
       <div class="name">${c.toUpperCase()}</div>
-      <div class="sub">VRG: ${vrg ? esc(vrg.fields.state) : "—"}</div>
+      <div class="sub">VRG: ${vrg ? `<b style="color:${colorOf(vrg.fields.state)}">${esc(vrg.fields.state)}</b>` : "—"}</div>
       <div class="pvcs">${pvcs.map(p =>
         `<div class="pvc ${esc(p.fields.phase)}" title="${esc(p.namespace)}/${esc(p.name)}"></div>`).join("")}</div>`;
   }
@@ -173,20 +253,32 @@ function renderStage(s) {
   const s3fault = (s.faults || []).find(f => f.key === "s3");
   document.getElementById("s3").className = s3fault && s3fault.active ? "down" : "";
   document.getElementById("s3").textContent = s3fault && s3fault.active ? "S3 · OUTAGE" : "S3";
+  drawEdges();
 }
 
 function renderInspector(s) {
   const id = scenario();
+  const test = (s.tests || []).find(t => t.id === id);
   const drpc = objectsFor(s, "hub", "DRPlacementControl")[0];
   const conds = drpc ? Object.entries(drpc.fields)
     .filter(([k]) => k.startsWith("cond-"))
     .map(([k, v]) => `<div class="kv"><span>${esc(k.slice(5))}</span>
       <b class="${v === "True" ? "ok" : "bad"}">${esc(v)}</b></div>`).join("") : "";
+  const vrgs = ["dr1", "dr2"].map(c => {
+    const v = objectsFor(s, c, "VolumeReplicationGroup")[0];
+    return `<div class="kv"><span>vrg ${c}</span><b style="color:${colorOf(v && v.fields.state)}">${v ? esc(v.fields.state) : "—"}</b></div>`;
+  }).join("");
+  let lifecycle = "";
+  if (test && test.startedAt) {
+    const end = test.finishedAt ? Date.parse(test.finishedAt) : Date.now();
+    lifecycle = `<div class="kv"><span>${test.status}</span><b>${dur(end - Date.parse(test.startedAt))}</b></div>`;
+  }
   document.getElementById("inspector").innerHTML = `
-    <h4>SELECTED · ${esc(id || "—")}</h4>` + (drpc ? `
-    <div class="kv"><span>phase</span><b>${esc(drpc.fields.phase)}</b></div>
+    <h4>SELECTED · ${esc(id || "—")}</h4>${lifecycle}` + (drpc ? `
+    <div class="kv"><span>phase</span><b style="color:${colorOf(drpc.fields.phase)}">${esc(drpc.fields.phase)}</b></div>
     <div class="kv"><span>progression</span><b>${esc(drpc.fields.progression)}</b></div>
-    <h4 style="margin-top:8px">CONDITIONS</h4>${conds}` : `<div class="sub">no DRPC observed</div>`);
+    <h4 style="margin-top:8px">CONDITIONS</h4>${conds}
+    <h4 style="margin-top:8px">VRGS</h4>${vrgs}` : `<div class="sub">no DRPC observed</div>`);
 }
 
 function renderTimeline(s) {
@@ -202,23 +294,48 @@ function renderTimeline(s) {
   }
   const span = Math.max(t1 - t0, 1);
   const order = ["drpc-phase", "drpc-progression", "vrg-dr1", "vrg-dr2", "s3", "invariants"];
-  el.innerHTML = `<h4>STATE TIMELINE · ${esc(id)}</h4>` + order.filter(k => tl[k]).map(track => `
-    <div class="tlrow"><div class="tllabel">${esc(track)}</div><div class="tlband">` +
-    tl[track].map(g => {
-      const a = Date.parse(g.start), b = Date.parse(g.end || new Date().toISOString());
-      const w = 100 * (b - a) / span, x = 100 * (a - t0) / span;
-      return `<div class="seg" style="left:${x}%;width:${w}%;background:${colorOf(g.value)}"
-        title="${esc(g.value)}"><span>${esc(g.value)}</span></div>`;
-    }).join("") + `</div></div>`).join("");
+  const rows = order.filter(k => tl[k]).map(track => {
+    if (track === "invariants") {
+      return `<div class="tlrow"><div class="tllabel">invariants</div><div class="tlband flags">` +
+        tl[track].map(g => {
+          const x = 100 * (Date.parse(g.start) - t0) / span;
+          return `<span class="flag" style="left:${x}%" title="${esc(g.value)}">⚑</span>`;
+        }).join("") + `</div></div>`;
+    }
+    return `<div class="tlrow"><div class="tllabel">${esc(track)}</div><div class="tlband">` +
+      tl[track].map(g => {
+        const a = Date.parse(g.start), b = Date.parse(g.end || new Date().toISOString());
+        const w = 100 * (b - a) / span, x = 100 * (a - t0) / span;
+        return `<div class="seg" style="left:${x}%;width:${w}%;background:${colorOf(g.value)}"
+          title="${esc(g.value)}"><span>${esc(g.value)}</span></div>`;
+      }).join("") + `</div></div>`;
+  }).join("");
+  const axis = `<div class="axis">${[0, .25, .5, .75, 1]
+    .map(f => `<span>${dur(span * f)}</span>`).join("")}</div>`;
+  el.innerHTML = `<h4>STATE TIMELINE · ${esc(id)}</h4>` + rows + axis;
+}
+
+// Actor lines look like "2026-…T13:32:07.013-04:00 work@dr2 applied …";
+// show a short clock, color the actor, and let violations shout.
+function fmtEvent(e) {
+  const raw = (e.data && (e.data.line || e.data.violation)) || e.type;
+  if (e.type === "invariant_violated") return `<span class="t">${short(e.at)}</span> <span class="viol">⚑ ${esc(raw)}</span>`;
+  const m = raw.match(/^(\S+)\s+(\S+@\S+|matrix:)\s+([\s\S]*)$/);
+  if (m) return `<span class="t">${short(m[1])}</span> <span class="actor">${esc(m[2])}</span> ${esc(m[3])}`;
+  return `<span class="t">${short(e.at)}</span> ${esc(raw)}`;
 }
 
 function renderEvents(s) {
-  document.getElementById("events").innerHTML = (s.events || []).slice(-40).reverse()
-    .map(e => `<div>${esc((e.data && (e.data.line || e.data.violation)) || e.type)}</div>`).join("");
+  const el = document.getElementById("events");
+  keepScroll(el, () => {
+    el.innerHTML = (s.events || []).slice(-40).reverse()
+      .map(e => `<div>${fmtEvent(e)}</div>`).join("");
+  });
 }
 
 refetch();
 connect();
+window.addEventListener("resize", () => { if (S.snap) drawEdges(); });
 </script>
 </body>
 </html>

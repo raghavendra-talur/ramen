@@ -189,7 +189,13 @@ func (h *Hub) ObserveFault(key, desc string, active bool) {
 		state = "active"
 	}
 	if key == "s3" {
-		h.track("s3", state, time.Now())
+		// The s3 timeline track reads as a component state, not as fault
+		// vocabulary: down while the outage fault is active, up otherwise.
+		s3state := "up"
+		if active {
+			s3state = "down"
+		}
+		h.track("s3", s3state, time.Now())
 	}
 	h.emit("fault_changed", map[string]string{"key": key, "desc": desc, "state": state})
 }

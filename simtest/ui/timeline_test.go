@@ -55,6 +55,12 @@ func TestScenarioTimelineEndToEnd(t *testing.T) {
 			t.Fatalf("track %q empty; timeline: %+v", track, tl)
 		}
 	}
+
+	// The s3 track renders on the timeline; its values must be the states
+	// an operator reads at a glance, not the fault-event vocabulary.
+	if v := tl["s3"][0].Value; v != "down" {
+		t.Fatalf(`s3 track value = %q, want "down"`, v)
+	}
 	for track, segs := range tl {
 		if segs[len(segs)-1].End.IsZero() {
 			t.Fatalf("track %q left open after ScenarioEnd", track)
