@@ -85,7 +85,11 @@ func consume(ctx context.Context, h *Hub, wi watch.Interface,
 				continue
 			}
 			if o, k := extract(obj); k {
-				h.ObserveObject(o)
+				if ev.Type == watch.Deleted {
+					h.RemoveObject(o)
+				} else {
+					h.ObserveObject(o)
+				}
 			}
 		}
 	}

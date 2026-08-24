@@ -141,6 +141,25 @@ func (h *Hub) ObserveObject(o ObjectState) {
 	h.emit("state_changed", d)
 }
 
+// RemoveObject drops a deleted cluster object from the model so the stage
+// stops rendering it (otherwise a deleted DRPC ghosts as "Deleting" forever).
+// Timelines are untouched: the object's last state stays on the scenario's
+// bands, closed when the scenario ends. Removing an unknown object is a
+// no-op.
+func (h *Hub) RemoveObject(o ObjectState) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.objects[o.key()]; !ok {
+		return
+	}
+	delete(h.objects, o.key())
+	h.emit("state_changed", map[string]string{"cluster": o.Cluster, "kind": o.Kind,
+		"namespace": o.Namespace, "name": o.Name, "deleted": "true"})
+}
+
 func (h *Hub) ObserveManager(name string, alive bool) {
 	if h == nil {
 		return

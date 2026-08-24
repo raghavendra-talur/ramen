@@ -129,3 +129,34 @@ func TestWatchExitsOnContextDone(t *testing.T) {
 		t.Fatal("watchInto did not exit when context was canceled")
 	}
 }
+
+func TestWatchRemovesDeletedObject(t *testing.T) {
+	h := New()
+	s := testScheme(t)
+	wc := fake.NewClientBuilder().WithScheme(s).Build()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go watchInto(ctx, h, wc, &corev1.PersistentVolumeClaimList{}, extractPVC("dr1"))
+
+	time.Sleep(100 * time.Millisecond)
+	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{
+		Namespace: "app", Name: "data-0"}}
+	if err := wc.Create(ctx, pvc); err != nil {
+		t.Fatal(err)
+	}
+	waitObjects(t, h, 1)
+
+	if err := wc.Delete(ctx, pvc); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(h.Snapshot().Objects) == 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("deleted object still in snapshot: %+v", h.Snapshot().Objects)
+}

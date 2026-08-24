@@ -163,3 +163,35 @@ func TestZeroTimeFieldsOmittedInJSON(t *testing.T) {
 		t.Fatalf("zero Segment.End not omitted: %s", string(data))
 	}
 }
+
+// Deleted cluster objects must leave the model, or the stage shows a
+// "Deleting" ghost forever after cleanup finishes.
+func TestRemoveObject(t *testing.T) {
+	h := New()
+	o := ObjectState{Cluster: "dr1", Kind: "PersistentVolumeClaim",
+		Namespace: "app", Name: "data", Fields: map[string]string{"phase": "Bound"}}
+	h.ObserveObject(o)
+
+	ch, cancel := h.Subscribe()
+	defer cancel()
+
+	h.RemoveObject(o)
+
+	if n := len(h.Snapshot().Objects); n != 0 {
+		t.Fatalf("object not removed, %d left", n)
+	}
+
+	select {
+	case ev := <-ch:
+		if ev.Type != "state_changed" || ev.Data["deleted"] != "true" || ev.Data["name"] != "data" {
+			t.Fatalf("expected state_changed with deleted=true, got %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no removal event")
+	}
+
+	// Unknown object and nil hub are both safe no-ops.
+	h.RemoveObject(ObjectState{Cluster: "x", Kind: "y", Namespace: "z", Name: "w"})
+	var nh *Hub
+	nh.RemoveObject(o)
+}
