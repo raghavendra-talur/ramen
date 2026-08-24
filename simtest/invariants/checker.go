@@ -114,10 +114,28 @@ func (c *Checker) checkSinglePrimary(ctx context.Context, drpc *rmn.DRPlacementC
 		}
 	}
 
-	if violatesSinglePrimary(primaries, drpc) {
-		c.addViolation(fmt.Sprintf("single-primary violated for %s/%s: %d primaries in phase %s",
-			drpc.Namespace, drpc.Name, primaries, drpc.Status.Phase))
+	if !violatesSinglePrimary(primaries, drpc) {
+		return
 	}
+
+	// Close the sampling race before flagging: the DRPC copy we were handed
+	// was listed before the VRGs were read, so it can predate the action
+	// whose effects (a second primary) we just observed. Anything that
+	// promoted the second VRG is causally visible together with the spec
+	// that caused it, so a fresh read decides. A missing DRPC means the app
+	// is mid-delete; skip rather than flag against a stale phase.
+	fresh := &rmn.DRPlacementControl{}
+	if err := c.w.Hub.Client.Get(ctx,
+		types.NamespacedName{Name: drpc.Name, Namespace: drpc.Namespace}, fresh); err != nil {
+		return
+	}
+
+	if !violatesSinglePrimary(primaries, fresh) {
+		return
+	}
+
+	c.addViolation(fmt.Sprintf("single-primary violated for %s/%s: %d primaries in phase %s",
+		fresh.Namespace, fresh.Name, primaries, fresh.Status.Phase))
 }
 
 // violatesSinglePrimary encodes the documented transitional window: during

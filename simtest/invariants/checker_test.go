@@ -4,10 +4,15 @@
 package invariants
 
 import (
+	"context"
 	"testing"
 
 	rmn "github.com/ramendr/ramen/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/ramendr/ramen/simtest/world"
 )
 
 func drpcWith(phase rmn.DRState, peerReady bool) *rmn.DRPlacementControl {
@@ -89,5 +94,69 @@ func TestSinglePrimaryViolatedAfterFailoverCleanupCompletes(t *testing.T) {
 
 	if !violatesSinglePrimary(2, drpc) {
 		t.Fatal("2 primaries after PeerReady=True must violate even with spec.Action still set")
+	}
+}
+
+func primaryVRG(name string) *rmn.VolumeReplicationGroup {
+	v := &rmn.VolumeReplicationGroup{}
+	v.Name = name
+	v.Namespace = world.RamenOpsNS
+	v.Spec.ReplicationState = rmn.Primary
+
+	return v
+}
+
+func fakeWorldForSinglePrimary(t *testing.T, hubDRPC *rmn.DRPlacementControl) *world.World {
+	t.Helper()
+	s := runtime.NewScheme()
+	if err := rmn.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	hub := fake.NewClientBuilder().WithScheme(s).WithObjects(hubDRPC).Build()
+	dr1 := fake.NewClientBuilder().WithScheme(s).WithObjects(primaryVRG(hubDRPC.Name)).Build()
+	dr2 := fake.NewClientBuilder().WithScheme(s).WithObjects(primaryVRG(hubDRPC.Name)).Build()
+
+	return &world.World{
+		Hub: &world.Cluster{Name: "hub", Client: hub},
+		DR1: &world.Cluster{Name: "dr1", Client: dr1},
+		DR2: &world.Cluster{Name: "dr2", Client: dr2},
+	}
+}
+
+// The checker lists DRPCs, then reads VRGs — non-atomically. A DRPC copy
+// listed just before the test patched spec.Action=Failover can pair with
+// VRG reads from just after promotion began: two primaries, stale intent.
+// Before flagging, the checker must re-read the DRPC; state that promoted
+// the second VRG is causally visible together with the spec that caused it.
+func TestSinglePrimaryReReadsDRPCBeforeFlagging(t *testing.T) {
+	fresh := &rmn.DRPlacementControl{}
+	fresh.Name = "app"
+	fresh.Namespace = world.RamenOpsNS
+	fresh.Spec.Action = rmn.ActionFailover
+	fresh.Status.Phase = rmn.Deployed
+
+	c := &Checker{w: fakeWorldForSinglePrimary(t, fresh)}
+
+	stale := fresh.DeepCopy()
+	stale.Spec.Action = ""
+	c.checkSinglePrimary(context.Background(), stale)
+
+	if v := c.Violations(); len(v) != 0 {
+		t.Fatalf("stale snapshot flagged a violation the fresh read refutes: %v", v)
+	}
+}
+
+func TestSinglePrimaryStillFlagsWhenFreshReadConfirms(t *testing.T) {
+	fresh := &rmn.DRPlacementControl{}
+	fresh.Name = "app"
+	fresh.Namespace = world.RamenOpsNS
+	fresh.Status.Phase = rmn.Deployed // no action, steady state
+
+	c := &Checker{w: fakeWorldForSinglePrimary(t, fresh)}
+
+	c.checkSinglePrimary(context.Background(), fresh.DeepCopy())
+
+	if v := c.Violations(); len(v) != 1 {
+		t.Fatalf("confirmed steady-state dual primary must be flagged, got: %v", v)
 	}
 }
