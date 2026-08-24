@@ -47,6 +47,26 @@ func StartManager(o ManagerOpts) (*ManagerProcess, error) {
 	return p, nil
 }
 
+// managerArgs builds the manager's command line. Manager options come from
+// flags now (not the RamenConfig): leader election must be off (the process
+// has no in-cluster identity to elect with) and the metrics/probe listeners
+// must be disabled (three managers share one host, and the defaults bind
+// fixed ports).
+func managerArgs(o ManagerOpts) []string {
+	if _, err := os.Stat(o.Kubeconfig); err != nil {
+		// Test-harness path: Bin is a stand-in like /bin/sleep and
+		// Kubeconfig is its literal argument, not a file.
+		return []string{o.Kubeconfig}
+	}
+
+	return []string{
+		"--kubeconfig=" + o.Kubeconfig,
+		"--leader-elect=false",
+		"--metrics-bind-address=0",
+		"--health-probe-bind-address=0",
+	}
+}
+
 // startLocked starts the subprocess. Callers must hold p.mu.
 func (p *ManagerProcess) startLocked() error {
 	logFile, err := os.OpenFile(
@@ -56,18 +76,13 @@ func (p *ManagerProcess) startLocked() error {
 		return err
 	}
 
-	args := []string{p.opts.Kubeconfig}
-	if _, err := os.Stat(p.opts.Kubeconfig); err == nil {
-		args = []string{"--kubeconfig=" + p.opts.Kubeconfig}
-	}
+	args := managerArgs(p.opts)
 
 	cmd := exec.Command(p.opts.Bin, args...)
 	cmd.Env = append(os.Environ(),
 		"RAMEN_CONTROLLER_TYPE="+p.opts.ControllerType,
 		"POD_NAMESPACE="+RamenSystemNS,
 		"RAMEN_RECONCILERS="+p.opts.Reconcilers,
-		"RAMEN_METRICS_BIND_ADDRESS=0",
-		"RAMEN_HEALTH_BIND_ADDRESS=0",
 	)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 

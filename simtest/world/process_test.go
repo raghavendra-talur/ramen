@@ -4,6 +4,8 @@
 package world
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -116,5 +118,31 @@ func TestManagersAliveReportsDeadManager(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "dr1") {
 		t.Fatalf("error must name the dead manager, got: %v", err)
+	}
+}
+
+// The manager takes its options from command-line flags now (leader
+// election defaults ON, metrics/probe to fixed ports): simtest must disable
+// leader election (no in-cluster identity) and zero the listen addresses
+// (three managers share one host).
+func TestManagerArgsDisableLeaderElectionAndPorts(t *testing.T) {
+	kc := filepath.Join(t.TempDir(), "kubeconfig")
+	if err := os.WriteFile(kc, []byte("k"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	args := managerArgs(ManagerOpts{Kubeconfig: kc})
+
+	want := []string{"--kubeconfig=" + kc, "--leader-elect=false", "--metrics-bind-address=0", "--health-probe-bind-address=0"}
+	for _, w := range want {
+		found := false
+		for _, a := range args {
+			if a == w {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("args missing %q: %v", w, args)
+		}
 	}
 }
