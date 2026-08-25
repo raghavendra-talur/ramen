@@ -10,6 +10,8 @@ import (
 	"time"
 
 	volsyncv1alpha1 "github.com/backube/volsync/api/v1alpha1"
+	volrep "github.com/csi-addons/kubernetes-csi-addons/api/replication.storage/v1alpha1"
+	groupsnapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumegroupsnapshot/v1"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	rmn "github.com/ramendr/ramen/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -214,6 +216,42 @@ func volsyncResidue(ctx context.Context, m *world.Cluster, app user.App) []strin
 		for i := range pvcs.Items {
 			if strings.HasPrefix(pvcs.Items[i].Name, "mock-volsync-dst-") {
 				left = append(left, "dst-pvc:"+m.Name+"/"+pvcs.Items[i].Name)
+			}
+		}
+	}
+
+	left = append(left, cgResidue(ctx, m, app)...)
+
+	return left
+}
+
+// cgResidue reports consistency-group leftovers in the app namespace on one
+// managed cluster: VolumeGroupReplications and VolumeGroupSnapshots ramen
+// should have deleted, and the vgr actor's cluster-scoped contents the
+// janitor should have swept once their VGR was gone.
+func cgResidue(ctx context.Context, m *world.Cluster, app user.App) []string {
+	left := []string{}
+
+	vgrs := &volrep.VolumeGroupReplicationList{}
+	if err := m.Client.List(ctx, vgrs, client.InNamespace(app.Namespace())); err == nil {
+		for i := range vgrs.Items {
+			left = append(left, "vgr:"+m.Name+"/"+vgrs.Items[i].Name)
+		}
+	}
+
+	vgss := &groupsnapv1.VolumeGroupSnapshotList{}
+	if err := m.Client.List(ctx, vgss, client.InNamespace(app.Namespace())); err == nil {
+		for i := range vgss.Items {
+			left = append(left, "vgs:"+m.Name+"/"+vgss.Items[i].Name)
+		}
+	}
+
+	vgrcs := &volrep.VolumeGroupReplicationContentList{}
+	if err := m.Client.List(ctx, vgrcs); err == nil {
+		for i := range vgrcs.Items {
+			ref := vgrcs.Items[i].Spec.VolumeGroupReplicationRef
+			if ref != nil && ref.Namespace == app.Namespace() {
+				left = append(left, "vgrc:"+m.Name+"/"+vgrcs.Items[i].Name)
 			}
 		}
 	}

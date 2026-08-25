@@ -147,9 +147,12 @@ func runRelocate(t *testing.T, w *world.World, app user.App, hooks ...Hook) {
 var pvcspecs = []struct {
 	name         string
 	storageClass string
+	cg           bool
 }{
 	{name: "rbd", storageClass: world.StorageClassName},
 	{name: "cephfs", storageClass: world.CephFSStorageClassName},
+	{name: "rbd-cg", storageClass: world.CGStorageClassName, cg: true},
+	{name: "cephfs-cg", storageClass: world.CGCephFSStorageClassName, cg: true},
 }
 
 // TestBaselines is T1: the full happy-path lifecycle of one discovered app,
@@ -159,7 +162,7 @@ func TestBaselines(t *testing.T) {
 
 	for _, spec := range pvcspecs {
 		t.Run(spec.name, func(t *testing.T) {
-			runBaseline(t, w, user.App{Name: "bl-" + spec.name, StorageClassName: spec.storageClass})
+			runBaseline(t, w, user.App{Name: "bl-" + spec.name, StorageClassName: spec.storageClass, CG: spec.cg})
 		})
 	}
 

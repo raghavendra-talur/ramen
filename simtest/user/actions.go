@@ -29,6 +29,12 @@ type App struct {
 	// axis: world.StorageClassName (VolRep) or world.CephFSStorageClassName
 	// (VolSync). Empty means world.StorageClassName.
 	StorageClassName string
+
+	// CG asks ramen for consistency-group protection: the DRPC carries the
+	// is-cg-enabled annotation, and grouped storage stories then replicate
+	// through VolumeGroupReplication (rbd-cg) or ReplicationGroupSource/
+	// Destination + VolumeGroupSnapshot (cephfs-cg).
+	CG bool
 }
 
 func (a App) Namespace() string           { return a.Name + "-ns" }
@@ -101,7 +107,8 @@ func EnableProtection(ctx context.Context, w *world.World, app App) error {
 	drpc := &rmn.DRPlacementControl{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: app.Name, Namespace: app.ManagementNamespace(),
-			Labels: map[string]string{"app": app.Name},
+			Labels:      map[string]string{"app": app.Name},
+			Annotations: cgAnnotations(app),
 		},
 		Spec: rmn.DRPlacementControlSpec{
 			PreferredCluster: world.DR1Name,
@@ -117,6 +124,16 @@ func EnableProtection(ctx context.Context, w *world.World, app App) error {
 	}
 
 	return client.IgnoreAlreadyExists(w.Hub.Client.Create(ctx, drpc))
+}
+
+// cgAnnotations returns the DRPC annotations for the app's CG choice —
+// ramen's consistency-group switch is this hub-side annotation.
+func cgAnnotations(app App) map[string]string {
+	if !app.CG {
+		return nil
+	}
+
+	return map[string]string{"drplacementcontrol.ramendr.openshift.io/is-cg-enabled": "true"}
 }
 
 func Failover(ctx context.Context, w *world.World, app App, target string) error {
