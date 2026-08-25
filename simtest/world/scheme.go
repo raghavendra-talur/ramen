@@ -4,7 +4,9 @@
 package world
 
 import (
+	volsyncv1alpha1 "github.com/backube/volsync/api/v1alpha1"
 	volrep "github.com/csi-addons/kubernetes-csi-addons/api/replication.storage/v1alpha1"
+	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	rmn "github.com/ramendr/ramen/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -25,6 +27,8 @@ func NewScheme() *runtime.Scheme {
 	utilruntime.Must(ocmworkv1.AddToScheme(s))
 	utilruntime.Must(viewv1beta1.AddToScheme(s))
 	utilruntime.Must(volrep.AddToScheme(s))
+	utilruntime.Must(volsyncv1alpha1.AddToScheme(s))
+	utilruntime.Must(snapv1.AddToScheme(s))
 
 	return s
 }

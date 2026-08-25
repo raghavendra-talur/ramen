@@ -6,6 +6,7 @@ package world
 import (
 	"context"
 	"fmt"
+	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 
 	volrep "github.com/csi-addons/kubernetes-csi-addons/api/replication.storage/v1alpha1"
 	rmn "github.com/ramendr/ramen/api/v1alpha1"
@@ -125,7 +126,34 @@ func createStorageClasses(ctx context.Context, m *Cluster) error {
 		},
 	}
 
-	return client.IgnoreAlreadyExists(m.Client.Create(ctx, vrc))
+	if err := client.IgnoreAlreadyExists(m.Client.Create(ctx, vrc)); err != nil {
+		return err
+	}
+
+	// The cephfs pair: storageid-labeled StorageClass with NO replicationid
+	// and no replication class — routing its PVCs to VolSync — plus the
+	// VolumeSnapshotClass that provides the restore path.
+	cephfsSC := &storagev1.StorageClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   CephFSStorageClassName,
+			Labels: map[string]string{StorageIDLabel: CephFSStorageID(m.Name)},
+		},
+		Provisioner: CephFSProvisioner,
+	}
+	if err := client.IgnoreAlreadyExists(m.Client.Create(ctx, cephfsSC)); err != nil {
+		return err
+	}
+
+	vsc := &snapv1.VolumeSnapshotClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   CephFSVSClassName,
+			Labels: map[string]string{StorageIDLabel: CephFSStorageID(m.Name)},
+		},
+		Driver:         CephFSProvisioner,
+		DeletionPolicy: snapv1.VolumeSnapshotContentDelete,
+	}
+
+	return client.IgnoreAlreadyExists(m.Client.Create(ctx, vsc))
 }
 
 // createManagedCluster registers the cluster on the hub with the status ramen

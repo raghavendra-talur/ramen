@@ -40,7 +40,7 @@ func RamenConfigYAML(controllerType, s3URL string) (string, error) {
 			s3Profile(DR2Name, s3URL),
 		},
 	}
-	cfg.VolSync.Disabled = true
+	cfg.VolSync.Disabled = false // the cephfs pvcspec exercises the VolSync path
 	// KubeObjectProtection must stay ENABLED on dr-cluster operators: the VRG
 	// reconciler only sets up its velero/recipe watches (veleroCRsAreWatched)
 	// when the config enables kube object protection, and every VRG living in

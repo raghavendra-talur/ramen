@@ -30,8 +30,8 @@ func TestRamenConfigYAML(t *testing.T) {
 	if len(cfg.S3StoreProfiles) != 2 {
 		t.Fatalf("want 2 s3 profiles, got %d", len(cfg.S3StoreProfiles))
 	}
-	if !cfg.VolSync.Disabled || !cfg.KubeObjectProtection.Disabled {
-		t.Fatal("volsync and kubeObjectProtection must be disabled on the hub in v1")
+	if cfg.VolSync.Disabled || !cfg.KubeObjectProtection.Disabled {
+		t.Fatal("volsync must be enabled (cephfs pvcspec) and kubeObjectProtection disabled on the hub")
 	}
 	if cfg.DrClusterOperator.DeploymentAutomationEnabled || cfg.DrClusterOperator.S3SecretDistributionEnabled {
 		t.Fatal("drClusterOperator automation and secret-distribution must be off")

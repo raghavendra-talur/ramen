@@ -19,6 +19,13 @@ const (
 	Provisioner      = "mock.csi.ramen.io"
 	ReplicationID    = "mock-replication-rbd"
 
+	// The cephfs profile: a StorageClass with a VolumeSnapshotClass and
+	// deliberately NO replication class — the absence routes PVCs of this
+	// class to Ramen's VolSync path.
+	CephFSStorageClassName = "mock-cephfs"
+	CephFSVSClassName      = "mock-cephfs-vsc"
+	CephFSProvisioner      = "mock.cephfs.csi.ramen.io"
+
 	// Label keys ramen matches on (see internal/controller/volumereplicationgroup_controller.go).
 	StorageIDLabel     = "ramendr.openshift.io/storageid"
 	ReplicationIDLabel = "ramendr.openshift.io/replicationid"
@@ -39,5 +46,7 @@ const (
 )
 
 func StorageID(cluster string) string { return "mock-rbd-" + cluster }
-func S3Profile(cluster string) string { return S3ProfilePrefix + cluster }
-func S3Bucket(cluster string) string  { return "bucket-" + cluster }
+
+func CephFSStorageID(cluster string) string { return "mock-cephfs-" + cluster }
+func S3Profile(cluster string) string       { return S3ProfilePrefix + cluster }
+func S3Bucket(cluster string) string        { return "bucket-" + cluster }
