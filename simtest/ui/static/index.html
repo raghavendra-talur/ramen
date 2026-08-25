@@ -41,6 +41,20 @@
   #stage { flex:1; position:relative; min-height:0; max-width:980px; width:100%; margin:0 auto; }
   #edges { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
   #edges line { stroke:#2a3140; stroke-width:2; }
+  #edges line.sev { stroke:#f85149; stroke-dasharray:6 6; animation:march 1s linear infinite; }
+  #edges line.rep { stroke:#2ea043; stroke-width:2.5; stroke-dasharray:9 7; animation:march 1.2s linear infinite; }
+  #edges line.rep.sev { stroke:#f85149; }
+  #edges line.spotedge { stroke:#8957e5; stroke-width:3; animation:march .7s linear infinite; }
+  @keyframes march { to { stroke-dashoffset:-32; } }
+  .dot2 { position:absolute; width:8px; height:8px; border-radius:50%; pointer-events:none; z-index:3; }
+  .glyphs { display:flex; gap:6px; margin-top:7px; }
+  .glyph { font-size:9px; color:#57606a; border:1px solid #2a3140; border-radius:4px; padding:0 4px; transition:all .15s; }
+  .glyph.on { color:#0b0e14; background:#58a6ff; border-color:#58a6ff; }
+  .glyph.faulted { color:#f85149; border-color:#f85149; }
+  .cluster.spot { border-color:#8957e5; box-shadow:0 0 14px #8957e566; animation:spotpulse 1.4s ease-in-out infinite; }
+  #s3.spot { border-color:#8957e5; box-shadow:0 0 14px #8957e566; animation:spotpulse 1.4s ease-in-out infinite; }
+  @keyframes spotpulse { 50% { box-shadow:0 0 26px #8957e5aa; } }
+  .spottag { font-size:10px; color:#8957e5; margin-top:5px; }
   .cluster { position:absolute; width:240px; background:#141a23; border:1.5px solid #3d4657; border-radius:9px; padding:11px 13px; }
   .cluster.dead { border-color:#f85149; }
   .cluster .name { font-size:14px; font-weight:700; letter-spacing:1px; display:flex; align-items:center; gap:8px; }
@@ -173,6 +187,7 @@ function render() {
   const s = S.snap; if (!s) return;
   renderRun(s); renderTests(s); renderStage(s);
   renderInspector(s); renderTimeline(s); renderEvents(s);
+  animateTraffic(s);
 }
 
 // "actors.Silent" reads like a stack trace; "silent" reads like a fault.
@@ -232,17 +247,41 @@ function objectsFor(s, cluster, kind) {
   return (s.objects || []).filter(o => o.cluster === cluster && o.kind === kind);
 }
 
-function drawEdges() {
-  const stage = document.getElementById("stage"), svg = document.getElementById("edges");
+function stagePoints() {
+  const stage = document.getElementById("stage");
   const r = stage.getBoundingClientRect();
   const box = id => {
     const b = document.getElementById(id).getBoundingClientRect();
     return { x: b.left - r.left + b.width / 2, y: b.top - r.top + b.height / 2 };
   };
-  const hub = box("c-hub"), dr1 = box("c-dr1"), dr2 = box("c-dr2"), s3 = box("s3");
+  return { r, hub: box("c-hub"), dr1: box("c-dr1"), dr2: box("c-dr2"), s3: box("s3") };
+}
+
+function drawEdges(st) {
+  st = st || {};
+  const svg = document.getElementById("edges");
+  const { r, hub, dr1, dr2, s3 } = stagePoints();
   svg.setAttribute("viewBox", `0 0 ${r.width} ${r.height}`);
-  svg.innerHTML = [[hub, dr1], [hub, dr2], [dr1, s3], [dr2, s3]]
-    .map(([a, b]) => `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`).join("");
+
+  const line = (a, b, cls) => `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"${cls ? ` class="${cls}"` : ""}/>`;
+
+  // Replication arrow: drawn primary -> secondary when the direction is
+  // known, marching dashes showing flow; red while a volrep fault is set.
+  let rep = "";
+  const v = st.vrg || {};
+  if (v.dr1 || v.dr2) {
+    const from = v.dr2 === "primary" ? dr2 : dr1;
+    const to = from === dr1 ? dr2 : dr1;
+    const cls = "rep" + (st.repCut ? " sev" : "") + (st.repSpot ? " spotedge" : "");
+    rep = line({ x: from.x, y: from.y + 14 }, { x: to.x, y: to.y + 14 }, cls)
+      + `<polygon points="${to.x},${to.y + 14} ${to.x + (from.x < to.x ? -9 : 9)},${to.y + 9} ${to.x + (from.x < to.x ? -9 : 9)},${to.y + 19}"
+           fill="${st.repCut ? "#f85149" : "#2ea043"}"/>`;
+  }
+
+  svg.innerHTML =
+    line(hub, dr1, st.sevDr1 ? "sev" : "") +
+    line(hub, dr2, st.sevDr2 ? "sev" : "") +
+    line(dr1, s3) + line(dr2, s3) + rep;
 }
 
 // Faults live on the component they break: policy-store keys are
@@ -253,37 +292,85 @@ function badgesFor(s, cluster) {
     .map(f => `<span class="badge">${esc(f.key.split("@")[0])} ${esc(policyName(f.desc))}</span>`).join("");
 }
 
-function clusterCard(s, id, title, body, badges) {
+function clusterCard(s, id, title, body, badges, extraClass, tail) {
   const alive = (s.managers || {})[id] !== false;
   const el = document.getElementById("c-" + id);
-  el.className = "cluster" + (alive ? "" : " dead");
+  el.className = "cluster" + (alive ? "" : " dead") + (extraClass || "");
   el.innerHTML = `<div class="name">${title}<span class="led" title="manager ${alive ? "running" : "DEAD"}"></span></div>`
     + (alive ? "" : `<div class="sub bad">manager DEAD — see ${esc(id)}.log</div>`)
-    + body + (badges ? `<div class="badges">${badges}</div>` : "");
+    + body + (badges ? `<div class="badges">${badges}</div>` : "") + (tail || "");
+}
+
+// Per-cluster actor glyphs: the simulated machinery, flashing as it acts
+// and turning red while a fault policy is set against it.
+const ACTORS = ["work", "view", "volrep", "binder", "janitor"];
+function glyphStrip(s, cluster) {
+  return `<div class="glyphs">` + ACTORS.map(a => {
+    const f = (s.faults || []).find(f => f.active && f.key === a + "@" + cluster);
+    return `<span class="glyph${f ? " faulted" : ""}" id="g-${a}-${cluster}"
+      title="${a}@${cluster}${f ? " — " + esc(policyName(f.desc)) : ""}">${a.slice(0, 3)}</span>`;
+  }).join("") + `</div>`;
+}
+
+// The waiting-on spotlight: map the selected DRPC's Wait* progression to the
+// component the reconciler is actually blocked on.
+function spotlightFor(drpc) {
+  if (!drpc) return {};
+  const f = drpc.fields, act = f.action;
+  const target = act === "Failover" ? f.failoverCluster : f.preferredCluster;
+  const otherOf = c => (c === "dr1" ? "dr2" : "dr1");
+  if (!target) return {};
+  switch (f.progression) {
+    case "Deploying":
+    case "WaitingForResourceRestore": return { cluster: target, why: "waiting: resource restore" };
+    case "WaitForReadiness": return { cluster: target, why: "waiting: readiness" };
+    case "Cleaning Up":
+    case "WaitOnUserToCleanUp": return { cluster: otherOf(target), why: "waiting: cleanup" };
+    case "WaitForFencing": return { cluster: otherOf(target), why: "waiting: fencing" };
+    case "PreparingFinalSync": return { rep: true, why: "final sync" };
+  }
+  return {};
 }
 
 function renderStage(s) {
   const drpc = objectsFor(s, "hub", "DRPlacementControl")[0];
+  const spot = spotlightFor(drpc);
+
   clusterCard(s, "hub", `<span class="run">HUB</span>`, drpc ? `
     <div class="sub">${esc(drpc.namespace)}/${esc(drpc.name)}</div>
     <div class="sub">phase <b style="color:${colorOf(drpc.fields.phase)}">${esc(drpc.fields.phase)}</b></div>
     <div class="sub">progression ${esc(drpc.fields.progression)}</div>` : `<div class="sub">no DRPC</div>`,
     badgesFor(s, "hub"));
 
+  const vrgState = {};
   for (const c of ["dr1", "dr2"]) {
     const vrg = objectsFor(s, c, "VolumeReplicationGroup")[0];
+    vrgState[c] = vrg ? vrg.fields.state : "";
     const pvcs = objectsFor(s, c, "PersistentVolumeClaim");
+    const spotted = spot.cluster === c;
     clusterCard(s, c, c.toUpperCase(), `
       <div class="sub">VRG: ${vrg ? `<b style="color:${colorOf(vrg.fields.state)}">${esc(vrg.fields.state)}</b>` : "—"}</div>
       <div class="pvcs">${pvcs.map(p =>
         `<div class="pvc ${esc(p.fields.phase)}" title="${esc(p.namespace)}/${esc(p.name)}"></div>`).join("")}</div>`,
-      badgesFor(s, c));
+      badgesFor(s, c), spotted ? " spot" : "",
+      glyphStrip(s, c) + (spotted ? `<div class="spottag">◈ ${esc(spot.why)}</div>` : ""));
   }
 
   const s3fault = (s.faults || []).find(f => f.key === "s3");
   document.getElementById("s3").className = s3fault && s3fault.active ? "down" : "";
   document.getElementById("s3").textContent = s3fault && s3fault.active ? "S3 · OUTAGE" : "S3";
-  drawEdges();
+
+  // Faults sever the link they actually break: view/work faults cut the
+  // hub<->cluster edge, volrep faults cut the replication arrow.
+  const cut = c => (s.faults || []).some(f =>
+    f.active && (f.key === "view@" + c || f.key === "work@" + c));
+  const repCut = (s.faults || []).some(f =>
+    f.active && f.key.startsWith("volrep@"));
+
+  drawEdges({
+    sevDr1: cut("dr1"), sevDr2: cut("dr2"), repCut,
+    vrg: vrgState, repSpot: !!spot.rep,
+  });
 }
 
 function renderInspector(s) {
@@ -355,6 +442,69 @@ function fmtEvent(e) {
   const m = raw.match(/^(\S+)\s+(\S+@\S+|matrix:)\s+([\s\S]*)$/);
   if (m) return `<span class="t">${short(m[1])}</span> <span class="actor">${esc(m[2])}</span> ${esc(m[3])}`;
   return `<span class="t">${short(e.at)}</span> ${esc(raw)}`;
+}
+
+// Traffic animation: each NEW actor event since the last render spawns a
+// dot that travels the matching edge (work: hub->cluster apply, view:
+// cluster->hub status, volrep: along the replication arrow) and flashes
+// that actor's glyph. The seq watermark keeps re-renders and reloads from
+// replaying history as traffic.
+const DOTCOLORS = { work: "#58a6ff", view: "#a371f7", volrep: "#2ea043" };
+
+// A hard concurrency cap keeps busy phases readable: traffic is an
+// impression, not an event log — the events column is the log.
+const MAXDOTS = 10;
+
+function spawnDot(from, to, color) {
+  const stage = document.getElementById("stage");
+  if (stage.querySelectorAll(".dot2").length >= MAXDOTS) return;
+  const d = document.createElement("div");
+  d.className = "dot2";
+  d.style.background = color;
+  d.style.boxShadow = `0 0 8px ${color}`;
+  d.style.left = `${from.x - 4}px`;
+  d.style.top = `${from.y - 4}px`;
+  stage.appendChild(d);
+  d.animate(
+    [{ left: `${from.x - 4}px`, top: `${from.y - 4}px` },
+     { left: `${to.x - 4}px`, top: `${to.y - 4}px` }],
+    { duration: 650, easing: "ease-in-out" },
+  ).onfinish = () => d.remove();
+  setTimeout(() => d.remove(), 1200); // backstop: onfinish can be skipped
+}
+
+function flashGlyph(actor, cluster) {
+  const g = document.getElementById(`g-${actor}-${cluster}`);
+  if (!g) return;
+  g.classList.add("on");
+  setTimeout(() => g.classList.remove("on"), 450);
+}
+
+function animateTraffic(s) {
+  if (S.animSeq === undefined) { // first snapshot: don't replay history
+    S.animSeq = s.seq || 0;
+    return;
+  }
+
+  const pts = stagePoints();
+  let spawned = 0;
+
+  for (const e of (s.events || [])) {
+    if (e.seq <= S.animSeq || e.type !== "actor_event") continue;
+    const m = ((e.data && e.data.line) || "").match(/^\S+\s+(\w+)@(\w+)\s/);
+    if (!m) continue;
+    const [, actor, cluster] = m;
+    flashGlyph(actor, cluster);
+    if (spawned >= 4 || !pts[cluster]) continue; // cap a burst, skip unknowns
+    if (actor === "work") { spawnDot(pts.hub, pts[cluster], DOTCOLORS.work); spawned++; }
+    else if (actor === "view") { spawnDot(pts[cluster], pts.hub, DOTCOLORS.view); spawned++; }
+    else if (actor === "volrep") {
+      const other = cluster === "dr1" ? "dr2" : "dr1";
+      spawnDot(pts[other], pts[cluster], DOTCOLORS.volrep); spawned++;
+    }
+  }
+
+  S.animSeq = Math.max(S.animSeq, s.seq || 0);
 }
 
 function renderEvents(s) {

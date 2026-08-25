@@ -54,6 +54,9 @@ func TestWatchDRPCFeedsHub(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	drpc := &rmn.DRPlacementControl{ObjectMeta: metav1.ObjectMeta{
 		Namespace: "ramen-ops", Name: "app-drpc"}}
+	drpc.Spec.Action = rmn.ActionFailover
+	drpc.Spec.FailoverCluster = "dr2"
+	drpc.Spec.PreferredCluster = "dr1"
 	if err := wc.Create(ctx, drpc); err != nil {
 		t.Fatal(err)
 	}
@@ -80,6 +83,12 @@ func TestWatchDRPCFeedsHub(t *testing.T) {
 	if o.Fields["phase"] != string(rmn.FailingOver) ||
 		o.Fields["progression"] != string(rmn.ProgressionWaitForReadiness) {
 		t.Fatalf("fields: %+v", o.Fields)
+	}
+
+	// The stage's waiting-on spotlight needs the action's target clusters.
+	if o.Fields["action"] != string(rmn.ActionFailover) ||
+		o.Fields["failoverCluster"] != "dr2" || o.Fields["preferredCluster"] != "dr1" {
+		t.Fatalf("spec fields missing for spotlight: %+v", o.Fields)
 	}
 }
 

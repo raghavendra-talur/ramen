@@ -104,6 +104,11 @@ func extractDRPC(cluster string) func(client.Object) (ObjectState, bool) {
 		fields := map[string]string{
 			"phase":       string(d.Status.Phase),
 			"progression": string(d.Status.Progression),
+			// Action targets let the UI point at the cluster a Wait*
+			// progression is actually waiting on.
+			"action":           string(d.Spec.Action),
+			"failoverCluster":  d.Spec.FailoverCluster,
+			"preferredCluster": d.Spec.PreferredCluster,
 		}
 		for _, c := range d.Status.Conditions {
 			fields["cond-"+c.Type] = string(c.Status)
