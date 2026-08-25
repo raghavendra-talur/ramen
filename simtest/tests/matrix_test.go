@@ -4,7 +4,6 @@
 package tests
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -43,6 +42,8 @@ var stableCheckpoints = []checkpoint{
 	{rmn.ProgressionWaitingForResourceRestore, "wrr"},
 	{rmn.ProgressionCleaningUp, "clean"},
 	{rmn.ProgressionWaitOnUserToCleanUp, "wuc"},
+	// Relocate-only: gated on the final sync completing before the switch.
+	{rmn.ProgressionPreparingFinalSync, "pfs"},
 }
 
 // fault is one injectable external failure; clear() must fully restore health
@@ -90,45 +91,37 @@ func faults() []fault {
 	return fs
 }
 
-// runFailoverSeq is the runFailover variant that returns the progression
-// sequence the move recorder observed; the seed run uses it to discover
-// checkpoints, and combos log it as the per-fault behavioral record.
-func runFailoverSeq(t *testing.T, w *world.World, app user.App, hooks ...Hook) []string {
-	t.Helper()
-
-	return runMove(t, w, app,
-		func(ctx context.Context) error { return user.Failover(ctx, w, app, world.DR2Name) },
-		world.DR1Name, rmn.FailedOver, hooks)
-}
-
-// TestMatrix is T2 (+T3 via the delayed faults): run one failover to record
-// the checkpoint sequence of THIS world, then for each stable checkpoint x
-// fault, run a fresh app through failover with the fault injected at that
+// TestMatrix is T2 (+T3 via the delayed faults): one seed app runs the full
+// lifecycle to record THIS world's failover and relocate checkpoint
+// sequences, then every stable (stage, checkpoint) x fault combination runs
+// a fresh app through the ENTIRE lifecycle — create, enroll, failover,
+// relocate, unenroll, delete — with the fault injected at that stage's
 // checkpoint and cleared after faultWindow. Recovery to completion is the
-// per-combo assertion; the shared invariants checker guards safety (single
-// primary) cumulatively across all combos.
+// per-stage assertion, the per-app leak check guards cleanup after delete,
+// and the shared invariants checker guards safety cumulatively.
 func TestMatrix(t *testing.T) {
 	w, checker := getWorld(t)
 
-	// Seed run: discover the failover checkpoint sequence.
 	seedApp := user.App{Name: "mx-seed"}
-	runEnable(t, w, seedApp)
-	seq := runFailoverSeq(t, w, seedApp)
-	t.Logf("seed failover sequence: %v", seq)
-
-	checkpoints := seedCheckpoints(t, seq)
-	if len(checkpoints) == 0 {
-		t.Fatalf("no stable checkpoints observed in seed sequence %v", seq)
-	}
+	seqs := runLifecycle(t, w, seedApp, fullLifecycle, "")
+	t.Logf("seed failover sequence: %v", seqs[stgFailover])
+	t.Logf("seed relocate sequence: %v", seqs[stgRelocate])
 
 	fs := faults()
 	start := time.Now()
 	n := 0
 
-	for _, cp := range checkpoints {
-		for _, f := range fs {
-			n++
-			runCombo(t, w, n, cp, f)
+	for _, st := range []stage{stgFailover, stgRelocate} {
+		cps := seedCheckpoints(t, seqs[st])
+		if len(cps) == 0 {
+			t.Fatalf("no stable checkpoints for %s in seed sequence %v", st, seqs[st])
+		}
+
+		for _, cp := range cps {
+			for _, f := range fs {
+				n++
+				runCombo(t, w, n, st, cp, f)
+			}
 		}
 	}
 
@@ -136,13 +129,15 @@ func TestMatrix(t *testing.T) {
 	checker.AssertClean(t)
 }
 
-// runCombo runs one checkpoint x fault cell as a subtest: fresh app, enable,
-// failover with the fault applied at the checkpoint and cleared after
-// faultWindow. The clear is wrapped in a sync.Once and also deferred, so a
-// combo that fails or times out can never leak an active fault (a leaked
-// Silent{} or S3 outage would poison every later combo).
-func runCombo(t *testing.T, w *world.World, idx int, cp checkpoint, f fault) {
-	name := fmt.Sprintf("failover/at=%s/fault=%s", cp.code, f.name)
+// runCombo runs one (stage, checkpoint) x fault cell as a subtest: a fresh
+// app runs the FULL lifecycle with the fault applied at the given stage's
+// checkpoint and cleared after faultWindow. The clear is wrapped in a
+// sync.Once and also deferred, so a combo that fails or times out can never
+// leak an active fault (a leaked Silent{} or S3 outage would poison every
+// later combo); the lifecycle's delete stage asserts the app leaves no
+// residue behind.
+func runCombo(t *testing.T, w *world.World, idx int, st stage, cp checkpoint, f fault) {
+	name := fmt.Sprintf("%s/at=%s/fault=%s", st, cp.code, f.name)
 
 	t.Run(name, func(t *testing.T) {
 		uiScenario(t, w, name)
@@ -155,9 +150,7 @@ func runCombo(t *testing.T, w *world.World, idx int, cp checkpoint, f fault) {
 		}
 
 		begin := time.Now()
-		app := user.App{Name: sanitize(fmt.Sprintf("mx%02d-%s-%s", idx, cp.code, f.name))}
-
-		runEnable(t, w, app)
+		app := user.App{Name: sanitize(fmt.Sprintf("mx%02d-%.1s-%s-%s", idx, st, cp.code, f.name))}
 
 		var (
 			applied   atomic.Bool
@@ -172,21 +165,21 @@ func runCombo(t *testing.T, w *world.World, idx int, cp checkpoint, f fault) {
 		}
 		defer clearFault()
 
-		seq := runFailoverSeq(t, w, app, Hook{
+		seqs := runLifecycle(t, w, app, fullLifecycle, st, Hook{
 			At: cp.prog,
 			Do: func() {
 				applied.Store(true)
 				f.apply(w)
-				w.Actors.Log.Logf("matrix: applied %s at %s (%s)", f.name, cp.prog, app.Name)
+				w.Actors.Log.Logf("matrix: applied %s at %s/%s (%s)", f.name, st, cp.prog, app.Name)
 				time.AfterFunc(observe.Scale(faultWindow), clearFault)
 			},
 		})
 
 		if !applied.Load() {
-			t.Errorf("fault %s was never applied: checkpoint %s not reached during failover", f.name, cp.prog)
+			t.Errorf("fault %s was never applied: checkpoint %s not reached during %s", f.name, cp.prog, st)
 		}
 
-		t.Logf("recovered in %s; sequence: %v", time.Since(begin).Round(time.Second), seq)
+		t.Logf("lifecycle done in %s; %s sequence: %v", time.Since(begin).Round(time.Second), st, seqs[st])
 	})
 }
 
