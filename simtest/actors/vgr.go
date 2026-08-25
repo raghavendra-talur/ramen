@@ -61,6 +61,8 @@ func (a *vgrActor) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result
 		if err := a.ensureVGRC(ctx, vgr); err != nil {
 			return ctrl.Result{}, err
 		}
+	} else if err := a.adoptVGRC(ctx, vgr); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	refs, err := a.selectedPVCRefs(ctx, vgr)
@@ -111,6 +113,41 @@ func (a *vgrActor) ensureVGRC(ctx context.Context, vgr *volrep.VolumeGroupReplic
 	if err := a.client.Update(ctx, vgr); err != nil {
 		return fmt.Errorf("link VGRC into VGR: %w", err)
 	}
+
+	return nil
+}
+
+// adoptVGRC re-binds an already-linked content to its VGR: a VGRC restored
+// from S3 arrives with a nil volumeGroupReplicationRef (ramen clears it
+// before upload), and leaving it nil crashes ramen's restore-side conflict
+// check on the NEXT move — the real controller re-adopts, so must we.
+func (a *vgrActor) adoptVGRC(ctx context.Context, vgr *volrep.VolumeGroupReplication) error {
+	vgrc := &volrep.VolumeGroupReplicationContent{}
+
+	err := a.client.Get(ctx, client.ObjectKey{Name: vgr.Spec.VolumeGroupReplicationContentName}, vgrc)
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if ref := vgrc.Spec.VolumeGroupReplicationRef; ref != nil && ref.Name == vgr.GetName() &&
+		ref.Namespace == vgr.GetNamespace() {
+		return nil
+	}
+
+	vgrc.Spec.VolumeGroupReplicationRef = &corev1.ObjectReference{
+		Kind: "VolumeGroupReplication", Name: vgr.GetName(), Namespace: vgr.GetNamespace(),
+		UID: vgr.GetUID(), APIVersion: volrep.GroupVersion.String(),
+	}
+
+	if err := a.client.Update(ctx, vgrc); err != nil {
+		return fmt.Errorf("adopt VGRC %s: %w", vgrc.GetName(), err)
+	}
+
+	a.rt.Log.Logf("vgr@%s adopted VGRC %s for %s/%s", a.cluster, vgrc.GetName(), vgr.GetNamespace(), vgr.GetName())
 
 	return nil
 }

@@ -101,7 +101,11 @@ func (a *volSyncActor) reconcileRD(ctx context.Context, req ctrl.Request) (ctrl.
 	rd.Status = &volsyncv1alpha1.ReplicationDestinationStatus{
 		LastSyncTime:      &now,
 		LastSyncStartTime: &now,
-		RsyncTLS:          &volsyncv1alpha1.ReplicationDestinationRsyncTLSStatus{Address: ptr.To(address)},
+		// RGD-owned destinations use manual-trigger semantics: the RGD
+		// state machine treats an RD as completed only when the trigger it
+		// set is echoed back here.
+		LastManualSync: rdManualTrigger(rd),
+		RsyncTLS:       &volsyncv1alpha1.ReplicationDestinationRsyncTLSStatus{Address: ptr.To(address)},
 		LatestImage: &corev1.TypedLocalObjectReference{
 			APIGroup: ptr.To(volumeSnapshotGroup),
 			Kind:     volumeSnapshotKind,
@@ -278,10 +282,19 @@ func destinationCapacity(rd *volsyncv1alpha1.ReplicationDestination) resource.Qu
 	return resource.MustParse(defaultDestPVCCapacity)
 }
 
+func rdManualTrigger(rd *volsyncv1alpha1.ReplicationDestination) string {
+	if rd.Spec.Trigger == nil {
+		return ""
+	}
+
+	return rd.Spec.Trigger.Manual
+}
+
 func replicationDestinationReady(rd *volsyncv1alpha1.ReplicationDestination) bool {
 	return rd.Status != nil &&
 		rd.Status.RsyncTLS != nil && rd.Status.RsyncTLS.Address != nil &&
-		rd.Status.LatestImage != nil && rd.Status.LatestImage.Name != ""
+		rd.Status.LatestImage != nil && rd.Status.LatestImage.Name != "" &&
+		rd.Status.LastManualSync == rdManualTrigger(rd)
 }
 
 func replicationSourceSynced(rs *volsyncv1alpha1.ReplicationSource, manual string) bool {

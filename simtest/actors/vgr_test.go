@@ -115,6 +115,43 @@ func TestVGRFulfillsGroup(t *testing.T) {
 	}
 }
 
+// A restored VGRC arrives with a nil volumeGroupReplicationRef (ramen
+// clears it before S3 upload); the real csi-addons controller re-adopts
+// the content, and ramen's next S3 upload then carries a valid ref — its
+// restore-side conflict check dereferences the ref unguarded.
+func TestVGRAdoptsRestoredContent(t *testing.T) {
+	vgr := newVGR()
+	vgr.Spec.VolumeGroupReplicationContentName = "restored-vgrc"
+	vgrc := &volrep.VolumeGroupReplicationContent{
+		ObjectMeta: metav1.ObjectMeta{Name: "restored-vgrc"},
+		Spec: volrep.VolumeGroupReplicationContentSpec{
+			VolumeGroupReplicationHandle:    "h",
+			Provisioner:                     "p",
+			VolumeGroupReplicationClassName: "mock-rbd-vgrc",
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(volsyncScheme(t)).
+		WithStatusSubresource(&volrep.VolumeGroupReplication{}).
+		WithObjects(vgr, vgrc).Build()
+	a := &vgrActor{client: cl, cluster: "dr1", rt: newTestRuntime(t)}
+	ctx := context.Background()
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "app-ns", Name: "vgr-cg1-app1"}}
+
+	if _, err := a.Reconcile(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+
+	got := &volrep.VolumeGroupReplicationContent{}
+	if err := cl.Get(ctx, types.NamespacedName{Name: "restored-vgrc"}, got); err != nil {
+		t.Fatal(err)
+	}
+
+	ref := got.Spec.VolumeGroupReplicationRef
+	if ref == nil || ref.Name != "vgr-cg1-app1" || ref.Namespace != "app-ns" {
+		t.Fatalf("restored VGRC not adopted: ref=%+v", ref)
+	}
+}
+
 // The VGR fulfiller shares the VolRep fault key: a volrep fault starves the
 // grouped path exactly like the per-PVC path.
 func TestVGRSilentPolicyStalls(t *testing.T) {

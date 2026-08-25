@@ -13,8 +13,10 @@ import (
 	volrep "github.com/csi-addons/kubernetes-csi-addons/api/replication.storage/v1alpha1"
 	groupsnapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumegroupsnapshot/v1"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -65,6 +67,16 @@ func sweep(ctx context.Context, c client.Client, cluster string, rt *Runtime) {
 	}
 
 	sweepOrphanVGRCs(ctx, c, cluster, rt)
+
+	// Ramen deletes its final-sync mount jobs with Foreground propagation;
+	// the resulting foregroundDeletion finalizer is the garbage collector's
+	// to clear, and envtest runs none.
+	jobs := &batchv1.JobList{}
+	if err := c.List(ctx, jobs); err == nil {
+		for i := range jobs.Items {
+			stripFinalizer(ctx, c, &jobs.Items[i], metav1.FinalizerDeleteDependents, cluster, rt)
+		}
+	}
 
 	pvs := &corev1.PersistentVolumeList{}
 	if err := c.List(ctx, pvs); err == nil {

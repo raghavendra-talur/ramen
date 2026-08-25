@@ -181,6 +181,64 @@ func TestVolSyncRSEchoesManualTrigger(t *testing.T) {
 	}
 }
 
+// RGD-owned destinations use manual-trigger semantics: the RGD state
+// machine sets spec.trigger.manual each sync round and treats the RD as
+// completed only once status.lastManualSync echoes it, so the fulfiller
+// must echo the trigger and re-fulfill when it changes.
+func TestVolSyncRDEchoesManualTrigger(t *testing.T) {
+	rd := newRD()
+	rd.Spec.Trigger = &volsyncv1alpha1.ReplicationDestinationTriggerSpec{Manual: "sync-1"}
+	cl := fake.NewClientBuilder().WithScheme(volsyncScheme(t)).
+		WithStatusSubresource(&volsyncv1alpha1.ReplicationDestination{}).
+		WithObjects(rd).Build()
+	a := &volSyncActor{client: cl, cluster: "dr1", rt: newTestRuntime(t)}
+	ctx := context.Background()
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "app-ns", Name: "app-data"}}
+
+	if _, err := a.reconcileRD(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+
+	pvc := &corev1.PersistentVolumeClaim{}
+	pvcKey := types.NamespacedName{Namespace: "app-ns", Name: "mock-volsync-dst-app-data"}
+	if err := cl.Get(ctx, pvcKey, pvc); err != nil {
+		t.Fatal(err)
+	}
+
+	pvc.Status.Phase = corev1.ClaimBound
+	if err := cl.Status().Update(ctx, pvc); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := a.reconcileRD(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+
+	got := &volsyncv1alpha1.ReplicationDestination{}
+	if err := cl.Get(ctx, req.NamespacedName, got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status == nil || got.Status.LastManualSync != "sync-1" {
+		t.Fatalf("LastManualSync not echoed: %+v", got.Status)
+	}
+
+	// A new trigger round must be re-fulfilled even though the RD was
+	// already ready.
+	got.Spec.Trigger.Manual = "sync-2"
+	if err := cl.Update(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.reconcileRD(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if err := cl.Get(ctx, req.NamespacedName, got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status.LastManualSync != "sync-2" {
+		t.Fatalf("new trigger not echoed: %q", got.Status.LastManualSync)
+	}
+}
+
 // A Silent fault against the volsync actor must stall fulfillment (requeue,
 // not drop) so the fault window can starve Ramen of sync progress.
 func TestVolSyncSilentPolicyStalls(t *testing.T) {
