@@ -14,10 +14,12 @@ type Key struct{ Actor, Cluster string }
 
 func (k Key) String() string { return k.Actor + "@" + k.Cluster }
 
-func VolRep(cluster string) Key { return Key{Actor: "volrep", Cluster: cluster} }
-func Work(cluster string) Key   { return Key{Actor: "work", Cluster: cluster} }
-func View(cluster string) Key   { return Key{Actor: "view", Cluster: cluster} }
-func Binder(cluster string) Key { return Key{Actor: "binder", Cluster: cluster} }
+func VolRep(cluster string) Key  { return Key{Actor: "volrep", Cluster: cluster} }
+func Work(cluster string) Key    { return Key{Actor: "work", Cluster: cluster} }
+func View(cluster string) Key    { return Key{Actor: "view", Cluster: cluster} }
+func Binder(cluster string) Key  { return Key{Actor: "binder", Cluster: cluster} }
+func VolSync(cluster string) Key { return Key{Actor: "volsync", Cluster: cluster} }
+func Snap(cluster string) Key    { return Key{Actor: "snap", Cluster: cluster} }
 
 type Policy interface{ isPolicy() }
 

@@ -58,6 +58,12 @@ func Start(ctx context.Context, scheme *runtime.Scheme, hub ClusterRef, managed 
 		if err = setupVolRep(mgr, m.Name, rt); err != nil {
 			return
 		}
+		if err = setupVolSync(mgr, m.Name, rt); err != nil {
+			return
+		}
+		if err = setupSnapshotter(mgr, m.Name, rt); err != nil {
+			return
+		}
 
 		go runJanitor(actorCtx, mgr.GetClient(), m.Name, rt)
 		go func(m manager.Manager, name string) {
