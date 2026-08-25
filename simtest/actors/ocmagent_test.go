@@ -7,8 +7,11 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
+
+	rmn "github.com/ramendr/ramen/api/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -126,4 +129,87 @@ func TestOCMAgent(t *testing.T) {
 
 		return err != nil
 	}, "applied object not cleaned up on MW delete")
+
+	// --- field removal: an updated manifest that drops a spec field must
+	// drop it on the managed cluster too. Ramen's DRPC relies on this to
+	// clear spec.volSync.rdSpec after a failover restore (and the manifest
+	// it writes carries `volSync: {}`, which server-side apply rejects on
+	// the VRG CRD — the real OCM agent uses update semantics). Metadata
+	// added on the managed side (ramen's own VRG finalizer) must survive.
+	vrgManifest := func(withRDSpec bool) []byte {
+		vrg := &rmn.VolumeReplicationGroup{
+			TypeMeta:   metav1.TypeMeta{APIVersion: rmn.GroupVersion.String(), Kind: "VolumeReplicationGroup"},
+			ObjectMeta: metav1.ObjectMeta{Name: "mw-vrg", Namespace: "default"},
+			Spec: rmn.VolumeReplicationGroupSpec{
+				PVCSelector:      metav1.LabelSelector{MatchLabels: map[string]string{"app": "x"}},
+				ReplicationState: rmn.Primary,
+				S3Profiles:       []string{"s3profile-mock"},
+				Async:            &rmn.VRGAsyncSpec{SchedulingInterval: "1m"},
+			},
+		}
+		if withRDSpec {
+			vrg.Spec.VolSync.RDSpec = []rmn.VolSyncReplicationDestinationSpec{
+				{ProtectedPVC: rmn.ProtectedPVC{Name: "data", Namespace: "default"}},
+			}
+		}
+
+		raw, err := json.Marshal(vrg)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return raw
+	}
+
+	vrgMW := &ocmworkv1.ManifestWork{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-vrg-mw", Namespace: "dr1"},
+		Spec: ocmworkv1.ManifestWorkSpec{Workload: ocmworkv1.ManifestsTemplate{
+			Manifests: []ocmworkv1.Manifest{{RawExtension: runtime.RawExtension{Raw: vrgManifest(true)}}},
+		}},
+	}
+	if err := hub.Client.Create(ctx, vrgMW); err != nil {
+		t.Fatal(err)
+	}
+
+	vrgKey := types.NamespacedName{Name: "mw-vrg", Namespace: "default"}
+	eventually(t, 30*time.Second, func() bool {
+		got := &rmn.VolumeReplicationGroup{}
+
+		return dr1.Client.Get(ctx, vrgKey, got) == nil && len(got.Spec.VolSync.RDSpec) == 1
+	}, "VRG with RDSpec never applied")
+
+	// Simulate the managed-side controller marking its object.
+	appliedVRG := &rmn.VolumeReplicationGroup{}
+	if err := dr1.Client.Get(ctx, vrgKey, appliedVRG); err != nil {
+		t.Fatal(err)
+	}
+
+	appliedVRG.Finalizers = append(appliedVRG.Finalizers, "ramendr.openshift.io/test-protection")
+	if err := dr1.Client.Update(ctx, appliedVRG); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := hub.Client.Get(ctx, types.NamespacedName{Name: vrgMW.Name, Namespace: "dr1"}, vrgMW); err != nil {
+		t.Fatal(err)
+	}
+
+	vrgMW.Spec.Workload.Manifests[0] = ocmworkv1.Manifest{RawExtension: runtime.RawExtension{Raw: vrgManifest(false)}}
+	if err := hub.Client.Update(ctx, vrgMW); err != nil {
+		t.Fatal(err)
+	}
+
+	eventually(t, 30*time.Second, func() bool {
+		got := &rmn.VolumeReplicationGroup{}
+
+		return dr1.Client.Get(ctx, vrgKey, got) == nil && len(got.Spec.VolSync.RDSpec) == 0
+	}, "RDSpec never removed from applied VRG")
+
+	got := &rmn.VolumeReplicationGroup{}
+	if err := dr1.Client.Get(ctx, vrgKey, got); err != nil {
+		t.Fatal(err)
+	}
+
+	if !slices.Contains(got.Finalizers, "ramendr.openshift.io/test-protection") {
+		t.Fatal("managed-side finalizer clobbered by manifest apply")
+	}
 }

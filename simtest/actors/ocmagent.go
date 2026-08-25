@@ -6,6 +6,7 @@ package actors
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -26,7 +27,6 @@ import (
 
 const (
 	workFinalizer = "simtest.ramendr.openshift.io/work-cleanup"
-	fieldOwner    = client.FieldOwner("simtest-work-agent")
 	viewRefresh   = time.Second
 )
 
@@ -98,7 +98,7 @@ func (a *workAgent) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resul
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		if err := a.managed.Patch(ctx, obj, client.Apply, fieldOwner, client.ForceOwnership); err != nil {
+		if err := a.applyManifest(ctx, obj); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -113,6 +113,69 @@ func (a *workAgent) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resul
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// applyManifest creates or updates one manifest object with the real work
+// agent's default (Update) semantics: the manifest is the source of truth
+// for spec and manifest-declared metadata, replacing what a previous
+// manifest set — including removing spec fields the new manifest dropped
+// (ramen clears spec.volSync.rdSpec this way after a failover restore).
+// Server-side apply is deliberately NOT used: ramen's VRG manifest carries
+// `volSync: {}`, which SSA rejects against the VRG CRD ("Invalid value:
+// null"). Metadata added on the managed side survives: finalizers are
+// unioned and existing labels/annotations are kept unless the manifest
+// overrides them.
+func (a *workAgent) applyManifest(ctx context.Context, obj *unstructured.Unstructured) error {
+	existing := &unstructured.Unstructured{}
+	existing.SetGroupVersionKind(obj.GroupVersionKind())
+
+	err := a.managed.Get(ctx, client.ObjectKeyFromObject(obj), existing)
+	if errors.IsNotFound(err) {
+		return a.managed.Create(ctx, obj)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	obj.SetResourceVersion(existing.GetResourceVersion())
+	obj.SetUID(existing.GetUID())
+	obj.SetFinalizers(unionStrings(existing.GetFinalizers(), obj.GetFinalizers()))
+	obj.SetLabels(mergeMaps(existing.GetLabels(), obj.GetLabels()))
+	obj.SetAnnotations(mergeMaps(existing.GetAnnotations(), obj.GetAnnotations()))
+
+	return a.managed.Update(ctx, obj)
+}
+
+// unionStrings appends the items of add missing from base, keeping order.
+func unionStrings(base, add []string) []string {
+	out := slices.Clone(base)
+
+	for _, s := range add {
+		if !slices.Contains(out, s) {
+			out = append(out, s)
+		}
+	}
+
+	return out
+}
+
+// mergeMaps overlays over on base (over wins); nil when both are empty.
+func mergeMaps(base, over map[string]string) map[string]string {
+	if len(base) == 0 {
+		return over
+	}
+
+	out := map[string]string{}
+	for k, v := range base {
+		out[k] = v
+	}
+
+	for k, v := range over {
+		out[k] = v
+	}
+
+	return out
 }
 
 func (a *workAgent) deleteManifests(ctx context.Context, mw *ocmworkv1.ManifestWork) error {
