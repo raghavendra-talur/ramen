@@ -64,7 +64,29 @@ func getWorld(t *testing.T) (*world.World, *invariants.Checker) {
 // leave later sibling tests (e.g. TestSharedWorldSurvivesSiblingTests)
 // holding a dead world.
 func TestMain(m *testing.M) {
+	// Ctrl-C mid-run must not orphan the world: a test binary dying on a
+	// signal runs no teardown, leaving three envtest control planes and
+	// three manager subprocesses behind. Tear down and exit with the
+	// conventional 128+SIGINT code instead. StopShared is safe to call from
+	// this goroutine (it takes the shared-world mutex) and is a no-op if no
+	// world was built. The handler is disarmed once the run finishes so the
+	// SIMTEST_UI_HOLD path below owns Ctrl-C during the hold.
+	interrupted := make(chan os.Signal, 1)
+	signal.Notify(interrupted, os.Interrupt)
+
+	go func() {
+		if _, ok := <-interrupted; !ok {
+			return // disarmed after the run
+		}
+
+		fmt.Println("interrupted — tearing down the shared world")
+		world.StopShared()
+		os.Exit(130)
+	}()
+
 	code := m.Run()
+	signal.Stop(interrupted)
+	close(interrupted)
 
 	if os.Getenv("SIMTEST_UI_HOLD") != "" && sharedW != nil && sharedW.UI != nil {
 		fmt.Printf("simtest ui: holding at %s — Ctrl-C to exit\n", sharedW.UI.URL())
