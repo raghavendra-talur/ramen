@@ -141,25 +141,48 @@ func runRelocate(t *testing.T, w *world.World, app user.App, hooks ...Hook) {
 		world.DR2Name, rmn.Relocated, hooks)
 }
 
-// TestBaselines is T1: the full happy-path lifecycle of one discovered app.
+// pvcspecs is the storage-story axis, mirroring e2e's PVCSpec: rbd routes
+// through VolRep (peer classes carry a replicationid), cephfs through
+// VolSync (storageid-only peer classes with a snapshot class).
+var pvcspecs = []struct {
+	name         string
+	storageClass string
+}{
+	{name: "rbd", storageClass: world.StorageClassName},
+	{name: "cephfs", storageClass: world.CephFSStorageClassName},
+}
+
+// TestBaselines is T1: the full happy-path lifecycle of one discovered app,
+// once per pvcspec.
 func TestBaselines(t *testing.T) {
 	w, checker := getWorld(t)
-	app := user.App{Name: "baseline"}
+
+	for _, spec := range pvcspecs {
+		t.Run(spec.name, func(t *testing.T) {
+			runBaseline(t, w, user.App{Name: "bl-" + spec.name, StorageClassName: spec.storageClass})
+		})
+	}
+
+	checker.AssertClean(t)
+}
+
+func runBaseline(t *testing.T, w *world.World, app user.App) {
+	t.Helper()
 	ctx := context.Background()
 
 	rec := runEnable(t, w, app)
 
 	t.Run("failover", func(t *testing.T) {
-		uiScenario(t, w, "failover")
+		uiScenario(t, w, app.Name+"/failover")
 		runFailover(t, w, app)
 	})
 	t.Run("relocate", func(t *testing.T) {
-		uiScenario(t, w, "relocate")
+		uiScenario(t, w, app.Name+"/relocate")
 		runRelocate(t, w, app)
 	})
 
 	t.Run("disable", func(t *testing.T) {
-		uiScenario(t, w, "disable")
+		uiScenario(t, w, app.Name+"/disable")
 
 		if err := user.Disable(ctx, w, app, observe.Scale(2*time.Minute)); err != nil {
 			t.Fatal(err)
@@ -185,6 +208,5 @@ func TestBaselines(t *testing.T) {
 		}
 	})
 
-	checker.AssertClean(t)
-	t.Logf("baseline progression sequence: %v", rec.Progressions())
+	t.Logf("%s progression sequence: %v", app.Name, rec.Progressions())
 }

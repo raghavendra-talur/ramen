@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	volsyncv1alpha1 "github.com/backube/volsync/api/v1alpha1"
+	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	rmn "github.com/ramendr/ramen/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -153,6 +155,8 @@ func appResidue(ctx context.Context, w *world.World, app user.App) []string {
 			types.NamespacedName{Namespace: app.Namespace(), Name: app.PVCName()}, pvc); err == nil {
 			left = append(left, "pvc@"+m.Name)
 		}
+
+		left = append(left, volsyncResidue(ctx, m, app)...)
 	}
 
 	for _, cl := range []string{world.DR1Name, world.DR2Name} {
@@ -171,6 +175,45 @@ func appResidue(ctx context.Context, w *world.World, app user.App) []string {
 				if strings.HasPrefix(mcvs.Items[i].Name, app.Name+"-") {
 					left = append(left, "mcv:"+cl+"/"+mcvs.Items[i].Name)
 				}
+			}
+		}
+	}
+
+	return left
+}
+
+// volsyncResidue reports VolSync leftovers in the app namespace on one
+// managed cluster: replication pairs ramen should have deleted, plus the
+// volsync actor's materialized artifacts the janitor should have swept.
+func volsyncResidue(ctx context.Context, m *world.Cluster, app user.App) []string {
+	left := []string{}
+
+	rss := &volsyncv1alpha1.ReplicationSourceList{}
+	if err := m.Client.List(ctx, rss, client.InNamespace(app.Namespace())); err == nil {
+		for i := range rss.Items {
+			left = append(left, "rs:"+m.Name+"/"+rss.Items[i].Name)
+		}
+	}
+
+	rds := &volsyncv1alpha1.ReplicationDestinationList{}
+	if err := m.Client.List(ctx, rds, client.InNamespace(app.Namespace())); err == nil {
+		for i := range rds.Items {
+			left = append(left, "rd:"+m.Name+"/"+rds.Items[i].Name)
+		}
+	}
+
+	snaps := &snapv1.VolumeSnapshotList{}
+	if err := m.Client.List(ctx, snaps, client.InNamespace(app.Namespace())); err == nil {
+		for i := range snaps.Items {
+			left = append(left, "snap:"+m.Name+"/"+snaps.Items[i].Name)
+		}
+	}
+
+	pvcs := &corev1.PersistentVolumeClaimList{}
+	if err := m.Client.List(ctx, pvcs, client.InNamespace(app.Namespace())); err == nil {
+		for i := range pvcs.Items {
+			if strings.HasPrefix(pvcs.Items[i].Name, "mock-volsync-dst-") {
+				left = append(left, "dst-pvc:"+m.Name+"/"+pvcs.Items[i].Name)
 			}
 		}
 	}

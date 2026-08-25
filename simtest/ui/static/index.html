@@ -303,12 +303,12 @@ function clusterCard(s, id, title, body, badges, extraClass, tail) {
 
 // Per-cluster actor glyphs: the simulated machinery, flashing as it acts
 // and turning red while a fault policy is set against it.
-const ACTORS = ["work", "view", "volrep", "binder", "janitor"];
+const ACTORS = ["work", "view", "volrep", "volsync", "snap", "binder", "janitor"];
 function glyphStrip(s, cluster) {
   return `<div class="glyphs">` + ACTORS.map(a => {
     const f = (s.faults || []).find(f => f.active && f.key === a + "@" + cluster);
     return `<span class="glyph${f ? " faulted" : ""}" id="g-${a}-${cluster}"
-      title="${a}@${cluster}${f ? " — " + esc(policyName(f.desc)) : ""}">${a.slice(0, 3)}</span>`;
+      title="${a}@${cluster}${f ? " — " + esc(policyName(f.desc)) : ""}">${a.slice(0, 4)}</span>`;
   }).join("") + `</div>`;
 }
 

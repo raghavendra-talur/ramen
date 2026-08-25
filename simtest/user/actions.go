@@ -22,11 +22,26 @@ import (
 	"github.com/ramendr/ramen/simtest/world"
 )
 
-type App struct{ Name string }
+type App struct {
+	Name string
+
+	// StorageClassName selects the app PVC's storage story — the pvcspec
+	// axis: world.StorageClassName (VolRep) or world.CephFSStorageClassName
+	// (VolSync). Empty means world.StorageClassName.
+	StorageClassName string
+}
 
 func (a App) Namespace() string           { return a.Name + "-ns" }
 func (a App) PVCName() string             { return a.Name + "-data" }
 func (a App) ManagementNamespace() string { return world.RamenOpsNS }
+
+func (a App) storageClassName() string {
+	if a.StorageClassName == "" {
+		return world.StorageClassName
+	}
+
+	return a.StorageClassName
+}
 
 // CreateApp creates the app namespace on both managed clusters (failover
 // targets need it) and a labeled PVC on the given cluster. No pods: envtest
@@ -46,7 +61,7 @@ func CreateApp(ctx context.Context, w *world.World, app App, cluster string) err
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-			StorageClassName: ptr.To(world.StorageClassName),
+			StorageClassName: ptr.To(app.storageClassName()),
 			Resources: corev1.VolumeResourceRequirements{
 				Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")},
 			},
