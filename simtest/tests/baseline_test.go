@@ -40,11 +40,19 @@ func newRecorder(t *testing.T, w *world.World, app user.App) *observe.Recorder {
 
 func runEnable(t *testing.T, w *world.World, app user.App) *observe.Recorder {
 	t.Helper()
-	ctx := context.Background()
 
-	if err := user.CreateApp(ctx, w, app, world.DR1Name); err != nil {
+	if err := user.CreateApp(context.Background(), w, app, world.DR1Name); err != nil {
 		t.Fatalf("create app: %v", err)
 	}
+
+	return runEnroll(t, w, app)
+}
+
+// runEnroll enables DR protection for an already-created app and gates on
+// the DRPC reaching steady Deployed (the enroll stage of the lifecycle).
+func runEnroll(t *testing.T, w *world.World, app user.App) *observe.Recorder {
+	t.Helper()
+	ctx := context.Background()
 
 	rec := newRecorder(t, w, app)
 
