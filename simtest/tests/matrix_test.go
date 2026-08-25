@@ -63,32 +63,103 @@ func policyFault(name string, key func(string) actors.Key, cluster string, p act
 	}
 }
 
-// faults is the external-failure axis of the matrix. s3-down is a GLOBAL
-// fault (one store for the whole world), so the matrix must stay sequential
-// as long as it is present. The policy faults are per actor per cluster.
-func faults() []fault {
-	fs := []fault{
-		{
-			name:  "s3-down",
-			apply: func(w *world.World) { w.S3.SetDown(true) },
-			clear: func(w *world.World) { w.S3.SetDown(false) },
-		},
+// s3Fault is a GLOBAL fault (one store for the whole world), so the matrix
+// must stay sequential as long as it is present.
+func s3Fault() fault {
+	return fault{
+		name:  "s3-down",
+		apply: func(w *world.World) { w.S3.SetDown(true) },
+		clear: func(w *world.World) { w.S3.SetDown(false) },
 	}
+}
+
+// volRepFaults starves or perturbs the replication backend actor — the key
+// gates both the per-PVC VolumeReplication and the grouped VGR fulfillers.
+func volRepFaults() []fault {
+	fs := []fault{}
 
 	for _, cluster := range []string{world.DR1Name, world.DR2Name} {
 		fs = append(fs,
 			policyFault("volrep-silent-"+cluster, actors.VolRep, cluster, actors.Silent{}),
 			policyFault("volrep-degraded-"+cluster, actors.VolRep, cluster, actors.FailWith{Mode: "degraded"}),
-			policyFault("view-silent-"+cluster, actors.View, cluster, actors.Silent{}),
-			policyFault("work-silent-"+cluster, actors.Work, cluster, actors.Silent{}),
 			// T3 ordering variants: delays reorder independent external events
 			// (e.g. VR status lands before/after the MCV refresh at the same gate).
 			policyFault("volrep-delayed-"+cluster, actors.VolRep, cluster, actors.Delayed{After: 3 * time.Second}),
+		)
+	}
+
+	return fs
+}
+
+// ocmFaults perturbs the hub-to-managed transports (work/view agents).
+func ocmFaults() []fault {
+	fs := []fault{}
+
+	for _, cluster := range []string{world.DR1Name, world.DR2Name} {
+		fs = append(fs,
+			policyFault("view-silent-"+cluster, actors.View, cluster, actors.Silent{}),
+			policyFault("work-silent-"+cluster, actors.Work, cluster, actors.Silent{}),
 			policyFault("view-delayed-"+cluster, actors.View, cluster, actors.Delayed{After: 3 * time.Second}),
 		)
 	}
 
 	return fs
+}
+
+// volSyncFaults starves the VolSync-side actors: the RS/RD fulfiller, the
+// snapshotter (which also gates group snapshots), the job runner, and the
+// governance policy agent that delivers the PSK secret.
+func volSyncFaults() []fault {
+	fs := []fault{}
+
+	for _, cluster := range []string{world.DR1Name, world.DR2Name} {
+		fs = append(fs,
+			policyFault("volsync-silent-"+cluster, actors.VolSync, cluster, actors.Silent{}),
+			policyFault("snap-silent-"+cluster, actors.Snap, cluster, actors.Silent{}),
+			policyFault("jobs-silent-"+cluster, actors.Jobs, cluster, actors.Silent{}),
+			policyFault("polagent-silent-"+cluster, actors.PolicyAgent, cluster, actors.Silent{}),
+		)
+	}
+
+	return fs
+}
+
+// matrixSpec is one storage story's slice of the matrix: its own seed run
+// (checkpoint sequences differ per story), the faults that can plausibly
+// touch its data path, and an optional checkpoint filter for stories whose
+// lifecycle is too slow for the full grid.
+type matrixSpec struct {
+	name         string
+	storageClass string
+	cg           bool
+	faults       []fault
+	// cpFilter, when non-nil, keeps only these checkpoint codes — used to
+	// bound the cephfs-cg grid, whose lifecycle converges on ramen's
+	// minute-scale requeues (~5min per combo).
+	cpFilter map[string]bool
+}
+
+func matrixSpecs() []matrixSpec {
+	rbdFaults := append([]fault{s3Fault()}, append(volRepFaults(), ocmFaults()...)...)
+	cephfsFaults := append([]fault{s3Fault()}, volSyncFaults()...)
+
+	return []matrixSpec{
+		// rbd keeps the historical full grid: every fault kind including the
+		// OCM transports (exercised once here rather than per story).
+		{name: "rbd", storageClass: world.StorageClassName, faults: rbdFaults},
+		{name: "rbd-cg", storageClass: world.CGStorageClassName, cg: true,
+			faults: append([]fault{s3Fault()}, volRepFaults()...)},
+		{name: "cephfs", storageClass: world.CephFSStorageClassName, faults: cephfsFaults},
+		{name: "cephfs-cg", storageClass: world.CGCephFSStorageClassName, cg: true,
+			faults: []fault{
+				s3Fault(),
+				policyFault("volsync-silent-"+world.DR1Name, actors.VolSync, world.DR1Name, actors.Silent{}),
+				policyFault("snap-silent-"+world.DR2Name, actors.Snap, world.DR2Name, actors.Silent{}),
+				policyFault("jobs-silent-"+world.DR1Name, actors.Jobs, world.DR1Name, actors.Silent{}),
+			},
+			cpFilter: map[string]bool{"wrr": true, "pfs": true},
+		},
+	}
 }
 
 // TestMatrix is T2 (+T3 via the delayed faults): one seed app runs the full
@@ -102,27 +173,37 @@ func faults() []fault {
 func TestMatrix(t *testing.T) {
 	w, checker := getWorld(t)
 
-	seedApp := user.App{Name: "mx-seed"}
-	seqs := runLifecycle(t, w, seedApp, fullLifecycle, "")
-	t.Logf("seed failover sequence: %v", seqs[stgFailover])
-	t.Logf("seed relocate sequence: %v", seqs[stgRelocate])
-
-	fs := faults()
 	start := time.Now()
 	n := 0
 
-	for _, st := range []stage{stgFailover, stgRelocate} {
-		cps := seedCheckpoints(t, seqs[st])
-		if len(cps) == 0 {
-			t.Fatalf("no stable checkpoints for %s in seed sequence %v", st, seqs[st])
-		}
+	for _, spec := range matrixSpecs() {
+		t.Run(spec.name, func(t *testing.T) {
+			seedApp := user.App{Name: "mx-seed-" + sanitize(spec.name),
+				StorageClassName: spec.storageClass, CG: spec.cg}
+			seqs := runLifecycle(t, w, seedApp, fullLifecycle, "")
+			t.Logf("%s seed failover sequence: %v", spec.name, seqs[stgFailover])
+			t.Logf("%s seed relocate sequence: %v", spec.name, seqs[stgRelocate])
 
-		for _, cp := range cps {
-			for _, f := range fs {
-				n++
-				runCombo(t, w, n, st, cp, f)
+			for _, st := range []stage{stgFailover, stgRelocate} {
+				cps := seedCheckpoints(t, seqs[st])
+				if len(cps) == 0 {
+					t.Fatalf("no stable checkpoints for %s in seed sequence %v", st, seqs[st])
+				}
+
+				for _, cp := range cps {
+					if spec.cpFilter != nil && !spec.cpFilter[cp.code] {
+						t.Logf("dropping checkpoint %q for %s: filtered by the spec's grid bound", cp.code, spec.name)
+
+						continue
+					}
+
+					for _, f := range spec.faults {
+						n++
+						runCombo(t, w, n, spec, st, cp, f)
+					}
+				}
 			}
-		}
+		})
 	}
 
 	t.Logf("matrix ran %d combinations in %s", n, time.Since(start).Round(time.Second))
@@ -136,7 +217,7 @@ func TestMatrix(t *testing.T) {
 // leak an active fault (a leaked Silent{} or S3 outage would poison every
 // later combo); the lifecycle's delete stage asserts the app leaves no
 // residue behind.
-func runCombo(t *testing.T, w *world.World, idx int, st stage, cp checkpoint, f fault) {
+func runCombo(t *testing.T, w *world.World, idx int, spec matrixSpec, st stage, cp checkpoint, f fault) {
 	name := fmt.Sprintf("%s/at=%s/fault=%s", st, cp.code, f.name)
 
 	t.Run(name, func(t *testing.T) {
@@ -150,7 +231,11 @@ func runCombo(t *testing.T, w *world.World, idx int, st stage, cp checkpoint, f 
 		}
 
 		begin := time.Now()
-		app := user.App{Name: sanitize(fmt.Sprintf("mx%02d-%.1s-%s-%s", idx, st, cp.code, f.name))}
+		app := user.App{
+			Name:             sanitize(fmt.Sprintf("mx%02d-%.1s-%s-%s", idx, st, cp.code, f.name)),
+			StorageClassName: spec.storageClass,
+			CG:               spec.cg,
+		}
 
 		var (
 			applied   atomic.Bool

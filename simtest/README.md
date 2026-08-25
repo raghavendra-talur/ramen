@@ -45,6 +45,19 @@ Each managed cluster carries two storage stories, mirroring e2e's PVCSpec:
 - **cephfs** (`mock-cephfs`): StorageClass with a storageid label only, plus a
   VolumeSnapshotClass — no replication class, so PVCs route through **VolSync**.
 
+Two consistency-group stories layer on top, each in its own storageid universe
+(so the plain peers stay ungrouped), with the DRPC carrying ramen's
+`is-cg-enabled` annotation:
+
+- **rbd-cg** (`mock-rbd-cg`): adds `groupreplicationid` plus a
+  VolumeGroupReplicationClass — grouped PVCs replicate through one
+  **VolumeGroupReplication** (fulfilled by the vgr actor, which also maintains
+  the member-PVC list and re-adopts restored contents).
+- **cephfs-cg** (`mock-cephfs-cg`): adds a public-v1 VolumeGroupSnapshotClass —
+  grouped PVCs replicate through **ReplicationGroupSource/Destination** over
+  **VolumeGroupSnapshot** (the vgs actor creates owner-referenced member
+  snapshots; the snapshotter, job-runner, and volsync actors do the rest).
+
 `TestBaselines` runs the full happy-path lifecycle once per pvcspec. The VolSync
 path exercises the whole real chain: PSK-secret propagation via a governance
 Policy (enforced by the policy-agent actor), the PVC mount job (completed by the
@@ -54,15 +67,22 @@ snapshot restore on failover, and the manual-trigger final sync on relocate.
 ## Selecting tests
 
 ```sh
-go test ./tests/ -run TestBaselines -v -count=1                # ~40s, rbd+cephfs
-go test ./tests/ -run TestMatrix -v -count=1 -timeout 45m      # ~78 combos, ~22m
-go test ./tests/ -run 'TestMatrix/relocate' -v -count=1 -timeout 20m
-go test ./tests/ -run 'TestMatrix/failover/at=wrr/fault=s3-down' -v -count=1
+go test ./tests/ -run TestBaselines -v -count=1                     # ~7m, all four pvcspecs
+go test ./tests/ -run 'TestBaselines/(rbd|cephfs)$' -v -count=1     # ~1m, plain stories only
+go test ./tests/ -run TestMatrix -v -count=1 -timeout 3h            # ~180 combos
+go test ./tests/ -run 'TestMatrix/rbd/relocate' -v -count=1 -timeout 20m
+go test ./tests/ -run 'TestMatrix/rbd/failover/at=wrr/fault=s3-down' -v -count=1
 ```
 
-Subtests address as `TestMatrix/<stage>/at=<checkpoint>/fault=<fault>`; stages
-taking fault injection are `failover` and `relocate`, checkpoints come from the
-seed (`wrr`, `clean`, `wuc`, and relocate-only `pfs`).
+Subtests address as
+`TestMatrix/<pvcspec>/<stage>/at=<checkpoint>/fault=<fault>`; stages taking
+fault injection are `failover` and `relocate`, checkpoints come from each
+pvcspec's own seed run (`wrr`, `clean`, `wuc`, and relocate-only `pfs`). Each
+pvcspec carries the faults that can touch its data path — the full grid for rbd,
+volrep faults for rbd-cg, volsync/snap/jobs/polagent faults for the cephfs
+stories — and cephfs-cg's grid is bounded to the `wrr`/`pfs` checkpoints because
+its lifecycle converges on ramen's minute-scale requeues (~5min per combo). Tune
+both in `matrixSpecs()`.
 
 ## Environment knobs
 
