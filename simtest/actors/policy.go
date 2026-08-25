@@ -23,6 +23,8 @@ func Snap(cluster string) Key    { return Key{Actor: "snap", Cluster: cluster} }
 
 func PolicyAgent(cluster string) Key { return Key{Actor: "polagent", Cluster: cluster} }
 
+func Jobs(cluster string) Key { return Key{Actor: "jobs", Cluster: cluster} }
+
 type Policy interface{ isPolicy() }
 
 // Normal fulfills immediately.
