@@ -10,14 +10,19 @@ import (
 	"time"
 
 	volsyncv1alpha1 "github.com/backube/volsync/api/v1alpha1"
+	volrep "github.com/csi-addons/kubernetes-csi-addons/api/replication.storage/v1alpha1"
+	groupsnapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumegroupsnapshot/v1"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
 	mockDestPVCPrefix     = "mock-volsync-dst-"
 	mockLatestImagePrefix = "mock-latestimage-"
+	mockVGRCPrefix        = "mock-vgrc-"
+	mockVGSMemberPrefix   = "mock-vgs-"
 )
 
 // runJanitor emulates the kube-controller-manager protection controllers:
@@ -55,8 +60,11 @@ func sweep(ctx context.Context, c client.Client, cluster string, rt *Runtime) {
 	if err := c.List(ctx, snaps); err == nil {
 		for i := range snaps.Items {
 			sweepOrphan(ctx, c, &snaps.Items[i], mockLatestImagePrefix, liveRDs, cluster, rt)
+			sweepOrphanVGSMember(ctx, c, &snaps.Items[i], cluster, rt)
 		}
 	}
+
+	sweepOrphanVGRCs(ctx, c, cluster, rt)
 
 	pvs := &corev1.PersistentVolumeList{}
 	if err := c.List(ctx, pvs); err == nil {
@@ -94,6 +102,67 @@ func sweepOrphan(ctx context.Context, c client.Client, obj client.Object,
 
 	if err := c.Delete(ctx, obj); err == nil {
 		rt.Log.Logf("janitor@%s swept orphaned %s/%s", cluster, obj.GetNamespace(), obj.GetName())
+	}
+}
+
+// sweepOrphanVGRCs deletes vgr-actor-created VolumeGroupReplicationContents
+// whose referenced VGR no longer exists. VGRCs are cluster-scoped, so they
+// cannot carry an ownerRef to their namespaced VGR even where a garbage
+// collector runs.
+func sweepOrphanVGRCs(ctx context.Context, c client.Client, cluster string, rt *Runtime) {
+	vgrcs := &volrep.VolumeGroupReplicationContentList{}
+	if err := c.List(ctx, vgrcs); err != nil {
+		return
+	}
+
+	for i := range vgrcs.Items {
+		vgrc := &vgrcs.Items[i]
+
+		ref := vgrc.Spec.VolumeGroupReplicationRef
+		if !strings.HasPrefix(vgrc.GetName(), mockVGRCPrefix) || ref == nil {
+			continue
+		}
+
+		vgr := &volrep.VolumeGroupReplication{}
+
+		err := c.Get(ctx, client.ObjectKey{Namespace: ref.Namespace, Name: ref.Name}, vgr)
+		if !apierrors.IsNotFound(err) {
+			continue
+		}
+
+		if err := c.Delete(ctx, vgrc); err == nil {
+			rt.Log.Logf("janitor@%s swept orphaned VGRC %s", cluster, vgrc.GetName())
+		}
+	}
+}
+
+// sweepOrphanVGSMember deletes a vgs-actor member snapshot whose owning
+// VolumeGroupSnapshot no longer exists (envtest runs no garbage collector,
+// so the ownerRef alone cleans up nothing).
+func sweepOrphanVGSMember(ctx context.Context, c client.Client, snap *snapv1.VolumeSnapshot,
+	cluster string, rt *Runtime,
+) {
+	if !strings.HasPrefix(snap.GetName(), mockVGSMemberPrefix) {
+		return
+	}
+
+	for _, ref := range snap.GetOwnerReferences() {
+		if ref.Kind != "VolumeGroupSnapshot" {
+			continue
+		}
+
+		vgs := &groupsnapv1.VolumeGroupSnapshot{}
+
+		err := c.Get(ctx, client.ObjectKey{Namespace: snap.GetNamespace(), Name: ref.Name}, vgs)
+		if !apierrors.IsNotFound(err) {
+			return
+		}
+
+		if err := c.Delete(ctx, snap); err == nil {
+			rt.Log.Logf("janitor@%s swept orphaned VGS member %s/%s", cluster, snap.GetNamespace(), snap.GetName())
+		}
+
+		return
 	}
 }
 

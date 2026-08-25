@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	volsyncv1alpha1 "github.com/backube/volsync/api/v1alpha1"
+	volrep "github.com/csi-addons/kubernetes-csi-addons/api/replication.storage/v1alpha1"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -63,5 +64,55 @@ func TestJanitorSweepsOrphanedVolSyncArtifacts(t *testing.T) {
 		if got := err == nil; got != want {
 			t.Errorf("snapshot %s exists=%v want %v (err=%v)", name, got, want, err)
 		}
+	}
+}
+
+// The janitor also stands in for the garbage collector on the CG artifacts:
+// a VolumeGroupReplicationContent (cluster-scoped, so it cannot be owned by
+// its namespaced VGR) is swept once the VGR it references is gone, and a
+// VGS member snapshot is swept once its owning VolumeGroupSnapshot is gone.
+func TestJanitorSweepsOrphanedCGArtifacts(t *testing.T) {
+	liveVGR := &volrep.VolumeGroupReplication{
+		ObjectMeta: metav1.ObjectMeta{Name: "vgr-kept", Namespace: "app-ns"},
+	}
+	keptVGRC := &volrep.VolumeGroupReplicationContent{
+		ObjectMeta: metav1.ObjectMeta{Name: "mock-vgrc-vgr-kept"},
+		Spec: volrep.VolumeGroupReplicationContentSpec{
+			VolumeGroupReplicationRef:    &corev1.ObjectReference{Name: "vgr-kept", Namespace: "app-ns"},
+			VolumeGroupReplicationHandle: "h", Provisioner: "p", VolumeGroupReplicationClassName: "c",
+		},
+	}
+	orphanVGRC := &volrep.VolumeGroupReplicationContent{
+		ObjectMeta: metav1.ObjectMeta{Name: "mock-vgrc-vgr-gone"},
+		Spec: volrep.VolumeGroupReplicationContentSpec{
+			VolumeGroupReplicationRef:    &corev1.ObjectReference{Name: "vgr-gone", Namespace: "app-ns"},
+			VolumeGroupReplicationHandle: "h", Provisioner: "p", VolumeGroupReplicationClassName: "c",
+		},
+	}
+	orphanMember := &snapv1.VolumeSnapshot{
+		ObjectMeta: metav1.ObjectMeta{Name: "mock-vgs-gone-cg-data", Namespace: "app-ns",
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "groupsnapshot.storage.k8s.io/v1", Kind: "VolumeGroupSnapshot",
+				Name: "gone-cg", UID: "u1",
+			}},
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(volsyncScheme(t)).
+		WithObjects(liveVGR, keptVGRC, orphanVGRC, orphanMember).Build()
+	ctx := context.Background()
+
+	sweep(ctx, cl, "dr1", newTestRuntime(t))
+
+	if err := cl.Get(ctx, types.NamespacedName{Name: "mock-vgrc-vgr-kept"},
+		&volrep.VolumeGroupReplicationContent{}); err != nil {
+		t.Fatalf("live VGR's content swept: %v", err)
+	}
+	if err := cl.Get(ctx, types.NamespacedName{Name: "mock-vgrc-vgr-gone"},
+		&volrep.VolumeGroupReplicationContent{}); err == nil {
+		t.Fatal("orphaned VGRC must be swept")
+	}
+	if err := cl.Get(ctx, types.NamespacedName{Namespace: "app-ns", Name: "mock-vgs-gone-cg-data"},
+		&snapv1.VolumeSnapshot{}); err == nil {
+		t.Fatal("member snapshot of a deleted VGS must be swept")
 	}
 }

@@ -58,10 +58,16 @@ func Start(ctx context.Context, scheme *runtime.Scheme, hub ClusterRef, managed 
 		if err = setupVolRep(mgr, m.Name, rt); err != nil {
 			return
 		}
+		if err = setupVGR(mgr, m.Name, rt); err != nil {
+			return
+		}
 		if err = setupVolSync(mgr, m.Name, rt); err != nil {
 			return
 		}
 		if err = setupSnapshotter(mgr, m.Name, rt); err != nil {
+			return
+		}
+		if err = setupVGS(mgr, m.Name, rt); err != nil {
 			return
 		}
 		if err = setupJobRunner(mgr, m.Name, rt); err != nil {
