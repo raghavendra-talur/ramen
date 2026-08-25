@@ -12,6 +12,7 @@ import (
 	volrep "github.com/csi-addons/kubernetes-csi-addons/api/replication.storage/v1alpha1"
 	groupsnapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumegroupsnapshot/v1"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	rmn "github.com/ramendr/ramen/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,6 +38,9 @@ func volsyncScheme(t *testing.T) *runtime.Scheme {
 		t.Fatal(err)
 	}
 	if err := volrep.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := rmn.AddToScheme(s); err != nil {
 		t.Fatal(err)
 	}
 	if err := groupsnapv1.AddToScheme(s); err != nil {

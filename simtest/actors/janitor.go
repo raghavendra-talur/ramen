@@ -13,6 +13,7 @@ import (
 	volrep "github.com/csi-addons/kubernetes-csi-addons/api/replication.storage/v1alpha1"
 	groupsnapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumegroupsnapshot/v1"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	rmn "github.com/ramendr/ramen/api/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -67,6 +68,7 @@ func sweep(ctx context.Context, c client.Client, cluster string, rt *Runtime) {
 	}
 
 	sweepOrphanVGRCs(ctx, c, cluster, rt)
+	sweepOrphanRGChildren(ctx, c, cluster, rt)
 
 	// Ramen deletes its final-sync mount jobs with Foreground propagation;
 	// the resulting foregroundDeletion finalizer is the garbage collector's
@@ -145,6 +147,53 @@ func sweepOrphanVGRCs(ctx context.Context, c client.Client, cluster string, rt *
 		if err := c.Delete(ctx, vgrc); err == nil {
 			rt.Log.Logf("janitor@%s swept orphaned VGRC %s", cluster, vgrc.GetName())
 		}
+	}
+}
+
+// sweepOrphanRGChildren deletes ReplicationSources/Destinations whose
+// controlling ReplicationGroupSource/Destination no longer exists: ramen
+// deletes the group parents and relies on the garbage collector to cascade
+// to the per-PVC children it created — envtest runs none.
+func sweepOrphanRGChildren(ctx context.Context, c client.Client, cluster string, rt *Runtime) {
+	rss := &volsyncv1alpha1.ReplicationSourceList{}
+	if err := c.List(ctx, rss); err == nil {
+		for i := range rss.Items {
+			sweepIfRGParentGone(ctx, c, &rss.Items[i], cluster, rt)
+		}
+	}
+
+	rds := &volsyncv1alpha1.ReplicationDestinationList{}
+	if err := c.List(ctx, rds); err == nil {
+		for i := range rds.Items {
+			sweepIfRGParentGone(ctx, c, &rds.Items[i], cluster, rt)
+		}
+	}
+}
+
+func sweepIfRGParentGone(ctx context.Context, c client.Client, obj client.Object, cluster string, rt *Runtime) {
+	ref := metav1.GetControllerOfNoCopy(obj)
+	if ref == nil {
+		return
+	}
+
+	var parent client.Object
+
+	switch ref.Kind {
+	case "ReplicationGroupSource":
+		parent = &rmn.ReplicationGroupSource{}
+	case "ReplicationGroupDestination":
+		parent = &rmn.ReplicationGroupDestination{}
+	default:
+		return
+	}
+
+	err := c.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: ref.Name}, parent)
+	if !apierrors.IsNotFound(err) {
+		return
+	}
+
+	if err := c.Delete(ctx, obj); err == nil {
+		rt.Log.Logf("janitor@%s swept %s/%s (its %s is gone)", cluster, obj.GetNamespace(), obj.GetName(), ref.Kind)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	volsyncv1alpha1 "github.com/backube/volsync/api/v1alpha1"
 	volrep "github.com/csi-addons/kubernetes-csi-addons/api/replication.storage/v1alpha1"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	rmn "github.com/ramendr/ramen/api/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -142,5 +143,57 @@ func TestJanitorClearsForegroundDeletionOnJobs(t *testing.T) {
 	if err := cl.Get(ctx,
 		types.NamespacedName{Namespace: "app-ns", Name: "volsync-pvc-mount-data-for-finalsync"}, got); err == nil {
 		t.Fatalf("deleting job must go away once the finalizer is cleared, still has %v", got.Finalizers)
+	}
+}
+
+func rgOwned(kind, name string) []metav1.OwnerReference {
+	ctrl := true
+
+	return []metav1.OwnerReference{{
+		APIVersion: "ramendr.openshift.io/v1alpha1", Kind: kind, Name: name, UID: "u", Controller: &ctrl,
+	}}
+}
+
+// ReplicationGroupSource/Destination controller-own their per-PVC
+// ReplicationSources/Destinations; ramen deletes the parents and relies on
+// the garbage collector to cascade — envtest runs none, so the janitor
+// must sweep the orphaned children (found leaking by the cephfs-cg seed's
+// per-app residue check).
+func TestJanitorSweepsOrphanedRGChildren(t *testing.T) {
+	liveRGS := &rmn.ReplicationGroupSource{
+		ObjectMeta: metav1.ObjectMeta{Name: "rgs-kept", Namespace: "app-ns"},
+	}
+	keptRS := &volsyncv1alpha1.ReplicationSource{
+		ObjectMeta: metav1.ObjectMeta{Name: "rs-kept", Namespace: "app-ns",
+			OwnerReferences: rgOwned("ReplicationGroupSource", "rgs-kept")},
+	}
+	orphanRS := &volsyncv1alpha1.ReplicationSource{
+		ObjectMeta: metav1.ObjectMeta{Name: "rs-gone", Namespace: "app-ns",
+			OwnerReferences: rgOwned("ReplicationGroupSource", "rgs-gone")},
+	}
+	orphanRD := &volsyncv1alpha1.ReplicationDestination{
+		ObjectMeta: metav1.ObjectMeta{Name: "rd-gone", Namespace: "app-ns",
+			OwnerReferences: rgOwned("ReplicationGroupDestination", "rgd-gone")},
+	}
+	plainRS := &volsyncv1alpha1.ReplicationSource{
+		ObjectMeta: metav1.ObjectMeta{Name: "rs-plain", Namespace: "app-ns"},
+	}
+	cl := fake.NewClientBuilder().WithScheme(volsyncScheme(t)).
+		WithObjects(liveRGS, keptRS, orphanRS, orphanRD, plainRS).Build()
+	ctx := context.Background()
+
+	sweep(ctx, cl, "dr1", newTestRuntime(t))
+
+	for name, want := range map[string]bool{"rs-kept": true, "rs-gone": false, "rs-plain": true} {
+		err := cl.Get(ctx, types.NamespacedName{Namespace: "app-ns", Name: name},
+			&volsyncv1alpha1.ReplicationSource{})
+		if got := err == nil; got != want {
+			t.Errorf("rs %s exists=%v want %v", name, got, want)
+		}
+	}
+
+	if err := cl.Get(ctx, types.NamespacedName{Namespace: "app-ns", Name: "rd-gone"},
+		&volsyncv1alpha1.ReplicationDestination{}); err == nil {
+		t.Error("rd owned by a deleted RGD must be swept")
 	}
 }
