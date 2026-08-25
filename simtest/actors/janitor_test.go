@@ -9,6 +9,7 @@ import (
 
 	volsyncv1alpha1 "github.com/backube/volsync/api/v1alpha1"
 	volrep "github.com/csi-addons/kubernetes-csi-addons/api/replication.storage/v1alpha1"
+	groupsnapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumegroupsnapshot/v1"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	rmn "github.com/ramendr/ramen/api/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -178,8 +179,12 @@ func TestJanitorSweepsOrphanedRGChildren(t *testing.T) {
 	plainRS := &volsyncv1alpha1.ReplicationSource{
 		ObjectMeta: metav1.ObjectMeta{Name: "rs-plain", Namespace: "app-ns"},
 	}
+	orphanVGS := &groupsnapv1.VolumeGroupSnapshot{
+		ObjectMeta: metav1.ObjectMeta{Name: "vgs-gone", Namespace: "app-ns",
+			OwnerReferences: rgOwned("ReplicationGroupSource", "rgs-gone")},
+	}
 	cl := fake.NewClientBuilder().WithScheme(volsyncScheme(t)).
-		WithObjects(liveRGS, keptRS, orphanRS, orphanRD, plainRS).Build()
+		WithObjects(liveRGS, keptRS, orphanRS, orphanRD, plainRS, orphanVGS).Build()
 	ctx := context.Background()
 
 	sweep(ctx, cl, "dr1", newTestRuntime(t))
@@ -195,5 +200,10 @@ func TestJanitorSweepsOrphanedRGChildren(t *testing.T) {
 	if err := cl.Get(ctx, types.NamespacedName{Namespace: "app-ns", Name: "rd-gone"},
 		&volsyncv1alpha1.ReplicationDestination{}); err == nil {
 		t.Error("rd owned by a deleted RGD must be swept")
+	}
+
+	if err := cl.Get(ctx, types.NamespacedName{Namespace: "app-ns", Name: "vgs-gone"},
+		&groupsnapv1.VolumeGroupSnapshot{}); err == nil {
+		t.Error("group snapshot owned by a deleted RGS must be swept")
 	}
 }

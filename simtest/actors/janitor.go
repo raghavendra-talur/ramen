@@ -168,6 +168,13 @@ func sweepOrphanRGChildren(ctx context.Context, c client.Client, cluster string,
 			sweepIfRGParentGone(ctx, c, &rds.Items[i], cluster, rt)
 		}
 	}
+
+	vgss := &groupsnapv1.VolumeGroupSnapshotList{}
+	if err := c.List(ctx, vgss); err == nil {
+		for i := range vgss.Items {
+			sweepIfRGParentGone(ctx, c, &vgss.Items[i], cluster, rt)
+		}
+	}
 }
 
 func sweepIfRGParentGone(ctx context.Context, c client.Client, obj client.Object, cluster string, rt *Runtime) {
