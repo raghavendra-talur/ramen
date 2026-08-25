@@ -31,6 +31,7 @@ require (
 	github.com/prometheus/common v0.67.5 // indirect
 	github.com/prometheus/procfs v0.20.1 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/stolostron/kubernetes-dependency-watches v0.10.2 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
@@ -84,6 +85,8 @@ require (
 	k8s.io/apiextensions-apiserver v0.35.3 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260317180543-43fb72c5454a // indirect
+	open-cluster-management.io/config-policy-controller v0.15.0
+	open-cluster-management.io/governance-policy-propagator v0.16.0
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 )
@@ -91,3 +94,5 @@ require (
 replace k8s.io/api => k8s.io/api v0.35.4
 
 replace k8s.io/apimachinery => k8s.io/apimachinery v0.35.4
+
+replace open-cluster-management.io/governance-policy-propagator => github.com/open-cluster-management-io/governance-policy-propagator v0.18.1-0.20260403131942-dbfc1c7d6ec5

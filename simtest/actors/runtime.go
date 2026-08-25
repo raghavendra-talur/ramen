@@ -83,6 +83,9 @@ func Start(ctx context.Context, scheme *runtime.Scheme, hub ClusterRef, managed 
 		if err = setupOCMAgents(hubMgr, m.Name, managedClients[m.Name], rt); err != nil {
 			return
 		}
+		if err = setupPolicyAgent(hubMgr, m.Name, managedClients[m.Name], rt); err != nil {
+			return
+		}
 	}
 
 	go func() {

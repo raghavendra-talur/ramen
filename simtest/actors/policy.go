@@ -21,6 +21,8 @@ func Binder(cluster string) Key  { return Key{Actor: "binder", Cluster: cluster}
 func VolSync(cluster string) Key { return Key{Actor: "volsync", Cluster: cluster} }
 func Snap(cluster string) Key    { return Key{Actor: "snap", Cluster: cluster} }
 
+func PolicyAgent(cluster string) Key { return Key{Actor: "polagent", Cluster: cluster} }
+
 type Policy interface{ isPolicy() }
 
 // Normal fulfills immediately.

@@ -14,6 +14,7 @@ import (
 	ocmv1 "open-cluster-management.io/api/cluster/v1"
 	clrapiv1beta1 "open-cluster-management.io/api/cluster/v1beta1"
 	ocmworkv1 "open-cluster-management.io/api/work/v1"
+	policyv1 "open-cluster-management.io/governance-policy-propagator/api/v1"
 	viewv1beta1 "open-cluster-management.io/multicloud-operators-subscription/pkg/apis/view/v1beta1"
 )
 
@@ -29,6 +30,7 @@ func NewScheme() *runtime.Scheme {
 	utilruntime.Must(volrep.AddToScheme(s))
 	utilruntime.Must(volsyncv1alpha1.AddToScheme(s))
 	utilruntime.Must(snapv1.AddToScheme(s))
+	utilruntime.Must(policyv1.AddToScheme(s))
 
 	return s
 }
