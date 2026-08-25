@@ -148,6 +148,13 @@ func (a *volSyncActor) reconcileRS(ctx context.Context, req ctrl.Request) (ctrl.
 	rs.Status.LastSyncTime = &now
 	rs.Status.LastSyncStartTime = &now
 	rs.Status.LastManualSync = manual
+	// Real VolSync records each mover run here; ramen reads it without a
+	// nil check on the failover rollback path (vshandler.go
+	// rollbackToLastSnapshot), so a faithful fulfiller must set it.
+	rs.Status.LatestMoverStatus = &volsyncv1alpha1.MoverStatus{
+		Result: volsyncv1alpha1.MoverResultSuccessful,
+		Logs:   "mock mover completed",
+	}
 
 	if err := a.client.Status().Update(ctx, rs); err != nil {
 		return ctrl.Result{}, fmt.Errorf("update RS status: %w", err)

@@ -165,6 +165,12 @@ func TestVolSyncRSEchoesManualTrigger(t *testing.T) {
 	if got.Status.LastManualSync != "final-sync-1" {
 		t.Fatalf("LastManualSync = %q", got.Status.LastManualSync)
 	}
+	// Real VolSync records the mover run; ramen dereferences it without a
+	// nil check (vshandler rollbackToLastSnapshot), so a faithful fulfiller
+	// must set it.
+	if got.Status.LatestMoverStatus == nil {
+		t.Fatal("LatestMoverStatus not published")
+	}
 }
 
 // A Silent fault against the volsync actor must stall fulfillment (requeue,
