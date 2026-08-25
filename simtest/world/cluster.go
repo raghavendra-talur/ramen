@@ -23,12 +23,12 @@ type Cluster struct {
 	KubeconfigPath string
 }
 
-// hackTestCRDPaths lists the hack/test CRD files to install, excluding the
-// public groupsnapshot.storage.k8s.io group: its hack/test CRDs serve only
-// v1beta1 while the ramen binary's public VGS client is v1, and ramen
-// prefers the public API whenever that CRD is present — the version mismatch
-// then kills the dr-cluster manager on informer cache-sync timeout. The
-// private openshift.io variant matches its client and stays.
+// hackTestCRDPaths lists every hack/test CRD file. The public
+// groupsnapshot.storage.k8s.io CRDs are included: since their refresh to
+// external-snapshotter client v8.6.0 they serve v1 (ramen's public VGS
+// client version), so ramen's public-first VGS API selection works — the
+// consistency-group VolSync path runs against the public v1 API, exactly
+// as on a current vanilla cluster.
 func hackTestCRDPaths() ([]string, error) {
 	dir := filepath.Join(RepoRoot(), "hack", "test")
 
@@ -41,9 +41,6 @@ func hackTestCRDPaths() ([]string, error) {
 
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
-			continue
-		}
-		if strings.HasPrefix(e.Name(), "groupsnapshot.storage.k8s.io_") {
 			continue
 		}
 		paths = append(paths, filepath.Join(dir, e.Name()))

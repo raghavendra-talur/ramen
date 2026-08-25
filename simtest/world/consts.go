@@ -26,9 +26,27 @@ const (
 	CephFSVSClassName      = "mock-cephfs-vsc"
 	CephFSProvisioner      = "mock.cephfs.csi.ramen.io"
 
+	// The consistency-group stories. Each is an isolated storageid
+	// universe: peer-class grouping matches group classes to
+	// StorageClasses by storageid, so sharing ids with the plain stories
+	// would flip their peers to Grouping too. mock-rbd-cg groups through
+	// VolumeGroupReplication (SC + VRClass + VGRClass); mock-cephfs-cg
+	// groups through VolumeGroupSnapshot on the public v1 API
+	// (SC + VolumeSnapshotClass + VolumeGroupSnapshotClass).
+	CGStorageClassName = "mock-rbd-cg"
+	CGVRClassName      = "mock-rbd-cg-vrc"
+	VGRClassName       = "mock-rbd-cg-vgrc"
+	CGReplicationID    = "mock-replication-rbd-cg"
+	GroupReplicationID = "mock-group-replication-rbd"
+
+	CGCephFSStorageClassName = "mock-cephfs-cg"
+	CGCephFSVSClassName      = "mock-cephfs-cg-vsc"
+	CephFSVGSClassName       = "mock-cephfs-cg-vgsc"
+
 	// Label keys ramen matches on (see internal/controller/volumereplicationgroup_controller.go).
-	StorageIDLabel     = "ramendr.openshift.io/storageid"
-	ReplicationIDLabel = "ramendr.openshift.io/replicationid"
+	StorageIDLabel          = "ramendr.openshift.io/storageid"
+	ReplicationIDLabel      = "ramendr.openshift.io/replicationid"
+	GroupReplicationIDLabel = "ramendr.openshift.io/groupreplicationid"
 
 	S3SecretName    = "ramen-s3-secret"
 	S3AccessKey     = "simtest"
@@ -48,5 +66,9 @@ const (
 func StorageID(cluster string) string { return "mock-rbd-" + cluster }
 
 func CephFSStorageID(cluster string) string { return "mock-cephfs-" + cluster }
-func S3Profile(cluster string) string       { return S3ProfilePrefix + cluster }
-func S3Bucket(cluster string) string        { return "bucket-" + cluster }
+
+func CGStorageID(cluster string) string { return "mock-rbd-cg-" + cluster }
+
+func CGCephFSStorageID(cluster string) string { return "mock-cephfs-cg-" + cluster }
+func S3Profile(cluster string) string         { return S3ProfilePrefix + cluster }
+func S3Bucket(cluster string) string          { return "bucket-" + cluster }

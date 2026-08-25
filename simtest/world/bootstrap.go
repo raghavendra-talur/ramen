@@ -6,6 +6,7 @@ package world
 import (
 	"context"
 	"fmt"
+	groupsnapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumegroupsnapshot/v1"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 
 	volrep "github.com/csi-addons/kubernetes-csi-addons/api/replication.storage/v1alpha1"
@@ -130,6 +131,66 @@ func createStorageClasses(ctx context.Context, m *Cluster) error {
 		return err
 	}
 
+	// The rbd consistency-group pair: the SC adds groupreplicationid, and
+	// the VolumeGroupReplicationClass (matching labels, provisioner, and
+	// scheduling interval) is what DRClusterConfig discovers to mark the
+	// rbd-cg peer classes with Grouping.
+	cgSC := &storagev1.StorageClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: CGStorageClassName,
+			Labels: map[string]string{
+				StorageIDLabel:          CGStorageID(m.Name),
+				ReplicationIDLabel:      CGReplicationID,
+				GroupReplicationIDLabel: GroupReplicationID,
+			},
+		},
+		Provisioner: Provisioner,
+	}
+	if err := client.IgnoreAlreadyExists(m.Client.Create(ctx, cgSC)); err != nil {
+		return err
+	}
+
+	// Non-offloaded grouping needs BOTH a VRClass and a VGRClass matching
+	// the CG storageid.
+	cgVRC := &volrep.VolumeReplicationClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: CGVRClassName,
+			Labels: map[string]string{
+				StorageIDLabel:     CGStorageID(m.Name),
+				ReplicationIDLabel: CGReplicationID,
+			},
+		},
+		Spec: volrep.VolumeReplicationClassSpec{
+			Provisioner: Provisioner,
+			Parameters:  map[string]string{"schedulingInterval": SchedulingInterval},
+		},
+	}
+	if err := client.IgnoreAlreadyExists(m.Client.Create(ctx, cgVRC)); err != nil {
+		return err
+	}
+
+	vgrc := &volrep.VolumeGroupReplicationClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: VGRClassName,
+			Labels: map[string]string{
+				StorageIDLabel:          CGStorageID(m.Name),
+				ReplicationIDLabel:      CGReplicationID,
+				GroupReplicationIDLabel: GroupReplicationID,
+			},
+		},
+		Spec: volrep.VolumeGroupReplicationClassSpec{
+			Provisioner: Provisioner,
+			Parameters: map[string]string{
+				"schedulingInterval": SchedulingInterval,
+				"replication.storage.openshift.io/group-replication-secret-name":      "mock-cg-secret",
+				"replication.storage.openshift.io/group-replication-secret-namespace": "default",
+			},
+		},
+	}
+	if err := client.IgnoreAlreadyExists(m.Client.Create(ctx, vgrc)); err != nil {
+		return err
+	}
+
 	// The cephfs pair: storageid-labeled StorageClass with NO replicationid
 	// and no replication class — routing its PVCs to VolSync — plus the
 	// VolumeSnapshotClass that provides the restore path.
@@ -153,7 +214,46 @@ func createStorageClasses(ctx context.Context, m *Cluster) error {
 		DeletionPolicy: snapv1.VolumeSnapshotContentDelete,
 	}
 
-	return client.IgnoreAlreadyExists(m.Client.Create(ctx, vsc))
+	if err := client.IgnoreAlreadyExists(m.Client.Create(ctx, vsc)); err != nil {
+		return err
+	}
+
+	// The cephfs consistency-group triple: its own storageid so the plain
+	// cephfs peers stay ungrouped, plus the snapshot and group-snapshot
+	// classes that make its peers report Grouping.
+	cgFS := &storagev1.StorageClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   CGCephFSStorageClassName,
+			Labels: map[string]string{StorageIDLabel: CGCephFSStorageID(m.Name)},
+		},
+		Provisioner: CephFSProvisioner,
+	}
+	if err := client.IgnoreAlreadyExists(m.Client.Create(ctx, cgFS)); err != nil {
+		return err
+	}
+
+	cgVSC := &snapv1.VolumeSnapshotClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   CGCephFSVSClassName,
+			Labels: map[string]string{StorageIDLabel: CGCephFSStorageID(m.Name)},
+		},
+		Driver:         CephFSProvisioner,
+		DeletionPolicy: snapv1.VolumeSnapshotContentDelete,
+	}
+	if err := client.IgnoreAlreadyExists(m.Client.Create(ctx, cgVSC)); err != nil {
+		return err
+	}
+
+	vgsc := &groupsnapv1.VolumeGroupSnapshotClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   CephFSVGSClassName,
+			Labels: map[string]string{StorageIDLabel: CGCephFSStorageID(m.Name)},
+		},
+		Driver:         CephFSProvisioner,
+		DeletionPolicy: snapv1.VolumeSnapshotContentDelete,
+	}
+
+	return client.IgnoreAlreadyExists(m.Client.Create(ctx, vgsc))
 }
 
 // createManagedCluster registers the cluster on the hub with the status ramen
