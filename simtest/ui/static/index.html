@@ -146,6 +146,8 @@
         <button class="src" data-src="dr1">DR1</button>
         <button class="src" data-src="dr2">DR2</button>
         <button class="src" data-src="actors">ACTORS</button>
+        <button class="lvl active" id="logscope">⧉ SCENARIO</button>
+        <span class="muted" id="logscopeid" style="font-size:10px"></span>
         <button class="lvl" data-lvl="ERROR">ERROR</button>
         <button class="lvl" data-lvl="INFO">INFO</button>
         <button class="lvl" data-lvl="DEBUG">DEBUG</button>
@@ -160,7 +162,8 @@
 <script>
 "use strict";
 const S = { snap: null, pinned: null, tab: "stage",
-  logSrc: "hub", logLevels: { ERROR: true, INFO: true, DEBUG: false }, logFilter: "", logLines: [] };
+  logSrc: "hub", logLevels: { ERROR: true, INFO: true, DEBUG: false }, logFilter: "", logLines: [],
+  logScope: true }; // true = align logs to the selected scenario's time window
 
 // Known DR states and progressions keep fixed, meaningful colors: green for
 // healthy/steady, blue for the secondary/ready side, purple for in-flight
@@ -253,14 +256,34 @@ function applyTab() {
 // ---- logs tab: the ramen manager logs, parsed the ramen-log-analyzer way:
 // tab-separated zap console fields (time, LEVEL, logger, file:line,
 // message, details JSON) rendered as columns, filtered by level/substring.
+// scenarioWindow: the framework runs the tests itself, so the selected
+// scenario's start/finish timestamps align exactly with the log clocks.
+function scenarioWindow() {
+  if (!S.logScope || !S.snap) return null;
+  const id = scenario();
+  const t = (S.snap.tests || []).find(t => t.id === id);
+  if (!t || !t.startedAt) return null;
+  return { id, since: t.startedAt, until: t.finishedAt || new Date().toISOString() };
+}
+
 async function fetchLogs() {
+  const win = scenarioWindow();
+  const scopeEl = document.getElementById("logscopeid");
+  scopeEl.textContent = win ? win.id : (S.logScope ? "(no scenario)" : "full tail");
+  let q = `/api/logs?src=${S.logSrc}&tail=600`;
+  if (win) q += `&since=${encodeURIComponent(win.since)}&until=${encodeURIComponent(win.until)}`;
   try {
-    const r = await fetch(`/api/logs?src=${S.logSrc}&tail=600`);
+    const r = await fetch(q);
     if (!r.ok) { S.logLines = [`(no ${S.logSrc}.log yet)`]; renderLogs(); return; }
     S.logLines = (await r.text()).split("\n").filter(Boolean);
   } catch { S.logLines = []; }
   renderLogs();
 }
+document.getElementById("logscope").onclick = () => {
+  S.logScope = !S.logScope;
+  document.getElementById("logscope").classList.toggle("active", S.logScope);
+  fetchLogs();
+};
 setInterval(() => { if (S.tab === "logs") fetchLogs(); }, 2000);
 
 function parseLogLine(line) {
@@ -364,7 +387,11 @@ function renderTests(s) {
     rows.innerHTML = html;
   });
   rows.querySelectorAll(".trow").forEach(el =>
-    el.onclick = () => { S.pinned = S.pinned === el.dataset.id ? null : el.dataset.id; render(); });
+    el.onclick = () => {
+      S.pinned = S.pinned === el.dataset.id ? null : el.dataset.id;
+      render();
+      if (S.tab === "logs") fetchLogs(); // re-align the log window immediately
+    });
 }
 
 function objectsFor(s, cluster, kind) {

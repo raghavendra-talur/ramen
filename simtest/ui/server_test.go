@@ -179,3 +179,45 @@ func TestLogsEndpoint(t *testing.T) {
 		t.Fatalf("missing file should 404: %d", code)
 	}
 }
+
+// Because the framework runs the tests itself, every scenario has exact
+// start/finish timestamps — the logs endpoint aligns to them: since/until
+// select the window (scanning the whole file, not just the tail), and
+// untimestamped continuation lines (stack traces) stick with the
+// timestamped line before them.
+func TestLogsEndpointWindow(t *testing.T) {
+	dir := t.TempDir()
+	log := "2026-08-26T01:00:05.000-0400\tINFO\tvrg\tc/x.go:1\tbefore\n" +
+		"2026-08-26T01:00:10.000-0400\tINFO\tvrg\tc/x.go:2\tinside one\n" +
+		"goroutine 12 [running]: continuation line\n" +
+		"2026-08-26T01:00:20.000-0400\tINFO\tvrg\tc/x.go:3\tinside two\n" +
+		"2026-08-26T01:00:40.000-0400\tINFO\tvrg\tc/x.go:4\tafter\n"
+	if err := os.WriteFile(filepath.Join(dir, "hub.log"), []byte(log), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Serve(New(), "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	resp, err := http.Get(s.URL() +
+		"/api/logs?src=hub&since=2026-08-26T05:00:08Z&until=2026-08-26T05:00:30Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+
+	got := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	want := []string{"inside one", "continuation", "inside two"}
+	if len(got) != 3 {
+		t.Fatalf("got %d lines: %q", len(got), got)
+	}
+	for i, w := range want {
+		if !strings.Contains(got[i], w) {
+			t.Fatalf("line %d = %q, want containing %q", i, got[i], w)
+		}
+	}
+}

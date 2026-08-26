@@ -4,6 +4,7 @@
 package ui
 
 import (
+	"bufio"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 //go:embed static
@@ -70,10 +72,15 @@ var logSources = map[string]bool{"hub": true, "dr1": true, "dr2": true, "actors"
 const (
 	logTailDefault = 400
 	logTailMax     = 2000
-	logReadBackCap = 1 << 20 // read at most the final 1MiB of a log
+	logReadBackCap = 1 << 20 // read at most the final 1MiB of a log (tail mode)
+	logWindowMax   = 5000    // cap for a scenario-window response
 )
 
-// logs serves the tail of one run log as text/plain.
+// logs serves the tail of one run log as text/plain. With since/until
+// (RFC3339) it instead scans the whole file for the window — the framework
+// runs the tests itself, so scenario timestamps align exactly with the log
+// clocks — keeping untimestamped continuation lines (stack traces) with
+// the timestamped line before them.
 func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
 	src := r.URL.Query().Get("src")
 	if !logSources[src] || s.logDir == "" {
@@ -87,7 +94,22 @@ func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
 		tail = n
 	}
 
-	lines, err := tailFile(filepath.Join(s.logDir, src+".log"), tail)
+	path := filepath.Join(s.logDir, src+".log")
+
+	var (
+		lines []string
+		err   error
+	)
+
+	since, sErr := time.Parse(time.RFC3339, r.URL.Query().Get("since"))
+	until, uErr := time.Parse(time.RFC3339, r.URL.Query().Get("until"))
+
+	if sErr == nil && uErr == nil {
+		lines, err = windowFile(path, since, until, logWindowMax)
+	} else {
+		lines, err = tailFile(path, tail)
+	}
+
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 
@@ -99,6 +121,66 @@ func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
 	for _, l := range lines {
 		fmt.Fprintln(w, l)
 	}
+}
+
+// lineTime parses the leading zap console timestamp of a log line; ok is
+// false for continuation lines (stack traces, non-zap output).
+func lineTime(line string) (time.Time, bool) {
+	end := strings.IndexByte(line, '\t')
+	if end < 0 {
+		return time.Time{}, false
+	}
+
+	t, err := time.Parse("2006-01-02T15:04:05.000-0700", line[:end])
+	if err != nil {
+		return time.Time{}, false
+	}
+
+	return t, true
+}
+
+// windowFile scans path and returns the lines whose timestamps fall in
+// [since, until], carrying continuation lines with their predecessor. The
+// result is capped at maxLines, keeping the window's tail.
+func windowFile(path string, since, until time.Time, maxLines int) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var (
+		lines    []string
+		inWindow bool
+	)
+
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 256*1024), 1024*1024)
+
+	for sc.Scan() {
+		line := sc.Text()
+		if t, ok := lineTime(line); ok {
+			if t.After(until) {
+				break
+			}
+
+			inWindow = !t.Before(since)
+		}
+
+		if inWindow {
+			lines = append(lines, line)
+		}
+	}
+
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+
+	return lines, nil
 }
 
 // tailFile returns the last n lines of path, reading at most the final
