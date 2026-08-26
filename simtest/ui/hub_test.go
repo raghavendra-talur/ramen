@@ -195,3 +195,19 @@ func TestRemoveObject(t *testing.T) {
 	var nh *Hub
 	nh.RemoveObject(o)
 }
+
+// The header shows how this run was invoked, so a viewer can tell which
+// slice of the matrix they are looking at without the terminal.
+func TestRunCommandInSnapshot(t *testing.T) {
+	h := New()
+	h.RunStart("simtest")
+	h.SetRunCommand("go test ./tests/ -run 'TestBaselines' -count=1")
+
+	if got := h.Snapshot().Run.Command; got != "go test ./tests/ -run 'TestBaselines' -count=1" {
+		t.Fatalf("run command = %q", got)
+	}
+
+	var nilHub *Hub
+
+	nilHub.SetRunCommand("x") // nil-safe like every hub hook
+}

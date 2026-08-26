@@ -31,7 +31,10 @@ type TestInfo struct {
 
 // RunInfo summarizes the whole run for the top-left panel.
 type RunInfo struct {
-	Name       string    `json:"name"`
+	Name string `json:"name"`
+	// Command is how this run was invoked (the go test line), shown in the
+	// header so a viewer can tell which slice of the matrix they watch.
+	Command    string    `json:"command,omitzero"`
 	StartedAt  time.Time `json:"startedAt"`
 	Passed     int       `json:"passed"`
 	Failed     int       `json:"failed"`

@@ -5,6 +5,7 @@ package tests
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -46,6 +47,7 @@ func getWorld(t *testing.T) (*world.World, *invariants.Checker) {
 		}
 
 		sharedW.UIHub().RunStart("simtest")
+		sharedW.UIHub().SetRunCommand(testCommand())
 		sharedC.SetOnViolation(sharedW.UIHub().ObserveInvariant)
 	})
 
@@ -101,6 +103,29 @@ func TestMain(m *testing.M) {
 	world.StopShared()
 
 	os.Exit(code)
+}
+
+// testCommand reconstructs the go test invocation from the test binary's
+// flags, for the UI header: with the -run pattern visible, a viewer can
+// tell which slice of the matrix they are looking at.
+func testCommand() string {
+	cmd := "go test ./tests/ -count=1"
+
+	if f := flag.Lookup("test.run"); f != nil && f.Value.String() != "" {
+		cmd += " -run '" + f.Value.String() + "'"
+	}
+
+	if f := flag.Lookup("test.timeout"); f != nil && f.Value.String() != "" && f.Value.String() != "0s" {
+		cmd += " -timeout " + f.Value.String()
+	}
+
+	for _, env := range []string{"SIMTEST_UI", "SIMTEST_UI_HOLD", "SIMTEST_TIMEOUT_SCALE"} {
+		if v := os.Getenv(env); v != "" {
+			cmd = env + "=" + v + " " + cmd
+		}
+	}
+
+	return cmd
 }
 
 // uiScenario reports one scenario's lifecycle to the UI hub (no-op when the

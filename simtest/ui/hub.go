@@ -75,6 +75,17 @@ func (h *Hub) RunStart(name string) {
 	h.emit("run_started", map[string]string{"name": name})
 }
 
+// SetRunCommand records how the run was invoked; call after RunStart.
+func (h *Hub) SetRunCommand(cmd string) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.run.Command = cmd
+	h.emit("run_started", map[string]string{"command": cmd})
+}
+
 func (h *Hub) ScenarioStart(id string) {
 	if h == nil {
 		return

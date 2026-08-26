@@ -7,7 +7,7 @@
   * { box-sizing: border-box; margin: 0; }
   html, body { height: 100%; }
   body { background:#0b0e14; color:#e6edf3; font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;
-         padding:10px; display:grid; grid-template-rows:auto 1fr auto; gap:10px; }
+         padding:10px; display:grid; grid-template-rows:auto 1fr; gap:10px; }
   .panel { background:#11151ccc; border:1px solid #2a3140; border-radius:6px; padding:12px; }
   h4 { font-size:10px; letter-spacing:1.5px; color:#7d8590; margin-bottom:6px; font-weight:600; }
   .kv { display:flex; justify-content:space-between; gap:10px; font-size:12px; }
@@ -21,6 +21,8 @@
   #run .bar { flex:1; max-width:420px; height:8px; background:#21262d; border-radius:4px; overflow:hidden; }
   #run .bar div { height:100%; background:#58a6ff; transition:width .3s; }
   .chip { font-size:11px; padding:1px 8px; border-radius:9px; background:#2d0f0f; color:#f85149; border:1px solid #f8514966; }
+  #run .cmd { font-size:11px; color:#7d8590; background:#0e1117; border:1px solid #2a3140; border-radius:5px;
+              padding:2px 9px; max-width:520px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
   .cols { display:flex; gap:10px; min-height:0; }
   #tests { width:250px; flex-shrink:0; display:flex; flex-direction:column; min-height:0; }
@@ -37,8 +39,16 @@
   .d-queued { border:1.5px solid #30363d; background:none; }
   @keyframes spin { to { transform:rotate(360deg); } }
 
-  #stagewrap { flex:1; min-width:0; display:flex; }
-  #stage { flex:1; position:relative; min-height:0; max-width:980px; width:100%; margin:0 auto; }
+  #centercol { flex:1; min-width:0; display:flex; flex-direction:column; gap:8px; }
+  #tabbar { display:flex; gap:6px; }
+  #tabbar button { font:inherit; font-size:10px; letter-spacing:1.5px; font-weight:600; cursor:pointer;
+                   color:#7d8590; background:#11151ccc; border:1px solid #2a3140; border-radius:6px 6px 0 0;
+                   padding:5px 16px 4px; border-bottom:none; }
+  #tabbar button.active { color:#e6edf3; background:#1c2431; border-color:#58a6ff66; }
+  #vizwrap { flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
+  #eventsview { flex:1; min-height:0; display:none; flex-direction:column; }
+  #stagewrap { flex:1; min-height:0; display:flex; }
+  #stage { flex:1; position:relative; min-height:0; max-width:980px; max-height:620px; width:100%; margin:0 auto; }
   #edges { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
   #edges line { stroke:#2a3140; stroke-width:2; }
   #edges line.sev { stroke:#f85149; stroke-dasharray:6 6; animation:march 1s linear infinite; }
@@ -71,11 +81,9 @@
   #s3.down { background:#2d0f0f; border-color:#f85149; animation:blink 1.2s infinite; }
   @keyframes blink { 50% { opacity:.55; } }
 
-  .rightcol { width:310px; flex-shrink:0; display:flex; flex-direction:column; gap:10px; min-height:0; }
-  #inspector { flex-shrink:0; }
-  #eventspanel { flex:1; min-height:0; display:flex; flex-direction:column; }
-  #events { overflow-y:auto; flex:1; font-size:11px; line-height:1.7; color:#7d8590; }
-  #events > div { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #inspector { width:310px; flex-shrink:0; overflow-y:auto; }
+  #events { overflow-y:auto; flex:1; font-size:12px; line-height:1.75; color:#7d8590; }
+  #events > div { padding:1px 0 1px 14px; text-indent:-14px; border-bottom:1px solid #161b24; }
   #events .t { color:#57606a; }
   #events .actor { color:#58a6ff; }
   #events .viol { color:#f85149; }
@@ -95,23 +103,29 @@
 <div class="panel" id="run"></div>
 <div class="cols">
   <div class="panel" id="tests"><h4>TESTS</h4><div class="rows"></div></div>
-  <div id="stagewrap"><div id="stage">
-    <svg id="edges"></svg>
-    <div class="cluster" id="c-hub" style="left:50%;top:2%;transform:translateX(-50%)"></div>
-    <div class="cluster" id="c-dr1" style="left:3%;bottom:3%"></div>
-    <div class="cluster" id="c-dr2" style="right:3%;bottom:3%"></div>
-    <div id="s3">S3</div>
-  </div></div>
-  <div class="rightcol">
-    <div class="panel" id="inspector"></div>
-    <div class="panel" id="eventspanel"><h4>EVENTS</h4><div id="events"></div></div>
+  <div id="centercol">
+    <div id="tabbar">
+      <button data-tab="stage" class="active">STAGE</button>
+      <button data-tab="events">EVENTS</button>
+    </div>
+    <div id="vizwrap">
+      <div id="stagewrap"><div id="stage">
+        <svg id="edges"></svg>
+        <div class="cluster" id="c-hub" style="left:50%;top:2%;transform:translateX(-50%)"></div>
+        <div class="cluster" id="c-dr1" style="left:3%;bottom:3%"></div>
+        <div class="cluster" id="c-dr2" style="right:3%;bottom:3%"></div>
+        <div id="s3">S3</div>
+      </div></div>
+      <div class="panel" id="timeline"></div>
+    </div>
+    <div class="panel" id="eventsview"><h4>EVENTS</h4><div id="events"></div></div>
   </div>
+  <div class="panel" id="inspector"></div>
 </div>
-<div class="panel" id="timeline"></div>
 
 <script>
 "use strict";
-const S = { snap: null, pinned: null }; // pinned: scenario id or null = follow current
+const S = { snap: null, pinned: null, tab: "stage" }; // pinned: scenario id or null = follow current
 
 // Known DR states and progressions keep fixed, meaningful colors: green for
 // healthy/steady, blue for the secondary/ready side, purple for in-flight
@@ -185,10 +199,21 @@ function keepScroll(el, fn) {
 
 function render() {
   const s = S.snap; if (!s) return;
-  renderRun(s); renderTests(s); renderStage(s);
-  renderInspector(s); renderTimeline(s); renderEvents(s);
-  animateTraffic(s);
+  renderRun(s); renderTests(s); renderInspector(s); renderEvents(s);
+  // The stage's geometry reads as zero while its tab is hidden; skip its
+  // renderers there (the events tab replaces the whole visualization).
+  if (S.tab === "stage") { renderStage(s); renderTimeline(s); animateTraffic(s); }
+  else { S.animSeq = Math.max(S.animSeq ?? 0, s.seq || 0); } // don't replay on return
 }
+
+function applyTab() {
+  document.getElementById("vizwrap").style.display = S.tab === "stage" ? "flex" : "none";
+  document.getElementById("eventsview").style.display = S.tab === "events" ? "flex" : "none";
+  document.querySelectorAll("#tabbar button").forEach(b =>
+    b.classList.toggle("active", b.dataset.tab === S.tab));
+}
+document.querySelectorAll("#tabbar button").forEach(b =>
+  b.onclick = () => { S.tab = b.dataset.tab; applyTab(); render(); });
 
 // "actors.Silent" reads like a stack trace; "silent" reads like a fault.
 const policyName = d => String(d || "").replace(/^actors\./, "").toLowerCase();
@@ -202,6 +227,7 @@ function renderRun(s) {
     .map(([n]) => `<span class="chip">mgr ${esc(n)} DEAD</span>`).join(" ");
   document.getElementById("run").innerHTML = `
     <span class="name">SIMTEST · ${esc(s.run.name || "run")}</span>
+    ${s.run.command ? `<span class="cmd" title="${esc(s.run.command)}">${esc(s.run.command)}</span>` : ""}
     <div class="bar"><div style="width:${total ? 100 * done / total : 0}%"></div></div>
     <span>${done}/${total}</span>
     <span><span class="ok">${s.run.passed || 0}✓</span>
@@ -510,7 +536,7 @@ function animateTraffic(s) {
 function renderEvents(s) {
   const el = document.getElementById("events");
   keepScroll(el, () => {
-    el.innerHTML = (s.events || []).slice(-40).reverse()
+    el.innerHTML = (s.events || []).slice(-250).reverse()
       .map(e => `<div title="${esc((e.data && (e.data.line || e.data.violation)) || e.type)}">${fmtEvent(e)}</div>`).join("");
   });
 }
