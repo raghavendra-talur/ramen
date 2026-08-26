@@ -170,6 +170,19 @@ func (a *volSyncActor) reconcileRS(ctx context.Context, req ctrl.Request) (ctrl.
 	return ctrl.Result{}, nil
 }
 
+// rdOwnerRef controller-owns an actor artifact by its RD, so a real
+// garbage collector (kind backend) cascades it; envtest's janitor sweeps
+// by name prefix either way.
+func rdOwnerRef(rd *volsyncv1alpha1.ReplicationDestination) metav1.OwnerReference {
+	return metav1.OwnerReference{
+		APIVersion: volsyncv1alpha1.GroupVersion.String(),
+		Kind:       "ReplicationDestination",
+		Name:       rd.GetName(),
+		UID:        rd.GetUID(),
+		Controller: ptr.To(true),
+	}
+}
+
 // mockDestinationPVCName is the mock destination PVC for an RD. It must NOT
 // be the protected PVC name (== rd.GetName()): Ramen restores the workload
 // PVC under the protected PVC name, so the destination PVC needs its own.
@@ -194,7 +207,10 @@ func (a *volSyncActor) ensureDestinationPVC(
 	}
 
 	pvc = &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: rd.GetNamespace()},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name, Namespace: rd.GetNamespace(),
+			OwnerReferences: []metav1.OwnerReference{rdOwnerRef(rd)},
+		},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			AccessModes:      destinationAccessModes(rd),
 			StorageClassName: destinationStorageClassName(rd),
@@ -225,7 +241,10 @@ func (a *volSyncActor) ensureLatestImageSnapshot(
 	}
 
 	snap = &snapv1.VolumeSnapshot{
-		ObjectMeta: metav1.ObjectMeta{Name: snapName, Namespace: rd.GetNamespace()},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: snapName, Namespace: rd.GetNamespace(),
+			OwnerReferences: []metav1.OwnerReference{rdOwnerRef(rd)},
+		},
 		Spec: snapv1.VolumeSnapshotSpec{
 			Source:                  snapv1.VolumeSnapshotSource{PersistentVolumeClaimName: ptr.To(sourcePVCName)},
 			VolumeSnapshotClassName: destinationVolumeSnapshotClassName(rd),

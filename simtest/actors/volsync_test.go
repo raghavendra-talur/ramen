@@ -110,6 +110,13 @@ func TestVolSyncRDFulfillsAfterPVCBinds(t *testing.T) {
 		t.Fatalf("dest PVC storage class = %q", got)
 	}
 
+	// The artifacts are controller-owned by the RD so a real garbage
+	// collector (kind backend) cascades them; envtest's janitor sweeps by
+	// name prefix either way.
+	if o := metav1.GetControllerOfNoCopy(pvc); o == nil || o.Kind != "ReplicationDestination" || o.Name != "app-data" {
+		t.Fatalf("dest PVC not owned by the RD: %+v", pvc.OwnerReferences)
+	}
+
 	pvc.Status.Phase = corev1.ClaimBound
 	if err := cl.Status().Update(ctx, pvc); err != nil {
 		t.Fatal(err)
@@ -129,6 +136,9 @@ func TestVolSyncRDFulfillsAfterPVCBinds(t *testing.T) {
 	}
 	if got := *snap.Spec.VolumeSnapshotClassName; got != "mock-cephfs-vsc" {
 		t.Fatalf("snapshot class = %q", got)
+	}
+	if o := metav1.GetControllerOfNoCopy(snap); o == nil || o.Kind != "ReplicationDestination" || o.Name != "app-data" {
+		t.Fatalf("latestImage snapshot not owned by the RD: %+v", snap.OwnerReferences)
 	}
 
 	got := &volsyncv1alpha1.ReplicationDestination{}
