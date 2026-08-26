@@ -47,6 +47,26 @@
   #tabbar button.active { color:#e6edf3; background:#1c2431; border-color:#58a6ff66; }
   #vizwrap { flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
   #eventsview { flex:1; min-height:0; display:none; flex-direction:column; }
+  #logsview { flex:1; min-height:0; display:none; flex-direction:column; }
+  #logbar { display:flex; gap:6px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
+  #logbar .src, #logbar .lvl { font:inherit; font-size:10px; letter-spacing:1px; cursor:pointer;
+    color:#7d8590; background:#0e1117; border:1px solid #2a3140; border-radius:5px; padding:2px 10px; }
+  #logbar .src.active { color:#e6edf3; background:#1c2431; border-color:#58a6ff66; }
+  #logbar .lvl.active { color:#e6edf3; border-color:#58a6ff66; }
+  #logbar input { font:inherit; font-size:11px; color:#e6edf3; background:#0e1117;
+    border:1px solid #2a3140; border-radius:5px; padding:2px 9px; flex:1; min-width:120px; }
+  #logs { overflow:auto; flex:1; font-size:11px; line-height:1.6; }
+  .lrow { display:grid; grid-template-columns:66px 44px 90px minmax(200px,1.4fr) 1fr; gap:8px;
+    border-bottom:1px solid #12161f; padding:1px 0; align-items:baseline; }
+  .lrow > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lrow .lt { color:#57606a; }
+  .lrow .ll { font-weight:700; }
+  .ll.INFO { color:#58a6ff; } .ll.ERROR { color:#f85149; } .ll.DEBUG { color:#57606a; }
+  .ll.WARN { color:#d29922; } .ll.FATAL, .ll.PANIC { color:#f85149; }
+  .lrow .lg { color:#a371f7; }
+  .lrow .lj { color:#57606a; }
+  .lraw { color:#7d8590; border-bottom:1px solid #12161f; padding:1px 0;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #stagewrap { flex:1; min-height:0; display:flex; }
   #stage { flex:1; position:relative; min-height:0; max-width:980px; max-height:620px; width:100%; margin:0 auto; }
   #edges { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
@@ -107,6 +127,7 @@
     <div id="tabbar">
       <button data-tab="stage" class="active">STAGE</button>
       <button data-tab="events">EVENTS</button>
+      <button data-tab="logs">LOGS</button>
     </div>
     <div id="vizwrap">
       <div id="stagewrap"><div id="stage">
@@ -119,13 +140,27 @@
       <div class="panel" id="timeline"></div>
     </div>
     <div class="panel" id="eventsview"><h4>EVENTS</h4><div id="events"></div></div>
+    <div class="panel" id="logsview">
+      <div id="logbar">
+        <button class="src" data-src="hub">HUB</button>
+        <button class="src" data-src="dr1">DR1</button>
+        <button class="src" data-src="dr2">DR2</button>
+        <button class="src" data-src="actors">ACTORS</button>
+        <button class="lvl" data-lvl="ERROR">ERROR</button>
+        <button class="lvl" data-lvl="INFO">INFO</button>
+        <button class="lvl" data-lvl="DEBUG">DEBUG</button>
+        <input id="logfilter" placeholder="filter (substring, any field)">
+      </div>
+      <div id="logs"></div>
+    </div>
   </div>
   <div class="panel" id="inspector"></div>
 </div>
 
 <script>
 "use strict";
-const S = { snap: null, pinned: null, tab: "stage" }; // pinned: scenario id or null = follow current
+const S = { snap: null, pinned: null, tab: "stage",
+  logSrc: "hub", logLevels: { ERROR: true, INFO: true, DEBUG: false }, logFilter: "", logLines: [] };
 
 // Known DR states and progressions keep fixed, meaningful colors: green for
 // healthy/steady, blue for the secondary/ready side, purple for in-flight
@@ -209,9 +244,72 @@ function render() {
 function applyTab() {
   document.getElementById("vizwrap").style.display = S.tab === "stage" ? "flex" : "none";
   document.getElementById("eventsview").style.display = S.tab === "events" ? "flex" : "none";
+  document.getElementById("logsview").style.display = S.tab === "logs" ? "flex" : "none";
   document.querySelectorAll("#tabbar button").forEach(b =>
     b.classList.toggle("active", b.dataset.tab === S.tab));
+  if (S.tab === "logs") fetchLogs();
 }
+
+// ---- logs tab: the ramen manager logs, parsed the ramen-log-analyzer way:
+// tab-separated zap console fields (time, LEVEL, logger, file:line,
+// message, details JSON) rendered as columns, filtered by level/substring.
+async function fetchLogs() {
+  try {
+    const r = await fetch(`/api/logs?src=${S.logSrc}&tail=600`);
+    if (!r.ok) { S.logLines = [`(no ${S.logSrc}.log yet)`]; renderLogs(); return; }
+    S.logLines = (await r.text()).split("\n").filter(Boolean);
+  } catch { S.logLines = []; }
+  renderLogs();
+}
+setInterval(() => { if (S.tab === "logs") fetchLogs(); }, 2000);
+
+function parseLogLine(line) {
+  const parts = line.split("\t");
+  if (parts.length < 4 || !/^(TRACE|DEBUG|INFO|WARN|ERROR|FATAL|PANIC)$/.test(parts[1])) return null;
+  const [ts, level, logger, filepos] = parts;
+  let msg = parts[4] || "", json = parts.slice(5).join(" ");
+  if (!json && /^\{.*\}$/.test(msg)) { json = msg; msg = ""; }
+  return { ts, level, logger, filepos, msg, json };
+}
+
+function renderLogs() {
+  const el = document.getElementById("logs");
+  const stick = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
+  const filt = S.logFilter.toLowerCase();
+  let html = "";
+  for (const line of S.logLines) {
+    if (filt && !line.toLowerCase().includes(filt)) continue;
+    const p = parseLogLine(line);
+    if (!p) { // stack traces, actors.log, anything non-zap: raw row
+      if (S.logLevels.DEBUG || !filt || line.toLowerCase().includes(filt))
+        html += `<div class="lraw" title="${esc(line)}">${esc(line)}</div>`;
+      continue;
+    }
+    const lvlKey = p.level === "WARN" || p.level === "FATAL" || p.level === "PANIC" ? "ERROR" : p.level;
+    if (S.logLevels[lvlKey] === false) continue;
+    html += `<div class="lrow">
+      <span class="lt" title="${esc(p.ts)}">${esc(p.ts.slice(11, 19))}</span>
+      <span class="ll ${esc(p.level)}">${esc(p.level)}</span>
+      <span class="lg" title="${esc(p.logger)}">${esc(p.logger)}</span>
+      <span title="${esc(p.filepos)}\n${esc(p.msg)}">${esc(p.msg)}</span>
+      <span class="lj" title="${esc(p.json)}">${esc(p.json)}</span></div>`;
+  }
+  el.innerHTML = html || `<div class="muted">no matching lines</div>`;
+  if (stick) el.scrollTop = el.scrollHeight;
+}
+
+document.querySelectorAll("#logbar .src").forEach(b =>
+  b.onclick = () => { S.logSrc = b.dataset.src; syncLogBar(); fetchLogs(); });
+document.querySelectorAll("#logbar .lvl").forEach(b =>
+  b.onclick = () => { S.logLevels[b.dataset.lvl] = !S.logLevels[b.dataset.lvl]; syncLogBar(); renderLogs(); });
+document.getElementById("logfilter").oninput = e => { S.logFilter = e.target.value; renderLogs(); };
+function syncLogBar() {
+  document.querySelectorAll("#logbar .src").forEach(b =>
+    b.classList.toggle("active", b.dataset.src === S.logSrc));
+  document.querySelectorAll("#logbar .lvl").forEach(b =>
+    b.classList.toggle("active", S.logLevels[b.dataset.lvl] !== false));
+}
+syncLogBar();
 document.querySelectorAll("#tabbar button").forEach(b =>
   b.onclick = () => { S.tab = b.dataset.tab; applyTab(); render(); });
 

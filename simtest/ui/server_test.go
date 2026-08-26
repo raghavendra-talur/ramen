@@ -6,8 +6,11 @@ package ui
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +19,7 @@ import (
 func startTestServer(t *testing.T) (*Hub, *Server) {
 	t.Helper()
 	h := New()
-	s, err := Serve(h, "")
+	s, err := Serve(h, "", "")
 	if err != nil {
 		t.Fatalf("serve: %v", err)
 	}
@@ -128,5 +131,51 @@ func TestIndexHasAppRegions(t *testing.T) {
 		if !strings.Contains(body.String(), id) {
 			t.Fatalf("index.html missing %s", id)
 		}
+	}
+}
+
+// The logs endpoint serves a bounded tail of the run's log files (the ramen
+// manager logs above all), by whitelisted source name only.
+func TestLogsEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	lines := ""
+	for i := 1; i <= 50; i++ {
+		lines += fmt.Sprintf("2026-08-26T01:02:%02d.000-0400\tINFO\tvrg\tctrl/x.go:%d\tline %d\n", i%60, i, i)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "dr1.log"), []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Serve(New(), "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	get := func(path string) (int, string) {
+		resp, err := http.Get(s.URL() + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+
+		return resp.StatusCode, string(b)
+	}
+
+	code, body := get("/api/logs?src=dr1&tail=10")
+	if code != 200 {
+		t.Fatalf("status %d", code)
+	}
+	got := strings.Split(strings.TrimRight(body, "\n"), "\n")
+	if len(got) != 10 || !strings.HasSuffix(got[9], "line 50") || !strings.HasSuffix(got[0], "line 41") {
+		t.Fatalf("tail wrong: %d lines, first %q last %q", len(got), got[0], got[len(got)-1])
+	}
+
+	if code, _ := get("/api/logs?src=../../etc/passwd"); code != 400 {
+		t.Fatalf("traversal not rejected: %d", code)
+	}
+	if code, _ := get("/api/logs?src=hub"); code != 404 {
+		t.Fatalf("missing file should 404: %d", code)
 	}
 }

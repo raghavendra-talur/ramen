@@ -50,7 +50,7 @@ func Launch(ctx context.Context, o Options) (*UI, error) {
 		u.stopPersist = stop
 	}
 
-	srv, err := Serve(h, o.Addr)
+	srv, err := Serve(h, o.Addr, o.Dir)
 	if err != nil {
 		if u.stopPersist != nil {
 			u.stopPersist()
