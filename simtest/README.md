@@ -91,6 +91,7 @@ both in `matrixSpecs()`.
 | `SIMTEST_UI=1` (or `=127.0.0.1:8127`) | Live web UI; URL printed at world bring-up. See `ui/README.md`.        |
 | `SIMTEST_UI_HOLD=1`                   | Keep the UI (and final state) up after the run until Ctrl-C.           |
 | `SIMTEST_TIMEOUT_SCALE=2.5`           | Multiply observation timeouts for slow machines.                       |
+| `SIMTEST_BACKEND=kind`                | Real kind clusters instead of envtest (see Backends below).            |
 | `KUBEBUILDER_ASSETS`                  | Override envtest binaries (default: from `../testbin/testassets.txt`). |
 
 ## Artifacts
@@ -99,3 +100,24 @@ Every run writes `simtest/.artifacts/<TestName>-<timestamp>/`: per-manager logs
 (`hub.log`, `dr1.log`, `dr2.log`), per-cluster admin kubeconfigs that work with
 plain `kubectl` against the live world, `actors.log`, `progression-edges.log`,
 and — with the UI on — `ui-events.jsonl`, the complete observed event stream.
+
+## Backends
+
+`SIMTEST_BACKEND` selects how the world's three clusters are provided:
+
+- **envtest** (default): etcd + kube-apiserver per cluster — fast (~15s world
+  boot) and deterministic, but nothing beyond the apiserver runs, so the
+  **janitor** actor stands in for kube-controller-manager (protection
+  finalizers, ownerRef garbage collection, foreground deletion).
+- **kind**: one kind cluster per world cluster (requires `kind` plus a docker or
+  podman runtime — with podman, start the machine first). A real
+  kube-controller-manager runs and the janitor does not: its absence is itself a
+  test, catching ramen bugs the sweeps would mask (GC-ordering assumptions,
+  finalizer timing). Boot is ~90s and combos run slower under real-controller
+  timing, so use it for baselines and periodic validation rather than the fault
+  matrix:
+
+```sh
+podman machine start
+SIMTEST_BACKEND=kind go test ./tests/ -run 'TestBaselines/(rbd|cephfs)$' -v -count=1 -timeout 40m
+```
