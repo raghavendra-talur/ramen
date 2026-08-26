@@ -152,6 +152,32 @@ func TestVGRAdoptsRestoredContent(t *testing.T) {
 	}
 }
 
+// The real csi-addons controller deletes a group's content when the group
+// goes away; VGRCs are cluster-scoped so no ownerRef can do it. The actor
+// owns this cleanup (in kind mode there is no janitor to fall back on).
+func TestVGRDeletesContentWhenGroupGone(t *testing.T) {
+	vgrc := &volrep.VolumeGroupReplicationContent{
+		ObjectMeta: metav1.ObjectMeta{Name: "mock-vgrc-vgr-cg1-app1"},
+		Spec: volrep.VolumeGroupReplicationContentSpec{
+			VolumeGroupReplicationHandle:    "h",
+			Provisioner:                     "p",
+			VolumeGroupReplicationClassName: "c",
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(volsyncScheme(t)).WithObjects(vgrc).Build()
+	a := &vgrActor{client: cl, cluster: "dr1", rt: newTestRuntime(t)}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "app-ns", Name: "vgr-cg1-app1"}}
+
+	if _, err := a.Reconcile(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cl.Get(context.Background(),
+		types.NamespacedName{Name: "mock-vgrc-vgr-cg1-app1"}, &volrep.VolumeGroupReplicationContent{}); err == nil {
+		t.Fatal("VGRC must be deleted once its VGR is gone")
+	}
+}
+
 // The VGR fulfiller shares the VolRep fault key: a volrep fault starves the
 // grouped path exactly like the per-PVC path.
 func TestVGRSilentPolicyStalls(t *testing.T) {

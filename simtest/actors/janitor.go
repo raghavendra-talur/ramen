@@ -10,7 +10,6 @@ import (
 	"time"
 
 	volsyncv1alpha1 "github.com/backube/volsync/api/v1alpha1"
-	volrep "github.com/csi-addons/kubernetes-csi-addons/api/replication.storage/v1alpha1"
 	groupsnapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumegroupsnapshot/v1"
 	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	rmn "github.com/ramendr/ramen/api/v1alpha1"
@@ -24,7 +23,6 @@ import (
 const (
 	mockDestPVCPrefix     = "mock-volsync-dst-"
 	mockLatestImagePrefix = "mock-latestimage-"
-	mockVGRCPrefix        = "mock-vgrc-"
 	mockVGSMemberPrefix   = "mock-vgs-"
 )
 
@@ -67,7 +65,6 @@ func sweep(ctx context.Context, c client.Client, cluster string, rt *Runtime) {
 		}
 	}
 
-	sweepOrphanVGRCs(ctx, c, cluster, rt)
 	sweepOrphanRGChildren(ctx, c, cluster, rt)
 
 	// Ramen deletes its final-sync mount jobs with Foreground propagation;
@@ -116,37 +113,6 @@ func sweepOrphan(ctx context.Context, c client.Client, obj client.Object,
 
 	if err := c.Delete(ctx, obj); err == nil {
 		rt.Log.Logf("janitor@%s swept orphaned %s/%s", cluster, obj.GetNamespace(), obj.GetName())
-	}
-}
-
-// sweepOrphanVGRCs deletes vgr-actor-created VolumeGroupReplicationContents
-// whose referenced VGR no longer exists. VGRCs are cluster-scoped, so they
-// cannot carry an ownerRef to their namespaced VGR even where a garbage
-// collector runs.
-func sweepOrphanVGRCs(ctx context.Context, c client.Client, cluster string, rt *Runtime) {
-	vgrcs := &volrep.VolumeGroupReplicationContentList{}
-	if err := c.List(ctx, vgrcs); err != nil {
-		return
-	}
-
-	for i := range vgrcs.Items {
-		vgrc := &vgrcs.Items[i]
-
-		ref := vgrc.Spec.VolumeGroupReplicationRef
-		if !strings.HasPrefix(vgrc.GetName(), mockVGRCPrefix) || ref == nil {
-			continue
-		}
-
-		vgr := &volrep.VolumeGroupReplication{}
-
-		err := c.Get(ctx, client.ObjectKey{Namespace: ref.Namespace, Name: ref.Name}, vgr)
-		if !apierrors.IsNotFound(err) {
-			continue
-		}
-
-		if err := c.Delete(ctx, vgrc); err == nil {
-			rt.Log.Logf("janitor@%s swept orphaned VGRC %s", cluster, vgrc.GetName())
-		}
 	}
 }
 

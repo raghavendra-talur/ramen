@@ -44,8 +44,17 @@ func setupVGR(mgr manager.Manager, cluster string, rt *Runtime) error {
 //nolint:cyclop
 func (a *vgrActor) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	vgr := &volrep.VolumeGroupReplication{}
-	if err := a.client.Get(ctx, req.NamespacedName, vgr); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+
+	err := a.client.Get(ctx, req.NamespacedName, vgr)
+	if apierrors.IsNotFound(err) {
+		// The real csi-addons controller deletes a group's content when the
+		// group goes away; the content is cluster-scoped, so no ownerRef can
+		// do it. The actor's content name is deterministic.
+		return ctrl.Result{}, a.deleteVGRC(ctx, vgrcNameFor(req.Name))
+	}
+
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if vgr.GetDeletionTimestamp() != nil {
@@ -86,10 +95,22 @@ func (a *vgrActor) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result
 	return ctrl.Result{}, nil
 }
 
+func vgrcNameFor(vgrName string) string { return "mock-vgrc-" + vgrName }
+
+// deleteVGRC removes the actor's content for a deleted VGR, if it exists.
+func (a *vgrActor) deleteVGRC(ctx context.Context, name string) error {
+	vgrc := &volrep.VolumeGroupReplicationContent{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	if err := a.client.Delete(ctx, vgrc); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	return nil
+}
+
 // ensureVGRC creates the backing content object and links it into the VGR
 // spec, the way the real csi-addons controller binds a group to its content.
 func (a *vgrActor) ensureVGRC(ctx context.Context, vgr *volrep.VolumeGroupReplication) error {
-	name := "mock-vgrc-" + vgr.GetName()
+	name := vgrcNameFor(vgr.GetName())
 
 	vgrc := &volrep.VolumeGroupReplicationContent{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
