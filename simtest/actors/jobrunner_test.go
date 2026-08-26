@@ -11,6 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -19,8 +20,12 @@ import (
 // neither, so Jobs would stay pending forever. Ramen's VolSync path gates RS
 // creation on a PVC mount job completing, so every Job is marked complete.
 func TestJobRunnerCompletesJobs(t *testing.T) {
+	// active=1 mimics a live job controller (kind backend) having already
+	// created a pod: a job status claiming Complete with active>0 is
+	// rejected by apiserver validation, so the runner must zero it.
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{Name: "volsync-pvc-mount-data", Namespace: "app-ns"},
+		Status:     batchv1.JobStatus{Active: 1, Ready: ptr.To(int32(1))},
 	}
 	cl := fake.NewClientBuilder().WithScheme(volsyncScheme(t)).
 		WithStatusSubresource(&batchv1.Job{}).
@@ -47,6 +52,9 @@ func TestJobRunnerCompletesJobs(t *testing.T) {
 
 	if !complete || got.Status.Succeeded != 1 {
 		t.Fatalf("job not completed: %+v", got.Status)
+	}
+	if got.Status.Active != 0 || (got.Status.Ready != nil && *got.Status.Ready != 0) {
+		t.Fatalf("terminal status must zero active/ready: %+v", got.Status)
 	}
 }
 

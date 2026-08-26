@@ -9,6 +9,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -53,6 +54,12 @@ func (a *jobRunner) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resul
 	job.Status.StartTime = &now
 	job.Status.CompletionTime = &now
 	job.Status.Succeeded = 1
+	// A live job controller (kind backend) may have counted a pod already;
+	// a finished job with active>0 fails apiserver validation, so the
+	// terminal status must zero the live counters.
+	job.Status.Active = 0
+	job.Status.Ready = ptr.To(int32(0))
+	job.Status.Terminating = ptr.To(int32(0))
 	job.Status.Conditions = append(job.Status.Conditions,
 		batchv1.JobCondition{
 			Type: batchv1.JobSuccessCriteriaMet, Status: corev1.ConditionTrue,
