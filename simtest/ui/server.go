@@ -54,6 +54,7 @@ func Serve(h *Hub, addr, logDir string) (*Server, error) {
 	mux.HandleFunc("/api/snapshot", s.snapshot)
 	mux.HandleFunc("/api/stream", s.stream)
 	mux.HandleFunc("/api/logs", s.logs)
+	mux.HandleFunc("/api/events", s.events)
 	s.http = &http.Server{Handler: mux}
 
 	go func() { _ = s.http.Serve(ln) }()
@@ -217,6 +218,57 @@ func tailFile(path string, n int) ([]string, error) {
 	}
 
 	return lines, nil
+}
+
+// eventsWindowMax caps a windowed events response, keeping the tail.
+const eventsWindowMax = 3000
+
+// events serves the persisted event history (ui-events.jsonl) filtered to
+// [since, until] — the live snapshot holds only a bounded ring, so scenario
+// alignment for events reads the full persisted stream instead.
+func (s *Server) events(w http.ResponseWriter, r *http.Request) {
+	since, sErr := time.Parse(time.RFC3339, r.URL.Query().Get("since"))
+	until, uErr := time.Parse(time.RFC3339, r.URL.Query().Get("until"))
+
+	if s.logDir == "" || sErr != nil || uErr != nil {
+		http.Error(w, "since/until (RFC3339) required", http.StatusBadRequest)
+
+		return
+	}
+
+	f, err := os.Open(filepath.Join(s.logDir, "ui-events.jsonl"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+
+		return
+	}
+	defer f.Close()
+
+	evs := []Event{}
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 256*1024), 1024*1024)
+
+	for sc.Scan() {
+		var ev Event
+		if json.Unmarshal(sc.Bytes(), &ev) != nil {
+			continue
+		}
+
+		if ev.At.After(until) {
+			break
+		}
+
+		if !ev.At.Before(since) {
+			evs = append(evs, ev)
+		}
+	}
+
+	if len(evs) > eventsWindowMax {
+		evs = evs[len(evs)-eventsWindowMax:]
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(evs)
 }
 
 func (s *Server) snapshot(w http.ResponseWriter, _ *http.Request) {

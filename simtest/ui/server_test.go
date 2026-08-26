@@ -221,3 +221,39 @@ func TestLogsEndpointWindow(t *testing.T) {
 		}
 	}
 }
+
+// Scenario alignment for events: the live snapshot holds only a bounded
+// ring, but every event is persisted to ui-events.jsonl — the events
+// endpoint serves a scenario's exact window from there.
+func TestEventsEndpointWindow(t *testing.T) {
+	dir := t.TempDir()
+	mk := func(sec int, line string) string {
+		return fmt.Sprintf(`{"seq":%d,"at":"2026-08-26T01:00:%02dZ","type":"actor_event","data":{"line":"%s"}}`,
+			sec, sec, line) + "\n"
+	}
+	blob := mk(5, "before") + mk(10, "inside one") + mk(20, "inside two") + mk(40, "after")
+	if err := os.WriteFile(filepath.Join(dir, "ui-events.jsonl"), []byte(blob), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Serve(New(), "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	resp, err := http.Get(s.URL() +
+		"/api/events?since=2026-08-26T01:00:08Z&until=2026-08-26T01:00:30Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	var evs []Event
+	if err := json.NewDecoder(resp.Body).Decode(&evs); err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 2 || evs[0].Data["line"] != "inside one" || evs[1].Data["line"] != "inside two" {
+		t.Fatalf("window wrong: %+v", evs)
+	}
+}
