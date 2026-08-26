@@ -21,6 +21,9 @@ type Cluster struct {
 	Cfg            *rest.Config
 	Client         client.Client
 	KubeconfigPath string
+
+	// kindName is set when this cluster is kind-backed (Env is nil then).
+	kindName string
 }
 
 // hackTestCRDPaths lists every hack/test CRD file. The public
@@ -51,7 +54,21 @@ func hackTestCRDPaths() ([]string, error) {
 
 // StartCluster boots one envtest control plane with all ramen + third-party
 // CRDs and writes an admin kubeconfig into dir.
+// StartCluster boots one cluster on the selected backend (SIMTEST_BACKEND).
 func StartCluster(name, dir string) (*Cluster, error) {
+	backend, err := Backend()
+	if err != nil {
+		return nil, err
+	}
+
+	if backend == BackendKind_ {
+		return startKindCluster(name, dir)
+	}
+
+	return startEnvtestCluster(name, dir)
+}
+
+func startEnvtestCluster(name, dir string) (*Cluster, error) {
 	crdPaths, err := hackTestCRDPaths()
 	if err != nil {
 		return nil, fmt.Errorf("cluster %s: %w", name, err)
@@ -101,6 +118,12 @@ func StartCluster(name, dir string) (*Cluster, error) {
 	return &Cluster{Name: name, Env: env, Cfg: cfg, Client: cl, KubeconfigPath: kcPath}, nil
 }
 
-func (c *Cluster) Stop() error { return c.Env.Stop() }
+func (c *Cluster) Stop() error {
+	if c.kindName != "" {
+		return kindRun("delete", "cluster", "--name", c.kindName)
+	}
+
+	return c.Env.Stop()
+}
 
 func isNotFound(err error) bool { return errors.IsNotFound(err) }

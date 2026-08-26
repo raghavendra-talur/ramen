@@ -27,11 +27,27 @@ type Runtime struct {
 	Log   *EvLog
 }
 
+// StartOpt tweaks actor startup.
+type StartOpt func(*startConfig)
+
+type startConfig struct{ janitor bool }
+
+// WithoutJanitor skips the janitor: the kind world backend runs a real
+// kube-controller-manager, and running WITHOUT the janitor's sweeps is
+// itself a test — it catches ramen bugs the sweeps would mask.
+func WithoutJanitor() StartOpt { return func(c *startConfig) { c.janitor = false } }
+
 // Start launches the framework-side external actors: per managed cluster a
 // manager running pvbinder + janitor + volrep, and on the hub a manager
 // running the OCM work/view agents (one pair per managed cluster).
 func Start(ctx context.Context, scheme *runtime.Scheme, hub ClusterRef, managed []ClusterRef, log *EvLog,
+	opts ...StartOpt,
 ) (rt *Runtime, err error) {
+	cfg := startConfig{janitor: true}
+	for _, o := range opts {
+		o(&cfg)
+	}
+
 	actorCtx, cancel := context.WithCancel(ctx)
 	defer func() {
 		if err != nil {
@@ -74,7 +90,9 @@ func Start(ctx context.Context, scheme *runtime.Scheme, hub ClusterRef, managed 
 			return
 		}
 
-		go runJanitor(actorCtx, mgr.GetClient(), m.Name, rt)
+		if cfg.janitor {
+			go runJanitor(actorCtx, mgr.GetClient(), m.Name, rt)
+		}
 		go func(m manager.Manager, name string) {
 			if err := m.Start(actorCtx); err != nil {
 				rt.Log.Logf("actor-manager %s exited: %v", name, err)

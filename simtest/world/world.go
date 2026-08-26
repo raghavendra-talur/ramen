@@ -49,7 +49,15 @@ func New(t *testing.T) *World {
 // themselves.
 func build(t *testing.T) *World {
 	t.Helper()
-	EnsureAssets(t)
+
+	backend, err := Backend()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if backend == BackendEnvtest {
+		EnsureAssets(t) // kind needs no envtest binaries
+	}
 
 	dir := filepath.Join(RepoRoot(), "simtest", ".artifacts",
 		fmt.Sprintf("%s-%d", t.Name(), time.Now().UnixNano()))
@@ -59,20 +67,32 @@ func build(t *testing.T) *World {
 
 	w := &World{Dir: dir, procs: map[string]*ManagerProcess{}}
 
-	for _, name := range []string{HubName, DR1Name, DR2Name} {
-		c, err := StartCluster(name, dir)
-		if err != nil {
-			t.Fatalf("start cluster %s: %v", name, err)
-		}
-		switch name {
-		case HubName:
-			w.Hub = c
-		case DR1Name:
-			w.DR1 = c
-		case DR2Name:
-			w.DR2 = c
+	// Clusters boot in parallel: negligible for envtest, and it turns the
+	// kind backend's ~40s-per-cluster creation into one wait.
+	var (
+		wg       sync.WaitGroup
+		clusters [3]*Cluster
+		bootErrs [3]error
+	)
+
+	for i, name := range []string{HubName, DR1Name, DR2Name} {
+		wg.Add(1)
+
+		go func(i int, name string) {
+			defer wg.Done()
+			clusters[i], bootErrs[i] = StartCluster(name, dir)
+		}(i, name)
+	}
+
+	wg.Wait()
+
+	for i, name := range []string{HubName, DR1Name, DR2Name} {
+		if bootErrs[i] != nil {
+			t.Fatalf("start cluster %s: %v", name, bootErrs[i])
 		}
 	}
+
+	w.Hub, w.DR1, w.DR2 = clusters[0], clusters[1], clusters[2]
 
 	w.S3 = StartS3(S3Bucket(DR1Name), S3Bucket(DR2Name))
 
@@ -116,12 +136,19 @@ func build(t *testing.T) *World {
 		}
 	}
 
+	var actorOpts []actors.StartOpt
+	if backend == BackendKind_ {
+		// A real kube-controller-manager runs; the janitor's absence is
+		// part of what this backend tests.
+		actorOpts = append(actorOpts, actors.WithoutJanitor())
+	}
+
 	rt, err := actors.Start(ctx, NewScheme(),
 		actors.ClusterRef{Name: w.Hub.Name, Cfg: w.Hub.Cfg},
 		[]actors.ClusterRef{
 			{Name: w.DR1.Name, Cfg: w.DR1.Cfg},
 			{Name: w.DR2.Name, Cfg: w.DR2.Cfg},
-		}, evlog)
+		}, evlog, actorOpts...)
 	if err != nil {
 		t.Fatalf("start actors: %v", err)
 	}
