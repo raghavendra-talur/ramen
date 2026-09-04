@@ -61,6 +61,62 @@ func TestSnapshotEndpoint(t *testing.T) {
 	}
 }
 
+func TestObjectEndpoint(t *testing.T) {
+	h, s := startTestServer(t)
+	h.ObserveObject(ObjectState{
+		Cluster: "dr1", Kind: "VolumeReplicationGroup",
+		Namespace: "app", Name: "vrg",
+		Fields: map[string]string{"state": "primary"},
+		Raw: json.RawMessage(`{"metadata":{"name":"vrg","namespace":"app"},` +
+			`"status":{"conditions":[{"type":"DataReady","status":"True","reason":"Ready"}]}}`),
+	})
+
+	resp, err := http.Get(s.URL() +
+		"/api/object?cluster=dr1&kind=VolumeReplicationGroup&namespace=app&name=vrg")
+	if err != nil {
+		t.Fatalf("get object: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	var d ObjectDetail
+	if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if d.Kind != "VolumeReplicationGroup" || d.Name != "vrg" {
+		t.Fatalf("detail: %+v", d)
+	}
+	if len(d.Conditions) != 1 || d.Conditions[0].Type != "DataReady" ||
+		d.Conditions[0].Status != "True" {
+		t.Fatalf("conditions: %+v", d.Conditions)
+	}
+	if !strings.Contains(d.YAML, "name: vrg") || !strings.Contains(d.YAML, "type: DataReady") {
+		t.Fatalf("yaml: %q", d.YAML)
+	}
+}
+
+func TestObjectEndpointUnknown(t *testing.T) {
+	h, s := startTestServer(t)
+	// Known object without raw JSON must 404 too, not serve an empty drawer.
+	h.ObserveObject(ObjectState{Cluster: "dr1", Kind: "PersistentVolumeClaim",
+		Namespace: "app", Name: "bare", Fields: map[string]string{}})
+
+	for _, q := range []string{
+		"cluster=dr1&kind=PersistentVolumeClaim&namespace=app&name=missing",
+		"cluster=dr1&kind=PersistentVolumeClaim&namespace=app&name=bare",
+	} {
+		resp, err := http.Get(s.URL() + "/api/object?" + q)
+		if err != nil {
+			t.Fatalf("get object: %v", err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("%s: status %d, want 404", q, resp.StatusCode)
+		}
+	}
+}
+
 func TestStreamDeliversEvents(t *testing.T) {
 	h, s := startTestServer(t)
 

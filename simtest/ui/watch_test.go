@@ -5,6 +5,8 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -111,6 +113,50 @@ func TestWatchPVCFeedsHub(t *testing.T) {
 	objs := waitObjects(t, h, 1)
 	if objs[0].Kind != "PersistentVolumeClaim" || objs[0].Cluster != "dr1" {
 		t.Fatalf("object: %+v", objs[0])
+	}
+}
+
+func TestWatchRecordsRawJSON(t *testing.T) {
+	h := New()
+	s := testScheme(t)
+	wc := fake.NewClientBuilder().WithScheme(s).Build()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go watchInto(ctx, h, wc, &corev1.PersistentVolumeClaimList{}, extractPVC("dr1"))
+
+	time.Sleep(100 * time.Millisecond)
+	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{
+		Namespace: "app", Name: "data-0",
+		ManagedFields: []metav1.ManagedFieldsEntry{{Manager: "noise"}}}}
+	if err := wc.Create(ctx, pvc); err != nil {
+		t.Fatal(err)
+	}
+
+	waitObjects(t, h, 1)
+	o, ok := h.Object("dr1", "PersistentVolumeClaim", "app", "data-0")
+	if !ok || len(o.Raw) == 0 {
+		t.Fatalf("raw JSON not recorded: %+v", o)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(o.Raw, &m); err != nil {
+		t.Fatalf("raw is not JSON: %v", err)
+	}
+	meta, _ := m["metadata"].(map[string]any)
+	if meta["name"] != "data-0" {
+		t.Fatalf("raw metadata: %+v", meta)
+	}
+	if _, noisy := meta["managedFields"]; noisy {
+		t.Fatal("managed fields not stripped from raw JSON")
+	}
+
+	// Raw must stay out of the wire snapshot.
+	b, err := json.Marshal(h.Snapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "\"raw\"") {
+		t.Fatal("raw leaked into the snapshot JSON")
 	}
 }
 
