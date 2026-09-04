@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# Personal fork workflow: build the ramen operator image from any branch
+# and push it to quay. Lives only on the fork's main branch —
+# workflow_dispatch reads the workflow from the default branch and checks
+# out the requested ref, so working branches need no workflow commit.
+#
+# Trigger: gh workflow run publish.yml --ref main -f ref=<branch>
+---
+name: Publish Image
+
+on:  # yamllint disable-line rule:truthy
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or SHA to build
+        required: true
+
+env:
+  IMAGE_REPOSITORY: ${{ vars.IMAGE_REPOSITORY || 'raghavendra_talur' }}
+
+jobs:
+  publish:
+    name: Build and push operator image
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout requested ref
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Compute image tag
+        run: |
+          tag="$(date +%Y%m%d)-$(git rev-parse --short HEAD)"
+          echo "IMAGE_TAG=$tag" >> "$GITHUB_ENV"
+
+      - name: Build image
+        run: make docker-build
+
+      - name: Login to quay
+        run: |
+          podman login quay.io \
+            --username "${{ secrets.QUAY_USERNAME }}" \
+            --password-stdin <<< "${{ secrets.QUAY_ROBOT_TOKEN }}"
+
+      - name: Push image
+        run: make docker-push
+
+      - name: Report image
+        run: |
+          image="quay.io/$IMAGE_REPOSITORY/ramen-operator:$IMAGE_TAG"
+          echo "Pushed $image" >> "$GITHUB_STEP_SUMMARY"
