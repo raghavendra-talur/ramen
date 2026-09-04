@@ -102,6 +102,27 @@
   @keyframes blink { 50% { opacity:.55; } }
 
   #inspector { width:310px; flex-shrink:0; overflow-y:auto; }
+
+  /* data-plane chips: the replication machinery working a cluster's PVCs */
+  [data-obj] { cursor:pointer; }
+  .dpchips { display:flex; gap:4px 5px; margin-top:6px; flex-wrap:wrap; }
+  .dpchip { font-size:9px; border:1px solid #2a3140; border-radius:4px; padding:0 5px; color:#7d8590; }
+  .dpchip:hover { border-color:#58a6ff; }
+
+  /* object drawer: conditions + raw YAML for one clicked object */
+  #drawer { position:fixed; top:0; right:0; bottom:0; width:480px; max-width:92vw; z-index:20;
+    background:#0e1117f7; border-left:1px solid #2a3140; box-shadow:-14px 0 34px #000a;
+    display:flex; flex-direction:column; padding:14px; }
+  #drawer .dhead { display:flex; align-items:baseline; gap:8px; margin-bottom:8px; }
+  #drawer .dhead .kind { color:#58a6ff; font-weight:700; }
+  #drawer .dhead .close { margin-left:auto; cursor:pointer; color:#7d8590; font-size:16px;
+    border:none; background:none; font:inherit; }
+  #drawer .dhead .close:hover { color:#e6edf3; }
+  #drawer .conds { flex-shrink:0; max-height:38%; overflow-y:auto; margin-bottom:8px; }
+  #drawer .cond { border-bottom:1px solid #161b24; padding:3px 0; font-size:12px; }
+  #drawer .cond .msg { color:#7d8590; font-size:11px; }
+  #drawer pre { flex:1; overflow:auto; background:#0b0e14; border:1px solid #1c222d;
+    border-radius:6px; padding:10px; font-size:11px; line-height:1.5; color:#a5b1c2; margin:0; }
   #events { overflow-y:auto; flex:1; font-size:12px; line-height:1.75; color:#7d8590; }
   #events > div { padding:1px 0 1px 14px; text-indent:-14px; border-bottom:1px solid #161b24; }
   #events .t { color:#57606a; }
@@ -165,6 +186,7 @@
   </div>
   <div class="panel" id="inspector"></div>
 </div>
+<div id="drawer" hidden></div>
 
 <script>
 "use strict";
@@ -204,6 +226,7 @@ const dur = ms => ms >= 60000 ? `${Math.floor(ms/60000)}m${Math.floor(ms%60000/1
 async function refetch() {
   S.snap = await (await fetch("/api/snapshot")).json();
   render();
+  if (S.drawer) loadDrawer(); // keep an open drawer live, same throttle
 }
 
 function connect() {
@@ -429,6 +452,112 @@ function objectsFor(s, cluster, kind) {
   return (s.objects || []).filter(o => o.cluster === cluster && o.kind === kind);
 }
 
+// Anything carrying data-obj opens the drawer on click.
+const objAttr = o => `data-obj="${esc([o.cluster, o.kind, o.namespace, o.name].join("|"))}"`;
+
+// ---- data-plane chips: the replication machinery on each cluster card.
+// VR/VGR/RS/RD render one chip each (there are few); snapshots aggregate
+// into a ready/total chip that opens the newest one.
+function dpStrip(s, cluster) {
+  let chips = "";
+  const chip = (o, label, color) =>
+    `<span class="dpchip" ${objAttr(o)} title="${esc(o.kind + " " + o.namespace + "/" + o.name)}"
+       style="${color ? `color:${color};border-color:${color}66` : ""}">${label}</span>`;
+
+  for (const o of objectsFor(s, cluster, "VolumeReplication")) {
+    const lag = o.fields.observed && o.fields.observed !== o.fields.state ? "…" : "";
+    chips += chip(o, `vr·${esc(o.name)} ${esc(o.fields.state)}${lag}`, colorOf(o.fields.state));
+  }
+  for (const o of objectsFor(s, cluster, "VolumeGroupReplication"))
+    chips += chip(o, `vgr·${esc(o.name)} ${esc(o.fields.state)}×${esc(o.fields.pvcs || "0")}`,
+      colorOf(o.fields.state));
+  for (const o of objectsFor(s, cluster, "ReplicationSource"))
+    chips += chip(o, `rs·${esc(o.name)} ${o.fields.lastSyncTime ? "⇡" + short(o.fields.lastSyncTime) : "no sync"}`,
+      o.fields.lastSyncTime ? "#2ea043" : "#d29922");
+  for (const o of objectsFor(s, cluster, "ReplicationDestination"))
+    chips += chip(o, `rd·${esc(o.name)} ${o.fields.latestImage ? "⇣" + esc(o.fields.latestImage)
+      : (o.fields.lastSyncTime ? "⇣" + short(o.fields.lastSyncTime) : "no sync")}`,
+      o.fields.lastSyncTime || o.fields.latestImage ? "#58a6ff" : "#d29922");
+
+  const snaps = objectsFor(s, cluster, "VolumeSnapshot");
+  if (snaps.length) {
+    const ready = snaps.filter(o => o.fields.ready === "true").length;
+    const newest = snaps.reduce((a, b) => Date.parse(a.at) >= Date.parse(b.at) ? a : b);
+    chips += chip(newest, `snap ${ready}/${snaps.length}`, ready === snaps.length ? "#2ea043" : "#d29922");
+  }
+  for (const o of objectsFor(s, cluster, "VolumeGroupSnapshot"))
+    chips += chip(o, `vgs·${esc(o.name)} ${o.fields.ready === "true" ? "ready" : "pending"}`,
+      o.fields.ready === "true" ? "#2ea043" : "#d29922");
+
+  return chips ? `<div class="dpchips">${chips}</div>` : "";
+}
+
+// pvcTitle enriches a PVC square's hover with the machinery working it.
+function pvcTitle(s, cluster, p) {
+  const mine = kind => objectsFor(s, cluster, kind)
+    .filter(o => (o.fields.pvc || o.name) === p.name);
+  let t = `${p.namespace}/${p.name} · ${p.fields.phase || "?"}`;
+  for (const o of mine("VolumeReplication")) t += `\nvr ${o.fields.state}${o.fields.lastSyncTime ? " · sync " + short(o.fields.lastSyncTime) : ""}`;
+  for (const o of mine("ReplicationSource")) t += `\nrs${o.fields.lastSyncTime ? " sync " + short(o.fields.lastSyncTime) : " no sync yet"}`;
+  const snaps = mine("VolumeSnapshot");
+  if (snaps.length) t += `\nsnapshots ${snaps.filter(o => o.fields.ready === "true").length}/${snaps.length} ready`;
+  return t;
+}
+
+// ---- object drawer: conditions + raw YAML for one clicked object.
+function openDrawer(cluster, kind, namespace, name) {
+  S.drawer = { cluster, kind, namespace, name };
+  loadDrawer();
+}
+
+async function loadDrawer() {
+  const d = S.drawer; if (!d) return;
+  const q = new URLSearchParams(d).toString();
+  let detail = null;
+  try {
+    const r = await fetch("/api/object?" + q);
+    if (r.ok) detail = await r.json();
+  } catch {}
+  if (S.drawer === d) renderDrawer(detail); // ignore a fetch that lost a race
+}
+
+function closeDrawer() {
+  S.drawer = null;
+  document.getElementById("drawer").hidden = true;
+}
+
+function renderDrawer(d) {
+  const el = document.getElementById("drawer");
+  const cur = S.drawer; if (!cur) { el.hidden = true; return; }
+  el.hidden = false;
+  const head = `<div class="dhead"><span class="kind">${esc(cur.kind)}</span>
+    <span>${esc(cur.namespace)}/${esc(cur.name)}</span>
+    <span class="muted">@ ${esc(cur.cluster)}</span>
+    <button class="close" onclick="closeDrawer()" title="close (Esc)">✕</button></div>`;
+  if (!d) {
+    el.innerHTML = head + `<div class="muted">object not in the world (deleted, or not observed yet)</div>`;
+    return;
+  }
+  const condColor = c => c.status === "True" ? "ok" : c.status === "False" ? "bad" : "warn";
+  const conds = (d.conditions || []).map(c => `<div class="cond">
+      <div class="kv"><span>${esc(c.type)}${c.reason ? ` <span class="muted">· ${esc(c.reason)}</span>` : ""}</span>
+        <b class="${condColor(c)}">${esc(c.status)}</b></div>
+      ${c.message ? `<div class="msg">${esc(c.message)}</div>` : ""}</div>`).join("");
+  const pre = el.querySelector("pre");
+  const stickTop = pre ? pre.scrollTop : 0, stickLeft = pre ? pre.scrollLeft : 0;
+  el.innerHTML = head
+    + (conds ? `<h4>CONDITIONS</h4><div class="conds">${conds}</div>` : "")
+    + `<h4>YAML</h4><pre>${esc(d.yaml)}</pre>`;
+  const npre = el.querySelector("pre");
+  npre.scrollTop = stickTop; npre.scrollLeft = stickLeft;
+}
+
+document.body.addEventListener("click", e => {
+  const t = e.target.closest("[data-obj]");
+  if (t) openDrawer(...t.dataset.obj.split("|"));
+});
+window.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
+
 function stagePoints() {
   const stage = document.getElementById("stage");
   const r = stage.getBoundingClientRect();
@@ -519,7 +648,7 @@ function renderStage(s) {
   const spot = spotlightFor(drpc);
 
   clusterCard(s, "hub", `<span class="run">HUB</span>`, drpc ? `
-    <div class="sub">${esc(drpc.namespace)}/${esc(drpc.name)}</div>
+    <div class="sub" ${objAttr(drpc)} title="open ${esc(drpc.name)}">${esc(drpc.namespace)}/${esc(drpc.name)}</div>
     <div class="sub">phase <b style="color:${colorOf(drpc.fields.phase)}">${esc(drpc.fields.phase)}</b></div>
     <div class="sub">progression ${esc(drpc.fields.progression)}</div>` : `<div class="sub">no DRPC</div>`,
     badgesFor(s, "hub"));
@@ -531,9 +660,11 @@ function renderStage(s) {
     const pvcs = objectsFor(s, c, "PersistentVolumeClaim");
     const spotted = spot.cluster === c;
     clusterCard(s, c, c.toUpperCase(), `
-      <div class="sub">VRG: ${vrg ? `<b style="color:${colorOf(vrg.fields.state)}">${esc(vrg.fields.state)}</b>` : "—"}</div>
+      <div class="sub">VRG: ${vrg ? `<b style="color:${colorOf(vrg.fields.state)}" ${objAttr(vrg)}
+        title="open ${esc(vrg.name)}">${esc(vrg.fields.state)}</b>` : "—"}</div>
       <div class="pvcs">${pvcs.map(p =>
-        `<div class="pvc ${esc(p.fields.phase)}" title="${esc(p.namespace)}/${esc(p.name)}"></div>`).join("")}</div>`,
+        `<div class="pvc ${esc(p.fields.phase)}" ${objAttr(p)} title="${esc(pvcTitle(s, c, p))}"></div>`).join("")}</div>
+      ${dpStrip(s, c)}`,
       badgesFor(s, c), spotted ? " spot" : "",
       glyphStrip(s, c) + (spotted ? `<div class="spottag">◈ ${esc(spot.why)}</div>` : ""));
   }
