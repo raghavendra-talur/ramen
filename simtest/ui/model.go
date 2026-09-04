@@ -7,7 +7,10 @@
 // receiver and never blocks on a slow consumer.
 package ui
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type TestStatus string
 
@@ -50,6 +53,10 @@ type ObjectState struct {
 	Name      string            `json:"name"`
 	Fields    map[string]string `json:"fields"`
 	At        time.Time         `json:"at"`
+	// Raw is the object's full JSON, kept hub-side for the on-demand
+	// /api/object drawer; excluded from the snapshot and the event stream
+	// so neither grows with object size.
+	Raw json.RawMessage `json:"-"`
 }
 
 func (o ObjectState) key() string {

@@ -5,6 +5,7 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -88,11 +89,26 @@ func consume(ctx context.Context, h *Hub, wi watch.Interface,
 				if ev.Type == watch.Deleted {
 					h.RemoveObject(o)
 				} else {
+					o.Raw = rawJSON(obj)
 					h.ObserveObject(o)
 				}
 			}
 		}
 	}
+}
+
+// rawJSON renders the watched object for the drawer. Managed fields are
+// pure noise at reading size, so they are stripped first; the watch decodes
+// a fresh object per event, so mutating it here is safe.
+func rawJSON(obj client.Object) json.RawMessage {
+	obj.SetManagedFields(nil)
+
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return nil
+	}
+
+	return b
 }
 
 func extractDRPC(cluster string) func(client.Object) (ObjectState, bool) {
