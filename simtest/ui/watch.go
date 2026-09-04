@@ -7,11 +7,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
+	volsyncv1alpha1 "github.com/backube/volsync/api/v1alpha1"
+	volrep "github.com/csi-addons/kubernetes-csi-addons/api/replication.storage/v1alpha1"
+	groupsnapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumegroupsnapshot/v1"
+	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	rmn "github.com/ramendr/ramen/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/rest"
@@ -26,7 +32,9 @@ type ClusterRef struct {
 }
 
 // StartWatches wires the hub to live cluster state: DRPCs on the hub
-// cluster, VRGs and PVCs on each managed cluster.
+// cluster; VRGs, PVCs, and the data-plane resources the actors fulfill
+// (VolumeReplication, VolumeGroupReplication, VolSync source/destination,
+// snapshots) on each managed cluster.
 func StartWatches(ctx context.Context, h *Hub, scheme *runtime.Scheme,
 	hub ClusterRef, managed []ClusterRef,
 ) error {
@@ -43,6 +51,12 @@ func StartWatches(ctx context.Context, h *Hub, scheme *runtime.Scheme,
 		}
 		go watchInto(ctx, h, mc, &rmn.VolumeReplicationGroupList{}, extractVRG(m.Name))
 		go watchInto(ctx, h, mc, &corev1.PersistentVolumeClaimList{}, extractPVC(m.Name))
+		go watchInto(ctx, h, mc, &volrep.VolumeReplicationList{}, extractVR(m.Name))
+		go watchInto(ctx, h, mc, &volrep.VolumeGroupReplicationList{}, extractVGR(m.Name))
+		go watchInto(ctx, h, mc, &volsyncv1alpha1.ReplicationSourceList{}, extractRS(m.Name))
+		go watchInto(ctx, h, mc, &volsyncv1alpha1.ReplicationDestinationList{}, extractRD(m.Name))
+		go watchInto(ctx, h, mc, &snapv1.VolumeSnapshotList{}, extractSnap(m.Name))
+		go watchInto(ctx, h, mc, &groupsnapv1.VolumeGroupSnapshotList{}, extractGroupSnap(m.Name))
 	}
 	return nil
 }
@@ -160,5 +174,124 @@ func extractPVC(cluster string) func(client.Object) (ObjectState, bool) {
 		return ObjectState{Cluster: cluster, Kind: "PersistentVolumeClaim",
 			Namespace: p.Namespace, Name: p.Name,
 			Fields: map[string]string{"phase": string(p.Status.Phase)}}, true
+	}
+}
+
+// stamp renders an optional metav1 timestamp for a summary field; absent
+// timestamps become "" so the frontend can treat them as falsy.
+func stamp(t *metav1.Time) string {
+	if t == nil {
+		return ""
+	}
+
+	return t.UTC().Format(time.RFC3339)
+}
+
+// The data-plane extracts carry a "pvc" field where the resource names its
+// source PVC, so the frontend can correlate a PVC square with the
+// replication machinery working it (ramen also names VR/RS/RD after the
+// PVC, but the explicit reference is the contract).
+
+func extractVR(cluster string) func(client.Object) (ObjectState, bool) {
+	return func(obj client.Object) (ObjectState, bool) {
+		v, ok := obj.(*volrep.VolumeReplication)
+		if !ok {
+			return ObjectState{}, false
+		}
+		return ObjectState{Cluster: cluster, Kind: "VolumeReplication",
+			Namespace: v.Namespace, Name: v.Name,
+			Fields: map[string]string{
+				"state":        strings.ToLower(string(v.Spec.ReplicationState)),
+				"observed":     strings.ToLower(string(v.Status.State)),
+				"pvc":          v.Spec.DataSource.Name,
+				"lastSyncTime": stamp(v.Status.LastSyncTime),
+			}}, true
+	}
+}
+
+func extractVGR(cluster string) func(client.Object) (ObjectState, bool) {
+	return func(obj client.Object) (ObjectState, bool) {
+		v, ok := obj.(*volrep.VolumeGroupReplication)
+		if !ok {
+			return ObjectState{}, false
+		}
+		return ObjectState{Cluster: cluster, Kind: "VolumeGroupReplication",
+			Namespace: v.Namespace, Name: v.Name,
+			Fields: map[string]string{
+				"state":        strings.ToLower(string(v.Spec.ReplicationState)),
+				"observed":     strings.ToLower(string(v.Status.State)),
+				"pvcs":         strconv.Itoa(len(v.Status.PersistentVolumeClaimsRefList)),
+				"lastSyncTime": stamp(v.Status.LastSyncTime),
+			}}, true
+	}
+}
+
+func extractRS(cluster string) func(client.Object) (ObjectState, bool) {
+	return func(obj client.Object) (ObjectState, bool) {
+		r, ok := obj.(*volsyncv1alpha1.ReplicationSource)
+		if !ok {
+			return ObjectState{}, false
+		}
+		fields := map[string]string{"pvc": r.Spec.SourcePVC}
+		if r.Spec.Trigger != nil {
+			fields["manual"] = r.Spec.Trigger.Manual
+		}
+		if r.Status != nil {
+			fields["lastSyncTime"] = stamp(r.Status.LastSyncTime)
+			fields["lastManualSync"] = r.Status.LastManualSync
+		}
+		return ObjectState{Cluster: cluster, Kind: "ReplicationSource",
+			Namespace: r.Namespace, Name: r.Name, Fields: fields}, true
+	}
+}
+
+func extractRD(cluster string) func(client.Object) (ObjectState, bool) {
+	return func(obj client.Object) (ObjectState, bool) {
+		r, ok := obj.(*volsyncv1alpha1.ReplicationDestination)
+		if !ok {
+			return ObjectState{}, false
+		}
+		fields := map[string]string{}
+		if r.Status != nil {
+			fields["lastSyncTime"] = stamp(r.Status.LastSyncTime)
+			if r.Status.LatestImage != nil {
+				fields["latestImage"] = r.Status.LatestImage.Name
+			}
+		}
+		return ObjectState{Cluster: cluster, Kind: "ReplicationDestination",
+			Namespace: r.Namespace, Name: r.Name, Fields: fields}, true
+	}
+}
+
+func extractSnap(cluster string) func(client.Object) (ObjectState, bool) {
+	return func(obj client.Object) (ObjectState, bool) {
+		v, ok := obj.(*snapv1.VolumeSnapshot)
+		if !ok {
+			return ObjectState{}, false
+		}
+		fields := map[string]string{"ready": "false"}
+		if v.Spec.Source.PersistentVolumeClaimName != nil {
+			fields["pvc"] = *v.Spec.Source.PersistentVolumeClaimName
+		}
+		if v.Status != nil && v.Status.ReadyToUse != nil {
+			fields["ready"] = strconv.FormatBool(*v.Status.ReadyToUse)
+		}
+		return ObjectState{Cluster: cluster, Kind: "VolumeSnapshot",
+			Namespace: v.Namespace, Name: v.Name, Fields: fields}, true
+	}
+}
+
+func extractGroupSnap(cluster string) func(client.Object) (ObjectState, bool) {
+	return func(obj client.Object) (ObjectState, bool) {
+		v, ok := obj.(*groupsnapv1.VolumeGroupSnapshot)
+		if !ok {
+			return ObjectState{}, false
+		}
+		fields := map[string]string{"ready": "false"}
+		if v.Status != nil && v.Status.ReadyToUse != nil {
+			fields["ready"] = strconv.FormatBool(*v.Status.ReadyToUse)
+		}
+		return ObjectState{Cluster: cluster, Kind: "VolumeGroupSnapshot",
+			Namespace: v.Namespace, Name: v.Name, Fields: fields}, true
 	}
 }
