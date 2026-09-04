@@ -10,11 +10,15 @@ import (
 	"testing"
 	"time"
 
+	volsyncv1alpha1 "github.com/backube/volsync/api/v1alpha1"
+	volrep "github.com/csi-addons/kubernetes-csi-addons/api/replication.storage/v1alpha1"
+	snapv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	rmn "github.com/ramendr/ramen/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -25,6 +29,15 @@ func testScheme(t *testing.T) *runtime.Scheme {
 		t.Fatal(err)
 	}
 	if err := rmn.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := volrep.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := volsyncv1alpha1.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := snapv1.AddToScheme(s); err != nil {
 		t.Fatal(err)
 	}
 	return s
@@ -157,6 +170,108 @@ func TestWatchRecordsRawJSON(t *testing.T) {
 	}
 	if strings.Contains(string(b), "\"raw\"") {
 		t.Fatal("raw leaked into the snapshot JSON")
+	}
+}
+
+// extractOne runs a data-plane extract directly (the watch loop machinery
+// is covered elsewhere) and returns the resulting state.
+func extractOne(t *testing.T, fn func(client.Object) (ObjectState, bool),
+	obj client.Object,
+) ObjectState {
+	t.Helper()
+	o, ok := fn(obj)
+	if !ok {
+		t.Fatalf("extract rejected %T", obj)
+	}
+	return o
+}
+
+func TestExtractDataPlane(t *testing.T) {
+	syncedAt := metav1.NewTime(time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC))
+	ready := true
+
+	vr := &volrep.VolumeReplication{ObjectMeta: metav1.ObjectMeta{Namespace: "app", Name: "data-0"}}
+	vr.Spec.ReplicationState = "primary"
+	vr.Spec.DataSource.Name = "data-0"
+	vr.Status.State = "Primary"
+	vr.Status.LastSyncTime = &syncedAt
+	o := extractOne(t, extractVR("dr1"), vr)
+	if o.Kind != "VolumeReplication" || o.Fields["state"] != "primary" ||
+		o.Fields["observed"] != "primary" || o.Fields["pvc"] != "data-0" ||
+		o.Fields["lastSyncTime"] != "2026-09-04T12:00:00Z" {
+		t.Fatalf("vr: %+v", o)
+	}
+
+	vgr := &volrep.VolumeGroupReplication{ObjectMeta: metav1.ObjectMeta{Namespace: "app", Name: "grp"}}
+	vgr.Spec.ReplicationState = "secondary"
+	vgr.Status.PersistentVolumeClaimsRefList = []corev1.LocalObjectReference{{Name: "a"}, {Name: "b"}}
+	o = extractOne(t, extractVGR("dr1"), vgr)
+	if o.Kind != "VolumeGroupReplication" || o.Fields["state"] != "secondary" || o.Fields["pvcs"] != "2" {
+		t.Fatalf("vgr: %+v", o)
+	}
+
+	rs := &volsyncv1alpha1.ReplicationSource{ObjectMeta: metav1.ObjectMeta{Namespace: "app", Name: "data-0"}}
+	rs.Spec.SourcePVC = "data-0"
+	rs.Spec.Trigger = &volsyncv1alpha1.ReplicationSourceTriggerSpec{Manual: "final-sync"}
+	rs.Status = &volsyncv1alpha1.ReplicationSourceStatus{
+		LastSyncTime: &syncedAt, LastManualSync: "final-sync"}
+	o = extractOne(t, extractRS("dr1"), rs)
+	if o.Fields["pvc"] != "data-0" || o.Fields["manual"] != "final-sync" ||
+		o.Fields["lastManualSync"] != "final-sync" ||
+		o.Fields["lastSyncTime"] != "2026-09-04T12:00:00Z" {
+		t.Fatalf("rs: %+v", o)
+	}
+
+	rd := &volsyncv1alpha1.ReplicationDestination{ObjectMeta: metav1.ObjectMeta{Namespace: "app", Name: "data-0"}}
+	rd.Status = &volsyncv1alpha1.ReplicationDestinationStatus{
+		LastSyncTime: &syncedAt,
+		LatestImage:  &corev1.TypedLocalObjectReference{Name: "snap-42"}}
+	o = extractOne(t, extractRD("dr2"), rd)
+	if o.Fields["latestImage"] != "snap-42" || o.Fields["lastSyncTime"] != "2026-09-04T12:00:00Z" {
+		t.Fatalf("rd: %+v", o)
+	}
+
+	pvcName := "data-0"
+	snap := &snapv1.VolumeSnapshot{ObjectMeta: metav1.ObjectMeta{Namespace: "app", Name: "snap-42"}}
+	snap.Spec.Source.PersistentVolumeClaimName = &pvcName
+	snap.Status = &snapv1.VolumeSnapshotStatus{ReadyToUse: &ready}
+	o = extractOne(t, extractSnap("dr1"), snap)
+	if o.Fields["pvc"] != "data-0" || o.Fields["ready"] != "true" {
+		t.Fatalf("snap: %+v", o)
+	}
+
+	// Statusless objects (just created) must extract without panicking.
+	o = extractOne(t, extractRS("dr1"), &volsyncv1alpha1.ReplicationSource{})
+	if o.Fields["lastSyncTime"] != "" {
+		t.Fatalf("statusless rs: %+v", o)
+	}
+	o = extractOne(t, extractSnap("dr1"), &snapv1.VolumeSnapshot{})
+	if o.Fields["ready"] != "false" {
+		t.Fatalf("statusless snap: %+v", o)
+	}
+}
+
+func TestWatchVolumeReplicationFeedsHub(t *testing.T) {
+	h := New()
+	s := testScheme(t)
+	wc := fake.NewClientBuilder().WithScheme(s).Build()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go watchInto(ctx, h, wc, &volrep.VolumeReplicationList{}, extractVR("dr1"))
+
+	time.Sleep(100 * time.Millisecond)
+	vr := &volrep.VolumeReplication{ObjectMeta: metav1.ObjectMeta{
+		Namespace: "app", Name: "data-0"}}
+	vr.Spec.ReplicationState = "primary"
+	vr.Spec.DataSource.Name = "data-0"
+	if err := wc.Create(ctx, vr); err != nil {
+		t.Fatal(err)
+	}
+
+	objs := waitObjects(t, h, 1)
+	if objs[0].Kind != "VolumeReplication" || objs[0].Fields["pvc"] != "data-0" {
+		t.Fatalf("object: %+v", objs[0])
 	}
 }
 
