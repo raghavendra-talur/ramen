@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"sigs.k8s.io/yaml"
 )
 
 //go:embed static
@@ -55,6 +57,7 @@ func Serve(h *Hub, addr, logDir string) (*Server, error) {
 	mux.HandleFunc("/api/stream", s.stream)
 	mux.HandleFunc("/api/logs", s.logs)
 	mux.HandleFunc("/api/events", s.events)
+	mux.HandleFunc("/api/object", s.object)
 	s.http = &http.Server{Handler: mux}
 
 	go func() { _ = s.http.Serve(ln) }()
@@ -269,6 +272,60 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(evs)
+}
+
+// Condition is one generic status.conditions entry, decoded from the raw
+// object JSON so every kind that follows the Kubernetes convention (DRPC,
+// VRG, VolumeReplication, VolSync, ...) serves without a typed extractor.
+type Condition struct {
+	Type               string `json:"type"`
+	Status             string `json:"status"`
+	Reason             string `json:"reason,omitempty"`
+	Message            string `json:"message,omitempty"`
+	LastTransitionTime string `json:"lastTransitionTime,omitempty"`
+}
+
+// ObjectDetail is the /api/object response: what the drawer renders.
+type ObjectDetail struct {
+	Cluster    string      `json:"cluster"`
+	Kind       string      `json:"kind"`
+	Namespace  string      `json:"namespace"`
+	Name       string      `json:"name"`
+	Conditions []Condition `json:"conditions,omitempty"`
+	YAML       string      `json:"yaml"`
+}
+
+// object serves one watched object's conditions and full YAML for the
+// detail drawer, on demand — the snapshot and stream stay summary-sized.
+func (s *Server) object(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	o, ok := s.hub.Object(q.Get("cluster"), q.Get("kind"), q.Get("namespace"), q.Get("name"))
+	if !ok || len(o.Raw) == 0 {
+		http.Error(w, "unknown object", http.StatusNotFound)
+
+		return
+	}
+
+	y, err := yaml.JSONToYAML(o.Raw)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	var st struct {
+		Status struct {
+			Conditions []Condition `json:"conditions"`
+		} `json:"status"`
+	}
+	_ = json.Unmarshal(o.Raw, &st) // kinds without conditions serve YAML only
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(ObjectDetail{
+		Cluster: o.Cluster, Kind: o.Kind, Namespace: o.Namespace, Name: o.Name,
+		Conditions: st.Status.Conditions, YAML: string(y),
+	})
 }
 
 func (s *Server) snapshot(w http.ResponseWriter, _ *http.Request) {

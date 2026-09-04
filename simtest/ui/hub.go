@@ -231,6 +231,20 @@ func (h *Hub) ObserveInvariant(v string) {
 	h.emit("invariant_violated", map[string]string{"violation": v})
 }
 
+// Object returns the current state of one watched object, raw JSON
+// included, for the /api/object drawer endpoint.
+func (h *Hub) Object(cluster, kind, namespace, name string) (ObjectState, bool) {
+	if h == nil {
+		return ObjectState{}, false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	o, ok := h.objects[ObjectState{Cluster: cluster, Kind: kind,
+		Namespace: namespace, Name: name}.key()]
+
+	return o, ok
+}
+
 func (h *Hub) Snapshot() Snapshot {
 	if h == nil {
 		return Snapshot{}
