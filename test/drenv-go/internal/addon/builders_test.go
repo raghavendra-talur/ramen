@@ -70,14 +70,32 @@ func assertArgsEqual(t *testing.T, label string, got, want []string) {
 	}
 }
 
+// assertStdinNotEmpty fails the test if the i-th call's stdin is empty. The
+// build-time-rendered addons pipe their embedded manifest to `kubectl apply
+// --filename -`, so a non-empty stdin confirms the manifest was actually loaded
+// from the embedded FS and passed through.
+func assertStdinNotEmpty(t *testing.T, label string, f *cli.FakeRunner, i int) {
+	t.Helper()
+	if i >= len(f.Calls) {
+		t.Fatalf("%s: call[%d]: only %d calls recorded", label, i, len(f.Calls))
+	}
+	if strings.TrimSpace(f.Calls[i].Stdin) == "" {
+		t.Errorf("%s: expected non-empty stdin (embedded manifest), got empty", label)
+	}
+}
+
 // ---- external-snapshotter ----
 
 // TestExternalSnapshotterArgv verifies that the external-snapshotter builder
 // produces the correct kubectl calls in the correct order:
-//  1. apply --kustomize <crds-dir>
+//  1. apply --filename - (embedded CRDs manifest on stdin)
 //  2. wait --for=condition=established crd --all (with timeout)
-//  3. apply --kustomize <controller-dir>
+//  3. apply --filename - (embedded controller manifest on stdin)
 //  4. rollout status kube-system deploy/snapshot-controller (with timeout)
+//
+// The apply steps now pipe build-time-rendered, embedded manifests to
+// `kubectl apply --filename -` (no runtime kustomize/addons dir), so the argv is
+// `apply --filename -` and the manifest arrives on stdin.
 //
 // gateNotReady scripts the leading readiness-gate probe so the gate reports
 // not-ready and the addon runs all its steps. Pair with stripGateCall.
@@ -99,18 +117,17 @@ func TestExternalSnapshotterArgv(t *testing.T) {
 		t.Fatalf("expected 4 kubectl calls, got %d:\n%v", len(f.Calls), callNames(f))
 	}
 
-	crdsDir := filepath.Join(addonsDir, "external_snapshotter", "start-data", "crds")
-	controllerDir := filepath.Join(addonsDir, "external_snapshotter", "start-data", "controller")
-
 	assertArgsEqual(t, "apply-crds", callArgs(t, f, 0), []string{
-		"--context", testCluster, "apply", "--kustomize", crdsDir,
+		"--context", testCluster, "apply", "--filename", "-",
 	})
+	assertStdinNotEmpty(t, "apply-crds", f, 0)
 	// wait for established: kubectl --context dr1 wait crd --all --for=condition=established --timeout Xs
 	assertArgsContain(t, "wait-crds", callArgs(t, f, 1),
 		"--context", testCluster, "wait", "crd", "--all", "--for=condition=established")
 	assertArgsEqual(t, "apply-controller", callArgs(t, f, 2), []string{
-		"--context", testCluster, "apply", "--kustomize", controllerDir,
+		"--context", testCluster, "apply", "--filename", "-",
 	})
+	assertStdinNotEmpty(t, "apply-controller", f, 2)
 	// rollout status kube-system deploy/snapshot-controller
 	assertArgsContain(t, "rollout-controller", callArgs(t, f, 3),
 		"--context", testCluster, "-n", "kube-system", "rollout", "status", "deploy/snapshot-controller")
@@ -132,20 +149,19 @@ func TestOLMArgv(t *testing.T) {
 		t.Fatalf("expected 8 kubectl calls, got %d:\n%v", len(f.Calls), callNames(f))
 	}
 
-	crdsDir := filepath.Join(addonsDir, "olm", "start-data", "crds")
-	operatorsDir := filepath.Join(addonsDir, "olm", "start-data", "operators")
-
-	// 0: apply --server-side=true --kustomize <crds-dir>
+	// 0: apply --server-side=true --filename - (embedded CRDs manifest on stdin)
 	assertArgsEqual(t, "apply-crds-server-side", callArgs(t, f, 0), []string{
-		"--context", testCluster, "apply", "--server-side=true", "--kustomize", crdsDir,
+		"--context", testCluster, "apply", "--server-side=true", "--filename", "-",
 	})
+	assertStdinNotEmpty(t, "apply-crds-server-side", f, 0)
 	// 1: wait crd --all --for=condition=established
 	assertArgsContain(t, "wait-crds", callArgs(t, f, 1),
 		"--context", testCluster, "wait", "crd", "--all", "--for=condition=established")
-	// 2: apply --kustomize <operators-dir>
+	// 2: apply --filename - (embedded operators manifest on stdin)
 	assertArgsEqual(t, "apply-operators", callArgs(t, f, 2), []string{
-		"--context", testCluster, "apply", "--kustomize", operatorsDir,
+		"--context", testCluster, "apply", "--filename", "-",
 	})
+	assertStdinNotEmpty(t, "apply-operators", f, 2)
 	// 3: rollout status olm deploy/olm-operator
 	assertArgsContain(t, "rollout-olm-operator", callArgs(t, f, 3),
 		"--context", testCluster, "-n", "olm", "rollout", "status", "deploy/olm-operator")
@@ -266,7 +282,8 @@ func assertArgsContain(t *testing.T, label string, got []string, want ...string)
 	}
 }
 
-// TestRecipeArgv verifies the recipe builder issues exactly one kustomize apply.
+// TestRecipeArgv verifies the recipe builder issues exactly one apply of the
+// embedded manifest via stdin.
 func TestRecipeArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
@@ -275,10 +292,10 @@ func TestRecipeArgv(t *testing.T) {
 	if len(f.Calls) != 1 {
 		t.Fatalf("expected 1 kubectl call, got %d: %v", len(f.Calls), callNames(f))
 	}
-	startData := filepath.Join(addonsDir, "recipe", "start-data")
 	assertArgsEqual(t, "apply", callArgs(t, f, 0), []string{
-		"--context", testCluster, "apply", "--kustomize", startData,
+		"--context", testCluster, "apply", "--filename", "-",
 	})
+	assertStdinNotEmpty(t, "apply", f, 0)
 }
 
 // TestCSIAddonsArgv verifies the csi-addons builder issues apply + rollout.
@@ -292,10 +309,10 @@ func TestCSIAddonsArgv(t *testing.T) {
 	if len(f.Calls) != 2 {
 		t.Fatalf("expected 2 kubectl calls, got %d: %v", len(f.Calls), callNames(f))
 	}
-	startData := filepath.Join(addonsDir, "csi_addons", "start-data")
 	assertArgsEqual(t, "apply", callArgs(t, f, 0), []string{
-		"--context", testCluster, "apply", "--kustomize", startData,
+		"--context", testCluster, "apply", "--filename", "-",
 	})
+	assertStdinNotEmpty(t, "apply", f, 0)
 	assertArgsContain(t, "rollout", callArgs(t, f, 1),
 		"--context", testCluster, "-n", "csi-addons-system",
 		"rollout", "status", "deployment/csi-addons-controller-manager")
@@ -312,10 +329,10 @@ func TestOCMControllerArgv(t *testing.T) {
 	if len(f.Calls) != 2 {
 		t.Fatalf("expected 2 kubectl calls, got %d: %v", len(f.Calls), callNames(f))
 	}
-	startData := filepath.Join(addonsDir, "ocm", "controller", "start-data")
 	assertArgsEqual(t, "apply", callArgs(t, f, 0), []string{
-		"--context", testCluster, "apply", "--kustomize", startData,
+		"--context", testCluster, "apply", "--filename", "-",
 	})
+	assertStdinNotEmpty(t, "apply", f, 0)
 	assertArgsContain(t, "rollout", callArgs(t, f, 1),
 		"--context", testCluster, "-n", "open-cluster-management",
 		"rollout", "status", "deploy/ocm-controller")

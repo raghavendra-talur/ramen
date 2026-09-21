@@ -15,7 +15,6 @@ package addon
 
 import (
 	"context"
-	"path/filepath"
 	"time"
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
@@ -28,11 +27,7 @@ func init() {
 }
 
 func buildOCMController(d Deps, cluster string, _ []string) ensure.Step {
-	startData := filepath.Join(d.AddonsDir, "ocm", "controller", "start-data")
-
-	apply := newApplyStep("apply", func(ctx context.Context) error {
-		return d.K.ApplyKustomizeDir(ctx, cluster, startData)
-	})
+	apply := applyEmbedded("apply", d, cluster, "ocm-controller.yaml")
 
 	waitRollout := newApplyStep("wait-ocm-controller", func(ctx context.Context) error {
 		return d.K.RolloutStatus(ctx, cluster, "open-cluster-management",

@@ -25,7 +25,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -71,12 +70,8 @@ func init() {
 }
 
 func buildRookCluster(d Deps, cluster string, _ []string) ensure.Step {
-	clusterDir := filepath.Join(d.AddonsDir, "rook", "cluster")
-
-	// Step 1: apply kustomization
-	applyCluster := newApplyStep("apply-rook-cluster", func(ctx context.Context) error {
-		return d.K.ApplyKustomizeDir(ctx, cluster, clusterDir)
-	})
+	// Step 1: apply the rendered cluster manifest
+	applyCluster := applyEmbedded("apply-rook-cluster", d, cluster, "rook-cluster.yaml")
 
 	// Step 2: wait for cephcluster resource to be created
 	waitCephClusterCreate := newApplyStep("wait-cephcluster-create", func(ctx context.Context) error {

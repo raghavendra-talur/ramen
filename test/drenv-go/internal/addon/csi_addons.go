@@ -12,7 +12,6 @@ package addon
 
 import (
 	"context"
-	"path/filepath"
 	"time"
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
@@ -25,11 +24,7 @@ func init() {
 }
 
 func buildCSIAddons(d Deps, cluster string, _ []string) ensure.Step {
-	startData := filepath.Join(d.AddonsDir, "csi_addons", "start-data")
-
-	apply := newApplyStep("apply", func(ctx context.Context) error {
-		return d.K.ApplyKustomizeDir(ctx, cluster, startData)
-	})
+	apply := applyEmbedded("apply", d, cluster, "csi-addons.yaml")
 
 	waitRollout := newApplyStep("wait-controller-manager", func(ctx context.Context) error {
 		return d.K.RolloutStatus(ctx, cluster, "csi-addons-system",
