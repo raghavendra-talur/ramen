@@ -57,6 +57,20 @@ func (k Kubectl) ApplyStdinNamespace(ctx context.Context, kubeContext, namespace
 	)
 }
 
+// ApplyStdinArgs runs:
+//
+//	kubectl --context <kubeContext> apply <args...> --filename -
+//
+// with manifest supplied on stdin. This is used to apply the pre-rendered,
+// embedded addon manifests (which replace the runtime `apply --kustomize <dir>`
+// calls); extra apply flags such as --namespace or --server-side=true are
+// passed through via args.
+func (k Kubectl) ApplyStdinArgs(ctx context.Context, kubeContext string, manifest []byte, args ...string) error {
+	all := append([]string{"--context", kubeContext, "apply"}, args...)
+	all = append(all, "--filename", "-")
+	return k.R.RunStdin(ctx, string(manifest), "kubectl", all...)
+}
+
 // WaitFor runs:
 //
 //	kubectl --context <kubeContext> [-n <namespace>] wait <target...> --for=<forExpr> --timeout <Ns>
