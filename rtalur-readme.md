@@ -72,10 +72,10 @@ Parallel Go implementation of `drenv`. Reflects state as of Milestone 4D.
 |-------|--------|-------|
 | Module skeleton (mage, tools.mod, cobra, ensure pkg, envfile parser) | ✅ | |
 | envfile: parse profiles including `external: true` | ✅ | `Profile.External bool` added M4D |
-| minikube provider + cluster lifecycle (start / stop / delete / status) | 🚧 | Unit-tested via FakeRunner; clusters could not boot on this host (vfkit) |
+| minikube provider + cluster lifecycle (start / stop / delete / status) | 🚧 | `start`/`status` cluster-validated (hub+dr1+dr2 on vfkit/containerd); stop/delete still FakeRunner-only. `status` now isolates the JSON object from minikube's interleaved stderr and treats `Kubeconfig: Misconfigured` (interrupted start, context missing from kubeconfig) as not-Running so `start` reconciles it instead of leaving every addon failing with `context "<name>" does not exist` |
 | minikube `start` flag parity (container_runtime, extra_disks, disk_size, cni, nodes, extra_config, feature_gates, service_cluster_ip_range, rosetta, wait-timeout) | ✅ | `Profile`/`Template` embed `MinikubeSpec`; flags emitted in Python's order. Fixes minikube defaulting to docker instead of `container_runtime: containerd` |
 | `$vm`/`$container`/`$network` placeholder resolution | ✅ | `resolvePlatform` maps placeholders to per-host driver/network (vfkit/vmnet-shared on macOS, kvm2/default on linux-amd64), matching Python's `_PLATFORM_DEFAULTS` |
-| per-node containerd config (`ContainerdConfigStep`) | ✅ (unit-tested; cp/ssh needs real cluster) | post-start `minikube cp`+TOML-merge+`ssh restart containerd`; idempotent Done; mirrors `_configure_containerd` (minus the registry cache) |
+| per-node containerd config (`ContainerdConfigStep`) | ✅ cluster-validated | post-start `minikube cp`+TOML-merge+`ssh restart containerd`; idempotent Done; mirrors `_configure_containerd` (minus the registry cache). cp/ssh round-trip validated on vfkit dr1/dr2 |
 | external provider (ExternalProvider) | 🚧 | No-ops for lifecycle; Status probes `/readyz` via kubectl; unit-tested M4D |
 | Per-profile provider selection (`provider.For`, `build.ProviderSelector`) | ✅ | External profiles get ExternalProvider; normal profiles get MinikubeProvider |
 | suspend / resume / load-image | 🚧 | Unit-tested; delegates to provider per profile |
@@ -107,52 +107,53 @@ Parallel Go implementation of `drenv`. Reflects state as of Milestone 4D.
 
 ### Addon parity sub-table
 
-Every regional-dr addon has been ported and unit-tested (argv-level). A subset
-is now also validated end-to-end on a real single-node cluster (`c1`).
+Every regional-dr addon has been ported and unit-tested (argv-level). The full
+regional-dr stack is now validated end-to-end on the real 3-cluster env
+(hub+dr1+dr2, vfkit/containerd): `start` brought every addon below to ✓ and a
+re-run skipped all 18 gated addons as "already satisfied", exit 0.
 
-**Cluster validation environment:** this host's vfkit driver is broken (SSH
-timeouts), but drenv-go's `minikube start` auto-fell-back to the **qemu2** driver
-and `c1` came up. qemu's builtin (user-mode) network is NOT host-routable, so
-addons that need the host to reach a cluster NodePort/Service (minio `mc`,
-velero, argocd) cannot complete here — a vmnet/vfkit limitation, not a drenv-go
-bug (Python drenv hits the same on qemu-builtin). kubectl-path addons validate
-fully.
+**Cluster validation environment:** vfkit works on this host after all (the
+earlier qemu2 fallback notes are obsolete). The whole regional-dr env comes up
+host-routable, so the NodePort/Service addons (minio `mc`, velero, argocd) that
+qemu-builtin couldn't reach now complete.
 
 | Addon | Registered name | Status |
 |-------|----------------|--------|
-| external-snapshotter | `external-snapshotter` | ✅ cluster-validated (c1/qemu2): CRDs applied, established-wait, controller rolled out |
-| odf-external-snapshotter | `odf-external-snapshotter` | 🚧 ported, argv-tested (kubectl-only; expected to pass like external-snapshotter) |
-| olm | `olm` | 🚧 ported, argv-tested (kubectl-only; expected to pass like external-snapshotter) |
-| recipe | `recipe` | ✅ cluster-validated (c1/qemu2): CRD applied |
-| csi-addons | `csi-addons` | 🚧 ported, argv-tested (kubectl-only; expected to pass like external-snapshotter) |
-| ocm-controller | `ocm-controller` | 🚧 ported, argv-tested, NOT cluster-validated |
-| minio | `minio` | ⚠️ partial (c1/qemu2): apply + rollout validated; `mc` alias/bucket blocked by qemu-builtin NodePort not being host-routable (env, not code) |
-| velero | `velero` | 🚧 ported, argv-tested, NOT cluster-validated |
-| volsync | `volsync` | 🚧 ported, argv-tested, NOT cluster-validated |
-| ocm-hub | `ocm-hub` | 🚧 ported, argv-tested, NOT cluster-validated |
-| ocm-cluster | `ocm-cluster` | 🚧 ported, argv-tested, NOT cluster-validated |
-| submariner | `submariner` | 🚧 ported, argv-tested, NOT cluster-validated |
-| argocd | `argocd` | 🚧 ported, argv-tested, NOT cluster-validated |
-| rook-operator | `rook-operator` | 🚧 ported, argv-tested, NOT cluster-validated |
-| rook-cluster | `rook-cluster` | 🚧 ported, argv-tested, NOT cluster-validated |
-| rook-toolbox | `rook-toolbox` | 🚧 ported, argv-tested, NOT cluster-validated |
-| rook-pool | `rook-pool` | 🚧 ported, argv-tested, NOT cluster-validated |
-| rook-cephfs | `rook-cephfs` | 🚧 ported, argv-tested, NOT cluster-validated |
-| rbd-mirror | `rbd-mirror` | 🚧 ported, argv-tested, NOT cluster-validated |
+| external-snapshotter | `external-snapshotter` | ✅ cluster-validated (regional-dr) |
+| odf-external-snapshotter | `odf-external-snapshotter` | ✅ cluster-validated (regional-dr) |
+| olm | `olm` | ✅ cluster-validated (regional-dr) |
+| recipe | `recipe` | ✅ cluster-validated (regional-dr) |
+| csi-addons | `csi-addons` | ✅ cluster-validated (regional-dr) |
+| ocm-controller | `ocm-controller` | ✅ cluster-validated (regional-dr) |
+| minio | `minio` | ✅ cluster-validated (regional-dr): apply + rollout + `mc` bucket setup all complete (vfkit is host-routable) |
+| velero | `velero` | ✅ cluster-validated (regional-dr) |
+| volsync | `volsync` | ✅ cluster-validated (regional-dr): helm install + rollout on dr1/dr2 |
+| ocm-hub | `ocm-hub` | ✅ cluster-validated (regional-dr): clusteradm init + hub deployments |
+| ocm-cluster | `ocm-cluster` | ✅ cluster-validated (regional-dr): managed-cluster join to hub |
+| submariner | `submariner` | ✅ cluster-validated (regional-dr): broker deploy + dr1/dr2 join |
+| argocd | `argocd` | ✅ cluster-validated (regional-dr). **Fix:** apply now uses `--server-side=true --force-conflicts=true` — client-side apply overflowed the 262144-byte annotation limit on the `applicationsets.argoproj.io` CRD, and force-conflicts lets the server-side apply take over field ownership left by any prior client-side apply |
+| rook-operator | `rook-operator` | ✅ cluster-validated (regional-dr). **Fix:** now applies the two `start-data/{deps,operator}` kustomizations (the `operator/` dir has no kustomization) and waits the CSI CRDs established + `ceph-csi-controller-manager` rollout between them, mirroring Python |
+| rook-cluster | `rook-cluster` | ✅ cluster-validated (regional-dr). **Fix:** rewrote the CSI waits for the Rook 1.20 CSI-operator layout — poll the `*-ctrlplugin` deployments for ceph monitors (via `exec -c <plugin>`) and wait the correctly-named `CSIAddonsNode` resources (with retry), replacing the stale `daemonset/csi-rbdplugin` rollout that never existed |
+| rook-toolbox | `rook-toolbox` | ✅ cluster-validated (regional-dr) |
+| rook-pool | `rook-pool` | ✅ cluster-validated (regional-dr) |
+| rook-cephfs | `rook-cephfs` | ✅ cluster-validated (regional-dr) |
+| rbd-mirror | `rbd-mirror` | ✅ cluster-validated (regional-dr): CephRBDMirror Ready + pool mirroring healthy on dr1/dr2 |
 
 ### Known cluster-validation TODOs (from code review)
 
-These issues will surface when a real cluster run is possible:
+All of the items below have now been exercised by a real regional-dr run
+(hub+dr1+dr2, vfkit/containerd) and are ✅ resolved. Kept here as a record of
+what the code review flagged and how each held up on a live cluster:
 
-1. **submariner: broker-info CWD** — `subctl deploy-broker` has no output-path flag; it always writes `broker-info.subm` into the working directory. The Go port mirrors Python exactly: run deploy-broker, then `os.Rename` the file to the deterministic path. Needs a real subctl run to confirm the CWD-write + rename round-trip.
+1. **submariner: broker-info CWD** — ✅ resolved. `subctl deploy-broker` writes `broker-info.subm` into the working directory; the Go port runs deploy-broker then `os.Rename`s it to the deterministic path. The CWD-write + rename round-trip worked on the live run.
 
-2. **argocd: temp-kubeconfig** — **NOAUTH handling fixed:** the Go port now suppresses `argocd cluster add` failures only when the error is exit-20 AND the output contains "NOAUTH" (matching Python), via the new `OutputEnv` runner seam. The temp-kubeconfig creation still needs validation against a live argocd.
+2. **argocd: temp-kubeconfig** — ✅ resolved. The temp-kubeconfig creation and `argocd cluster add` (with exit-20/"NOAUTH" suppression via the `OutputEnv` runner seam) completed against the live argocd. Separately, the apply itself needed `--server-side=true --force-conflicts=true` (see the addon table above).
 
-3. **rbd-mirror: daemon-restart-on-timeout** — **Implemented:** `waitRBDMirroringHealthy` now retries up to 3 attempts, restarting `deploy/rook-ceph-rbd-mirror-a` (`Kubectl.RolloutRestart` + rollout status) between attempts on a health timeout, mirroring Python. The retry/restart logic is unit-tested; the wait intervals still need validation against real Rook output.
+3. **rbd-mirror: daemon-restart-on-timeout** — ✅ resolved. `waitRBDMirroringHealthy` reached healthy mirroring on dr1/dr2 without needing the retry/restart path this run; the retry logic (restart `deploy/rook-ceph-rbd-mirror-a` between attempts) remains as a safety net and is unit-tested.
 
-4. **ocm: namespace-create waits** — The ocm-hub / ocm-cluster addons wait for `namespace/open-cluster-management` and `namespace/open-cluster-management-hub` to be created. The wait duration may need tuning against a real cluster.
+4. **ocm: namespace-create waits** — ✅ resolved. The ocm-hub / ocm-cluster namespace-create waits (`open-cluster-management`, `open-cluster-management-hub`) completed within their timeouts; the managed clusters joined the hub.
 
-5. **per-node `containerd` plugin config** — regional-dr.yaml sets a `containerd:` block (`device_ownership_from_security_context: true`, needed by rook). **Implemented:** after the cluster starts, `provider.ContainerdConfigStep` does `minikube cp` of `/etc/containerd/config.toml` out, deep-merges the profile block (TOML), copies it back, and `minikube ssh sudo systemctl restart containerd` — mirroring Python's `_configure_containerd`. The step is idempotent (Done skips when the block is already present, so re-runs don't restart a healthy containerd). The registry-mirror part of Python's helper stays out of scope with the registry cache. The merge/decision logic is unit-tested; the cp/ssh round-trip needs real-cluster validation.
+5. **per-node `containerd` plugin config** — ✅ resolved. `provider.ContainerdConfigStep` (`minikube cp` config.toml out → TOML deep-merge of the profile block → copy back → `minikube ssh sudo systemctl restart containerd`) ran on vfkit dr1/dr2; the `device_ownership_from_security_context: true` setting rook needs was present and rook came up HEALTH_OK. The step is idempotent (Done skips when the block is already present).
 
 ## Conventions I follow here
 
