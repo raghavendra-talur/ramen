@@ -14,9 +14,10 @@ import (
 // ("Running", "Stopped", …) are intentionally left uninterpreted here; the
 // provider package maps them to its own Status enum to avoid an import cycle.
 type MinikubeStatus struct {
-	Name      string
-	Host      string
-	APIServer string
+	Name       string
+	Host       string
+	APIServer  string
+	Kubeconfig string
 }
 
 // Minikube wraps a Runner to issue minikube CLI commands. All methods take a
@@ -48,15 +49,20 @@ func (m Minikube) Status(ctx context.Context, profile string) (MinikubeStatus, e
 		return MinikubeStatus{}, nil
 	}
 
-	// Parse the JSON status payload. Minikube exits non-zero (e.g. exit 7) even
-	// when the cluster exists but its components are stopped, so we attempt to
-	// parse first and only propagate the error if parsing fails.
+	// Parse the JSON status payload. Minikube exits non-zero (e.g. exit 6/7) even
+	// when the cluster exists but its components are stopped or its kubeconfig is
+	// misconfigured, so we attempt to parse first and only propagate the error if
+	// parsing fails. minikube also interleaves stderr diagnostics (e.g. "E0916 ...
+	// kubeconfig endpoint ...") into the combined output the runner captures, so
+	// isolate the JSON object (first '{' .. last '}') before unmarshaling.
 	var raw struct {
-		Name      string `json:"Name"`
-		Host      string `json:"Host"`
-		APIServer string `json:"APIServer"`
+		Name       string `json:"Name"`
+		Host       string `json:"Host"`
+		APIServer  string `json:"APIServer"`
+		Kubeconfig string `json:"Kubeconfig"`
 	}
-	if jsonErr := json.Unmarshal([]byte(out), &raw); jsonErr != nil {
+	payload := extractJSONObject(out)
+	if jsonErr := json.Unmarshal([]byte(payload), &raw); jsonErr != nil {
 		// Output is not parseable JSON — surface the original command error if
 		// present, otherwise the parse error.
 		if err != nil {
@@ -65,10 +71,25 @@ func (m Minikube) Status(ctx context.Context, profile string) (MinikubeStatus, e
 		return MinikubeStatus{}, jsonErr
 	}
 	return MinikubeStatus{
-		Name:      raw.Name,
-		Host:      raw.Host,
-		APIServer: raw.APIServer,
+		Name:       raw.Name,
+		Host:       raw.Host,
+		APIServer:  raw.APIServer,
+		Kubeconfig: raw.Kubeconfig,
 	}, nil
+}
+
+// extractJSONObject returns the substring of s spanning the first '{' to the
+// last '}' inclusive, or s unchanged if no such span exists. minikube may
+// interleave stderr diagnostics with the JSON status payload in the combined
+// output the runner captures; this trims that noise so json.Unmarshal sees only
+// the object.
+func extractJSONObject(s string) string {
+	start := strings.IndexByte(s, '{')
+	end := strings.LastIndexByte(s, '}')
+	if start < 0 || end < start {
+		return s
+	}
+	return s[start : end+1]
 }
 
 // Start runs `minikube start` with the provided args. The caller is

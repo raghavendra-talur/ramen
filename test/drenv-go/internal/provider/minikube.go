@@ -40,7 +40,14 @@ func (mp MinikubeProvider) Status(ctx context.Context, profile string) (Status, 
 		return StatusNotFound, nil
 	}
 
-	if st.Host == "Running" && st.APIServer == "Running" {
+	// A cluster is only fully Running when its kubeconfig context is registered
+	// too. minikube reports Kubeconfig=="Misconfigured" (and exits non-zero) when
+	// the host and apiserver are up but the context is missing from the user's
+	// kubeconfig — e.g. after a start was interrupted. Treating that as Running
+	// would skip the reconciling `minikube start` and leave every addon failing
+	// with `context "<name>" does not exist`, so fall through to StatusUnknown
+	// (which the Start step treats as not-done) to re-run start and register it.
+	if st.Host == "Running" && st.APIServer == "Running" && st.Kubeconfig == "Configured" {
 		return StatusRunning, nil
 	}
 
