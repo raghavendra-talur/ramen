@@ -27,7 +27,7 @@ func newResumeCommand() *cobra.Command {
 				return err
 			}
 
-			sel := newProviderSelector()
+			sel := newProviderSelector("")
 			ctx := cmd.Context()
 
 			var errs []error
