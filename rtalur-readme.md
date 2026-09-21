@@ -73,7 +73,8 @@ Parallel Go implementation of `drenv`. Reflects state as of Milestone 4D.
 | Module skeleton (mage, tools.mod, cobra, ensure pkg, envfile parser) | ✅ | |
 | envfile: parse profiles including `external: true` | ✅ | `Profile.External bool` added M4D |
 | minikube provider + cluster lifecycle (start / stop / delete / status) | 🚧 | `start`/`status` cluster-validated (hub+dr1+dr2 on vfkit/containerd); stop/delete still FakeRunner-only. `status` now isolates the JSON object from minikube's interleaved stderr and treats `Kubeconfig: Misconfigured` (interrupted start, context missing from kubeconfig) as not-Running so `start` reconciles it instead of leaving every addon failing with `context "<name>" does not exist` |
-| minikube `start` flag parity (container_runtime, extra_disks, disk_size, cni, nodes, extra_config, feature_gates, service_cluster_ip_range, rosetta, wait-timeout) | ✅ | `Profile`/`Template` embed `MinikubeSpec`; flags emitted in Python's order. Fixes minikube defaulting to docker instead of `container_runtime: containerd` |
+| minikube `start` flag parity (container_runtime, extra_disks, disk_size, cni, nodes, extra_config, feature_gates, service_cluster_ip_range, rosetta, wait-timeout, dns-servers) | ✅ | `Profile`/`Template` embed `MinikubeSpec`; flags emitted in Python's order. Fixes minikube defaulting to docker instead of `container_runtime: containerd` |
+| minikube DNS bypass on managed Macs (`--dns-servers`, #2786) | 🚧 | `minikube_dns.go` ports `dns.servers()` (auto/static/host modes, VM-driver gate → public 8.8.8.8/1.1.1.1) and `is_managed_mac()`/`systemextensionsctl` parsing. `MinikubeProvider.DNSMode` defaults to `auto`; detection runs only in auto mode and never shells out off Darwin. Unit-tested (mode selection, extension parsing, detection, emitted flag) |
 | `$vm`/`$container`/`$network` placeholder resolution | ✅ | `resolvePlatform` maps placeholders to per-host driver/network (vfkit/vmnet-shared on macOS, kvm2/default on linux-amd64), matching Python's `_PLATFORM_DEFAULTS` |
 | per-node containerd config (`ContainerdConfigStep`) | ✅ cluster-validated | post-start `minikube cp`+TOML-merge+`ssh restart containerd`; idempotent Done; mirrors `_configure_containerd` (minus the registry cache). cp/ssh round-trip validated on vfkit dr1/dr2 |
 | external provider (ExternalProvider) | 🚧 | No-ops for lifecycle; Status probes `/readyz` via kubectl; unit-tested M4D |
@@ -81,7 +82,7 @@ Parallel Go implementation of `drenv`. Reflects state as of Milestone 4D.
 | suspend / resume / load-image | 🚧 | Unit-tested; delegates to provider per profile |
 | `cli.Kubectl` wrapper (Apply, ApplyKustomizeDir, WaitFor, WaitCondition, GetRaw, ClusterInfoDump, …) | ✅ | All methods argv-tested |
 | Addon-execution framework (registry, ensure integration, parallel workers) | ✅ | |
-| Reality-gated addon re-runs (`ensure.NewGatedGroup` + per-addon readiness probe) | ✅ | A satisfied addon reports `addon/X: skipped, already satisfied` and runs nothing, instead of replaying every apply/wait/rollout. **All workload addons are gated**, including the multi-phase ones with thorough multi-condition probes: rook-cluster (CephCluster Ready + CSI components + CSIAddonsNodes Connected), rook-pool (pool Ready + peer token), rook-cephfs (filesystems Ready), ocm-cluster (ManagedCluster Available + addon deployments), argocd (server Available + cluster secrets), submariner (broker + member deployments), rbd-mirror (CephRBDMirror Ready + mirroring healthy). Only recipe and odf-external-snapshotter stay ungated (apply-`-k`-only, already cheap). Probes are conservative — any uncertainty reports not-ready, and a post-Do latch means a gate can never wrongly fail or skip needed work. |
+| Reality-gated addon re-runs (`ensure.NewGatedGroup` + per-addon readiness probe) | ✅ | A satisfied addon reports `addon/X: skipped, already satisfied` and runs nothing, instead of replaying every apply/wait/rollout. **All workload addons are gated**, including the multi-phase ones with thorough multi-condition probes: rook-cluster (CephCluster Ready + CSI components + CSIAddonsNodes Connected), rook-pool (pool Ready + peer token), rook-cephfs (filesystems Ready), ocm-cluster (ManagedCluster Available + addon deployments), argocd (server Available + cluster secrets), submariner (broker + member deployments), rbd-mirror (CephRBDMirror Ready + mirroring healthy). Only recipe stays ungated (apply-only, already cheap). Probes are conservative — any uncertainty reports not-ready, and a post-Do latch means a gate can never wrongly fail or skip needed work. |
 
 ### Commands
 
@@ -103,6 +104,7 @@ Parallel Go implementation of `drenv`. Reflects state as of Milestone 4D.
 | Feature | Decision |
 |---------|----------|
 | lima provider | **Dropped**: explicitly out of scope for drenv-go. Only minikube + external. |
+| odf-external-snapshotter addon | **Dropped**: removed upstream (commit 2bfa5daf) when the external snapshotter switched to the public VolumeGroupSnapshot API. The ported Go builder was deleted as dead code. |
 | registry-cache / host-setup / cleanup | **Out of scope**: these are drenv host-infra features (local Docker registry, host `/etc/hosts`, DNS). drenv-go applies kustomizations directly; the kustomize-build cache is unnecessary. Host-infra setup is intentionally not reimplemented. |
 
 ### Addon parity sub-table
@@ -120,7 +122,6 @@ qemu-builtin couldn't reach now complete.
 | Addon | Registered name | Status |
 |-------|----------------|--------|
 | external-snapshotter | `external-snapshotter` | ✅ cluster-validated (regional-dr) |
-| odf-external-snapshotter | `odf-external-snapshotter` | ✅ cluster-validated (regional-dr) |
 | olm | `olm` | ✅ cluster-validated (regional-dr) |
 | recipe | `recipe` | ✅ cluster-validated (regional-dr) |
 | csi-addons | `csi-addons` | ✅ cluster-validated (regional-dr) |
@@ -136,8 +137,8 @@ qemu-builtin couldn't reach now complete.
 | rook-cluster | `rook-cluster` | ✅ cluster-validated (regional-dr). **Fix:** rewrote the CSI waits for the Rook 1.20 CSI-operator layout — poll the `*-ctrlplugin` deployments for ceph monitors (via `exec -c <plugin>`) and wait the correctly-named `CSIAddonsNode` resources (with retry), replacing the stale `daemonset/csi-rbdplugin` rollout that never existed |
 | rook-toolbox | `rook-toolbox` | ✅ cluster-validated (regional-dr) |
 | rook-pool | `rook-pool` | ✅ cluster-validated (regional-dr) |
-| rook-cephfs | `rook-cephfs` | ✅ cluster-validated (regional-dr) |
-| rbd-mirror | `rbd-mirror` | ✅ cluster-validated (regional-dr): CephRBDMirror Ready + pool mirroring healthy on dr1/dr2 |
+| rook-cephfs | `rook-cephfs` | ✅ cluster-validated (regional-dr). Applies a `VolumeGroupSnapshotClass` after the snapshot class (consistency-group parity, #2739) |
+| rbd-mirror | `rbd-mirror` | ✅ cluster-validated (regional-dr): CephRBDMirror Ready + pool mirroring healthy on dr1/dr2. Creates a `VolumeGroupReplicationClass` per interval alongside the VRC loop (consistency-group parity, #2739) |
 
 ### Known cluster-validation TODOs (from code review)
 
