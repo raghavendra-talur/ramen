@@ -29,7 +29,13 @@ func commonStartTail() []string {
 
 // statusJSON builds a minimal minikube status JSON payload.
 func runningJSON(name string) string {
-	return `{"Name":"` + name + `","Host":"Running","APIServer":"Running","Kubelet":"Running"}`
+	return `{"Name":"` + name + `","Host":"Running","APIServer":"Running","Kubelet":"Running","Kubeconfig":"Configured"}`
+}
+
+// misconfiguredJSON is an existing cluster whose host+apiserver are up but whose
+// kubeconfig context is not registered (e.g. an interrupted start).
+func misconfiguredJSON(name string) string {
+	return `{"Name":"` + name + `","Host":"Running","APIServer":"Running","Kubelet":"Running","Kubeconfig":"Misconfigured"}`
 }
 
 func stoppedJSON(name string) string {
@@ -88,6 +94,24 @@ func TestMinikubeProviderStatusNotFound(t *testing.T) {
 	}
 	if s != provider.StatusNotFound {
 		t.Errorf("Status = %s, want not-found", s)
+	}
+}
+
+// TestMinikubeProviderStatusMisconfiguredIsNotRunning pins that a running
+// cluster with an unregistered kubeconfig context is NOT reported Running, so
+// the Start step re-runs `minikube start` to register the context rather than
+// leaving every addon failing with `context "<name>" does not exist`.
+func TestMinikubeProviderStatusMisconfiguredIsNotRunning(t *testing.T) {
+	f := &cli.FakeRunner{}
+	f.Script(cli.FakeResult{Out: misconfiguredJSON("hub")})
+	p := newProvider(f)
+
+	s, err := p.Status(context.Background(), "hub")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if s == provider.StatusRunning {
+		t.Errorf("Status = running, want not-running for misconfigured kubeconfig")
 	}
 }
 
