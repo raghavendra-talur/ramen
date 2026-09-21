@@ -695,12 +695,15 @@ func TestArgocdArgv(t *testing.T) {
 
 	startDataDir := filepath.Join(addonsDir, "argocd", "start-data")
 
-	// call[0]: kubectl apply --kustomize <start-data> --namespace argocd on hub
+	// call[0]: kubectl apply --kustomize <start-data> --namespace argocd
+	// --server-side=true --force-conflicts=true on hub
 	assertCall(t, "apply-argocd", f, 0, "kubectl", []string{
 		"--context", "hub",
 		"apply",
 		"--kustomize", startDataDir,
 		"--namespace", "argocd",
+		"--server-side=true",
+		"--force-conflicts=true",
 	})
 
 	// call[1]: kubectl wait deploy --all --for=condition=Available --namespace=argocd on hub
