@@ -156,6 +156,28 @@ what the code review flagged and how each held up on a live cluster:
 
 5. **per-node `containerd` plugin config** — ✅ resolved. `provider.ContainerdConfigStep` (`minikube cp` config.toml out → TOML deep-merge of the profile block → copy back → `minikube ssh sudo systemctl restart containerd`) ran on vfkit dr1/dr2; the `device_ownership_from_security_context: true` setting rook needs was present and rook came up HEALTH_OK. The step is idempotent (Done skips when the block is already present).
 
+## Staying in sync with Python drenv (drift check)
+
+The Python `drenv` and `drenv-go` will live side by side for a long time, and
+fixes or enhancements from other teams often land **only** in the Python
+project. To make sure a lag in drenv-go is impossible to miss:
+
+- `parity.lock` freezes a sha256 of every upstream (`../drenv`) file this port
+  mirrors — derived automatically from the `.py` paths the Go source cites, plus
+  every asset under each ported addon's directory, plus a small explicit
+  supplement (`parityExtraSources` in `parity.go`) for modules named only in
+  prose.
+- `make parity` fails and names exactly what changed: **DRIFTED** (upstream file
+  edited since last sync), **NEW**/**REMOVED** (tracked set changed), and
+  **UNPORTED** (a new upstream addon with no drenv-go reference). Pure file
+  hashing — no network or cluster.
+- `make parity-update` re-baselines `parity.lock`. Run it **only after**
+  reconciling drenv-go with the upstream change — it is the explicit "I reviewed
+  this" acknowledgement, and shows up as a reviewable diff.
+- CI (`.github/workflows/drenv-go.yaml`) runs `make parity` (plus lint/test/
+  build) on any push/PR touching `test/drenv/**` or `test/drenv-go/**`, so a
+  Python-side change that isn't reconciled here fails the check.
+
 ## Conventions I follow here
 
 - Branch: `main`, push to `rtalur-github`. No PRs.
