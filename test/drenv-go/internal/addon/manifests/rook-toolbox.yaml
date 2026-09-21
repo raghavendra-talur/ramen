@@ -163,7 +163,7 @@ spec:
             secretKeyRef:
               key: ceph-username
               name: rook-ceph-mon
-        image: quay.io/ceph/ceph:v20
+        image: ghcr.io/nikhil-ladha/rbd-group-mirroring:latest
         imagePullPolicy: IfNotPresent
         name: rook-ceph-tools
         securityContext:
