@@ -49,8 +49,14 @@ func unknownJSON(name string) string {
 const notFoundOutput = `❌  Profile "dr1" not found.`
 
 // newProvider is a test helper that wires a FakeRunner into MinikubeProvider.
+// It stubs ManagedMac to report "not a managed Mac" so Start's DNS resolution is
+// deterministic (host mode, no --dns-servers, no systemextensionsctl call)
+// regardless of the host OS. DNS-specific behavior is covered separately.
 func newProvider(f *cli.FakeRunner) provider.MinikubeProvider {
-	return provider.MinikubeProvider{MK: &cli.Minikube{R: f}}
+	return provider.MinikubeProvider{
+		MK:         &cli.Minikube{R: f},
+		ManagedMac: func(context.Context) (bool, error) { return false, nil },
+	}
 }
 
 // ---- Status mapping table ----
@@ -227,6 +233,53 @@ func TestMinikubeProviderStartOmitsPlaceholderNetwork(t *testing.T) {
 	want := append([]string{"start", "-p", "dr1", "--driver", "kvm2", "--cpus", "2", "--memory", "4096m"}, commonStartTail()...)
 	if !reflect.DeepEqual(c.Args, want) {
 		t.Errorf("args = %v, want %v", c.Args, want)
+	}
+}
+
+func TestMinikubeProviderStartStaticDNS(t *testing.T) {
+	// A managed Mac on a VM driver (auto mode) must inject public DNS servers
+	// immediately after -p, mirroring the Python provider on managed Macs.
+	f := &cli.FakeRunner{}
+	p := provider.MinikubeProvider{
+		MK:         &cli.Minikube{R: f},
+		ManagedMac: func(context.Context) (bool, error) { return true, nil },
+	}
+
+	prof := envfile.Profile{Name: "dr1", MinikubeSpec: envfile.MinikubeSpec{Driver: "kvm2"}}
+	if err := p.Start(context.Background(), prof); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(f.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(f.Calls))
+	}
+	c := f.Calls[0]
+	want := append([]string{
+		"start", "-p", "dr1",
+		"--dns-servers", "8.8.8.8,1.1.1.1",
+		"--driver", "kvm2",
+	}, commonStartTail()...)
+	if !reflect.DeepEqual(c.Args, want) {
+		t.Errorf("args = %v, want %v", c.Args, want)
+	}
+}
+
+func TestMinikubeProviderStartDNSHostModeOnDocker(t *testing.T) {
+	// Even a managed Mac gets no --dns-servers on a non-VM driver (auto mode
+	// resolves to host), matching the Python is_vm gate.
+	f := &cli.FakeRunner{}
+	p := provider.MinikubeProvider{
+		MK:         &cli.Minikube{R: f},
+		ManagedMac: func(context.Context) (bool, error) { return true, nil },
+	}
+
+	prof := envfile.Profile{Name: "dr1", MinikubeSpec: envfile.MinikubeSpec{Driver: "docker"}}
+	if err := p.Start(context.Background(), prof); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, a := range f.Calls[0].Args {
+		if a == "--dns-servers" {
+			t.Fatalf("unexpected --dns-servers on docker driver; args = %v", f.Calls[0].Args)
+		}
 	}
 }
 
