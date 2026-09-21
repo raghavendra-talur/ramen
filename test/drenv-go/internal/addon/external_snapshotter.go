@@ -14,7 +14,6 @@ package addon
 
 import (
 	"context"
-	"path/filepath"
 	"time"
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
@@ -30,21 +29,14 @@ func init() {
 }
 
 func buildExternalSnapshotter(d Deps, cluster string, _ []string) ensure.Step {
-	crdsDir := filepath.Join(d.AddonsDir, "external_snapshotter", "start-data", "crds")
-	controllerDir := filepath.Join(d.AddonsDir, "external_snapshotter", "start-data", "controller")
-
-	applyCRDs := newApplyStep("apply-crds", func(ctx context.Context) error {
-		return d.K.ApplyKustomizeDir(ctx, cluster, crdsDir)
-	})
+	applyCRDs := applyEmbedded("apply-crds", d, cluster, "external-snapshotter-crds.yaml")
 
 	waitCRDs := newApplyStep("wait-crds-established", func(ctx context.Context) error {
 		return d.K.WaitFor(ctx, cluster, "", "condition=established",
 			externalSnapshotterWaitTimeout, "crd", "--all")
 	})
 
-	applyController := newApplyStep("apply-controller", func(ctx context.Context) error {
-		return d.K.ApplyKustomizeDir(ctx, cluster, controllerDir)
-	})
+	applyController := applyEmbedded("apply-controller", d, cluster, "external-snapshotter-controller.yaml")
 
 	waitController := newApplyStep("wait-snapshot-controller", func(ctx context.Context) error {
 		return d.K.RolloutStatus(ctx, cluster, "kube-system", "deploy/snapshot-controller",

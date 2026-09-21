@@ -56,10 +56,9 @@ func buildArgocd(d Deps, _ string, args []string) ensure.Step {
 	}
 	hub := args[0]
 	members := args[1:]
-	startDataDir := filepath.Join(d.AddonsDir, "argocd", "start-data")
 
-	// deploy_argocd: apply kustomize dir with namespace, using server-side apply.
-	// Client-side apply stores the manifest in the last-applied-configuration
+	// deploy_argocd: apply the rendered manifest with namespace, using server-side
+	// apply. Client-side apply stores the manifest in the last-applied-configuration
 	// annotation, which overflows the 262144-byte annotation limit on the large
 	// applicationsets.argoproj.io CRD. Python passes --server-side=true here for
 	// the same reason.
@@ -71,14 +70,11 @@ func buildArgocd(d Deps, _ string, args []string) ensure.Step {
 	// overwrite, failing with a field-ownership conflict. Since this addon fully
 	// owns the argocd deployment, forcing conflicts is the correct, idempotent
 	// resolution.
-	deployStep := newApplyStep("apply-argocd", func(ctx context.Context) error {
-		return d.K.Apply(ctx, hub,
-			"--kustomize", startDataDir,
-			"--namespace", "argocd",
-			"--server-side=true",
-			"--force-conflicts=true",
-		)
-	})
+	deployStep := applyEmbedded("apply-argocd", d, hub, "argocd.yaml",
+		"--namespace", "argocd",
+		"--server-side=true",
+		"--force-conflicts=true",
+	)
 
 	// wait_for_deployments
 	waitStep := newApplyStep("wait-argocd-deployments", func(ctx context.Context) error {
