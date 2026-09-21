@@ -29,7 +29,7 @@ spec:
       osd_pool_default_size: "1"
   cephVersion:
     allowUnsupported: true
-    image: quay.io/ceph/ceph:v20
+    image: ghcr.io/nikhil-ladha/rbd-group-mirroring:latest
   crashCollector:
     disable: true
   dashboard:
