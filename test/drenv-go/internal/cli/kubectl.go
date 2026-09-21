@@ -137,6 +137,18 @@ func (k Kubectl) KubectlExec(ctx context.Context, kubeContext, namespace, resour
 	return k.R.Output(ctx, "kubectl", args...)
 }
 
+// ExecContainer runs:
+//
+//	kubectl --context <kubeContext> -n <namespace> exec <resource> -c <container> -- <cmd...>
+//
+// and returns the combined output. Unlike KubectlExec it selects a specific
+// container, matching Python's kubectl.exec(..., "-c", container, ...).
+func (k Kubectl) ExecContainer(ctx context.Context, kubeContext, namespace, resource, container string, cmd ...string) (string, error) {
+	args := []string{"--context", kubeContext, "-n", namespace, "exec", resource, "-c", container, "--"}
+	args = append(args, cmd...)
+	return k.R.Output(ctx, "kubectl", args...)
+}
+
 // Patch runs:
 //
 //	kubectl --context <kubeContext> -n <namespace> patch <resource> --type=<patchType> --patch=<patch>

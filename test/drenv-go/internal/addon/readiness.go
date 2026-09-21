@@ -37,14 +37,6 @@ func deploymentAvailable(ctx context.Context, k *cli.Kubectl, kubeContext, names
 		`{.status.conditions[?(@.type=="Available")].status}`, "True")
 }
 
-// daemonSetReady reports whether a DaemonSet has all desired pods ready (and at
-// least one is scheduled).
-func daemonSetReady(ctx context.Context, k *cli.Kubectl, kubeContext, namespace, name string) bool {
-	desired := jsonGet(ctx, k, kubeContext, namespace, "daemonset/"+name, "{.status.desiredNumberScheduled}")
-	ready := jsonGet(ctx, k, kubeContext, namespace, "daemonset/"+name, "{.status.numberReady}")
-	return desired != "" && desired != "0" && desired == ready
-}
-
 // cephPhaseReady reports whether a ceph resource's .status.phase is "Ready".
 func cephPhaseReady(ctx context.Context, k *cli.Kubectl, kubeContext, namespace, resource string) bool {
 	return jsonPathEquals(ctx, k, kubeContext, namespace, resource, "{.status.phase}", "Ready")
