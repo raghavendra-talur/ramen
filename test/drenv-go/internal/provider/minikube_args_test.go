@@ -36,7 +36,7 @@ func TestBuildStartArgsFullParity(t *testing.T) {
 		},
 	}
 
-	got := buildStartArgs(prof, "linux", "amd64")
+	got := buildStartArgs(prof, "linux", "amd64", nil)
 	want := []string{
 		"-p", "dr1",
 		"--driver", "kvm2",
@@ -61,7 +61,7 @@ func TestBuildStartArgsFullParity(t *testing.T) {
 
 func TestBuildStartArgsRosettaOnAppleSilicon(t *testing.T) {
 	prof := envfile.Profile{Name: "dr1"}
-	got := buildStartArgs(prof, "darwin", "arm64")
+	got := buildStartArgs(prof, "darwin", "arm64", nil)
 	want := []string{
 		"-p", "dr1",
 		"--extra-config", "kubelet.serialize-image-pulls=false",
@@ -75,7 +75,7 @@ func TestBuildStartArgsRosettaOnAppleSilicon(t *testing.T) {
 
 func TestBuildStartArgsRosettaDisabledExplicitly(t *testing.T) {
 	prof := envfile.Profile{Name: "dr1", MinikubeSpec: envfile.MinikubeSpec{Rosetta: boolPtr(false)}}
-	got := buildStartArgs(prof, "darwin", "arm64")
+	got := buildStartArgs(prof, "darwin", "arm64", nil)
 	for _, a := range got {
 		if a == "--rosetta" {
 			t.Fatalf("--rosetta present despite rosetta: false; args = %v", got)
@@ -86,7 +86,7 @@ func TestBuildStartArgsRosettaDisabledExplicitly(t *testing.T) {
 func TestBuildStartArgsNoRosettaOnNonApple(t *testing.T) {
 	prof := envfile.Profile{Name: "dr1"}
 	for _, plat := range [][2]string{{"linux", "amd64"}, {"darwin", "amd64"}, {"linux", "arm64"}} {
-		got := buildStartArgs(prof, plat[0], plat[1])
+		got := buildStartArgs(prof, plat[0], plat[1], nil)
 		for _, a := range got {
 			if a == "--rosetta" {
 				t.Errorf("%s/%s: unexpected --rosetta in %v", plat[0], plat[1], got)
