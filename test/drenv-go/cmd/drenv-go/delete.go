@@ -23,7 +23,7 @@ func newDeleteCommand() *cobra.Command {
 			opts := ensure.DefaultOptions()
 			opts.Reporter = ensure.ConsoleReporter{W: cmd.OutOrStdout()}
 
-			step := build.Delete(env, newProviderSelector(), opts)
+			step := build.Delete(env, newProviderSelector(""), opts)
 			_, err = ensure.Ensure(cmd.Context(), step, opts)
 			return err
 		},

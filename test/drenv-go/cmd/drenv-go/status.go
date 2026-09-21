@@ -21,7 +21,7 @@ func newStatusCommand() *cobra.Command {
 				return err
 			}
 
-			sel := newProviderSelector()
+			sel := newProviderSelector("")
 
 			// Print cluster status for each profile.
 			for _, prof := range env.Profiles {
