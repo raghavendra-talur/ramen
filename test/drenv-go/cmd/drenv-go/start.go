@@ -18,20 +18,17 @@ import (
 	"github.com/ramendr/ramen/test/drenv-go/internal/provider"
 )
 
-// newMinikubeProvider returns a MinikubeProvider backed by the real minikube CLI.
-func newMinikubeProvider() provider.MinikubeProvider {
-	return provider.MinikubeProvider{MK: &cli.Minikube{R: cli.Exec{}}}
-}
-
 // newProviderSelector returns a build.ProviderSelector that picks
 // ExternalProvider for profiles with External==true and MinikubeProvider for
-// all others, using real CLI clients.
-func newProviderSelector() build.ProviderSelector {
+// all others, using real CLI clients. dnsMode ("auto"/"static"/"host"; "" means
+// auto) is forwarded to minikube providers and only affects `start`; other
+// commands pass "" since they never create clusters.
+func newProviderSelector(dnsMode string) build.ProviderSelector {
 	r := cli.Exec{}
 	mk := &cli.Minikube{R: r}
 	k := &cli.Kubectl{R: r}
 	return func(prof envfile.Profile) provider.Provider {
-		return provider.For(prof, mk, k)
+		return provider.For(prof, mk, k, dnsMode)
 	}
 }
 
@@ -60,11 +57,18 @@ func defaultAddonsDir() string {
 
 func newStartCommand() *cobra.Command {
 	var addonsDir string
+	var dnsMode string
 
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Ensure all clusters in the environment are running",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			switch dnsMode {
+			case "auto", "static", "host":
+			default:
+				return fmt.Errorf("invalid --dns-mode %q: must be auto, static, or host", dnsMode)
+			}
+
 			env, err := loadEnv()
 			if err != nil {
 				return err
@@ -93,7 +97,7 @@ func newStartCommand() *cobra.Command {
 				Opts:       opts,
 			}
 
-			step := build.Start(env, newProviderSelector(), deps, opts)
+			step := build.Start(env, newProviderSelector(dnsMode), deps, opts)
 			if _, err := ensure.Ensure(cmd.Context(), step, opts); err != nil {
 				return err
 			}
@@ -120,5 +124,10 @@ func newStartCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&addonsDir, "addons-dir", "",
 		"path to the addons directory (default: <envfile-dir>/../drenv/addons)")
+	cmd.Flags().StringVar(&dnsMode, "dns-mode", "auto",
+		"DNS configuration mode: 'auto' detects managed Macs and uses 'static' "+
+			"if needed; 'static' configures public DNS servers (8.8.8.8, 1.1.1.1); "+
+			"'host' uses the host resolver (minikube default, may not work on "+
+			"managed Macs)")
 	return cmd
 }

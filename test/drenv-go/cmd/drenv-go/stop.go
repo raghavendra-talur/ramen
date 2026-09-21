@@ -23,7 +23,7 @@ func newStopCommand() *cobra.Command {
 			opts := ensure.DefaultOptions()
 			opts.Reporter = ensure.ConsoleReporter{W: cmd.OutOrStdout()}
 
-			step := build.Stop(env, newProviderSelector(), opts)
+			step := build.Stop(env, newProviderSelector(""), opts)
 			_, err = ensure.Ensure(cmd.Context(), step, opts)
 			return err
 		},
