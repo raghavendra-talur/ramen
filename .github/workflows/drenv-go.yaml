@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# yamllint disable rule:line-length
+---
+name: drenv-go
+
+# drenv-go is the Go port of the Python drenv. Fixes and enhancements often land
+# only in the Python project, so the `parity` job fails when an upstream file
+# drenv-go mirrors drifts from the committed baseline (test/drenv-go/parity.lock)
+# — surfacing the lag on every change to either project. build/test/lint keep the
+# port itself green.
+
+on:
+  push:
+    paths:
+      - 'test/drenv/**'
+      - 'test/drenv-go/**'
+      - '.github/workflows/drenv-go.yaml'
+  pull_request:
+    paths:
+      - 'test/drenv/**'
+      - 'test/drenv-go/**'
+      - '.github/workflows/drenv-go.yaml'
+
+defaults:
+  run:
+    shell: bash
+    working-directory: test/drenv-go
+
+jobs:
+  drenv-go:
+    name: drenv-go
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Setup go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: test/drenv-go/go.mod
+
+      # Fails when the Python drenv has drifted from parity.lock, naming the
+      # mirrored files that changed and any unported upstream addon. Pure file
+      # hashing — no network or cluster needed.
+      - name: Check parity with Python drenv
+        run: make parity
+
+      - name: Lint
+        run: make lint
+
+      - name: Test
+        run: make test
+
+      - name: Build
+        run: make build
