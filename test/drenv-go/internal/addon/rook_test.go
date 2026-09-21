@@ -19,10 +19,15 @@ import (
 
 // ---- rook-operator ----
 
-// TestRookOperatorArgv verifies the rook-operator builder:
-//  1. kubectl apply -k <AddonsDir>/rook/operator
-//  2. kubectl rollout status rook-ceph deploy/rook-ceph-operator (600s)
-//  3. kubectl wait pod --selector=app=rook-ceph-operator
+// TestRookOperatorArgv verifies the rook-operator builder mirrors the Python
+// two-phase deps/operator flow:
+//  1. kubectl apply -k <AddonsDir>/rook/operator/start-data/deps
+//  2. kubectl wait crd/operatorconfigs.csi.ceph.io --for=condition=established (300s)
+//  3. kubectl wait crd/drivers.csi.ceph.io --for=condition=established (300s)
+//  4. kubectl rollout status rook-ceph deploy/ceph-csi-controller-manager (300s)
+//  5. kubectl apply -k <AddonsDir>/rook/operator/start-data/operator
+//  6. kubectl rollout status rook-ceph deploy/rook-ceph-operator (600s)
+//  7. kubectl wait pod --selector=app=rook-ceph-operator
 //     --for=jsonpath={.status.phase}=Running -n rook-ceph (300s)
 func TestRookOperatorArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
@@ -32,26 +37,51 @@ func TestRookOperatorArgv(t *testing.T) {
 	runStep(t, f, addonsDir, "rook-operator", "dr1", nil)
 	stripGateCall(f)
 
-	if len(f.Calls) != 3 {
-		t.Fatalf("expected 3 calls, got %d:\n%s", len(f.Calls), strings.Join(callNames(f), "\n"))
+	if len(f.Calls) != 7 {
+		t.Fatalf("expected 7 calls, got %d:\n%s", len(f.Calls), strings.Join(callNames(f), "\n"))
 	}
 
-	operatorDir := filepath.Join(addonsDir, "rook", "operator")
+	depsDir := filepath.Join(addonsDir, "rook", "operator", "start-data", "deps")
+	operatorDir := filepath.Join(addonsDir, "rook", "operator", "start-data", "operator")
 
-	// call[0]: kubectl apply -k <operator-dir>
-	assertArgsEqual(t, "apply-operator", callArgs(t, f, 0), []string{
+	// call[0]: kubectl apply -k <deps-dir>
+	assertArgsEqual(t, "apply-deps", callArgs(t, f, 0), []string{
+		"--context", "dr1", "apply", "--kustomize", depsDir,
+	})
+
+	// call[1]: wait crd/operatorconfigs.csi.ceph.io --for=condition=established
+	assertArgsContain(t, "wait-csi-crd-1", callArgs(t, f, 1),
+		"--context", "dr1", "wait", "crd/operatorconfigs.csi.ceph.io",
+		"--for=condition=established", "--timeout", "300s",
+	)
+
+	// call[2]: wait crd/drivers.csi.ceph.io --for=condition=established
+	assertArgsContain(t, "wait-csi-crd-2", callArgs(t, f, 2),
+		"--context", "dr1", "wait", "crd/drivers.csi.ceph.io",
+		"--for=condition=established", "--timeout", "300s",
+	)
+
+	// call[3]: rollout status deploy/ceph-csi-controller-manager (300s)
+	assertArgsContain(t, "rollout-csi", callArgs(t, f, 3),
+		"--context", "dr1", "-n", "rook-ceph",
+		"rollout", "status", "deploy/ceph-csi-controller-manager",
+		"--timeout", "300s",
+	)
+
+	// call[4]: kubectl apply -k <operator-dir>
+	assertArgsEqual(t, "apply-operator", callArgs(t, f, 4), []string{
 		"--context", "dr1", "apply", "--kustomize", operatorDir,
 	})
 
-	// call[1]: kubectl rollout status deploy/rook-ceph-operator (600s)
-	assertArgsContain(t, "rollout-operator", callArgs(t, f, 1),
+	// call[5]: kubectl rollout status deploy/rook-ceph-operator (600s)
+	assertArgsContain(t, "rollout-operator", callArgs(t, f, 5),
 		"--context", "dr1", "-n", "rook-ceph",
 		"rollout", "status", "deploy/rook-ceph-operator",
 		"--timeout", "600s",
 	)
 
-	// call[2]: kubectl wait pod --selector=... --for=jsonpath=...=Running (300s)
-	assertArgsContain(t, "wait-running", callArgs(t, f, 2),
+	// call[6]: kubectl wait pod --selector=... --for=jsonpath=...=Running (300s)
+	assertArgsContain(t, "wait-running", callArgs(t, f, 6),
 		"--context", "dr1", "-n", "rook-ceph",
 		"wait", "pod", "--selector=app=rook-ceph-operator",
 		"--for=jsonpath={.status.phase}=Running",
@@ -61,24 +91,37 @@ func TestRookOperatorArgv(t *testing.T) {
 
 // ---- rook-cluster ----
 
-// TestRookClusterArgv verifies the rook-cluster builder.
-// Expected calls:
+// TestRookClusterArgv verifies the rook-cluster builder mirrors the Python
+// Rook 1.20 CSI-operator flow.
+// Expected calls (with each CSI plugin exec returning monitors on the first
+// poll, and each CSIAddonsNode created+Connected on the first attempt):
 //  1. apply -k rook/cluster
 //  2. wait cephcluster/my-cluster --for=create -n rook-ceph (300s)
 //  3. wait cephcluster/my-cluster --for=jsonpath={.status.phase}=Ready -n rook-ceph (600s)
-//     4-7. rollout status for 4 CSI components (daemonsets + deployments)
-//     8-13. for 3 CSIAddonsNodes: wait --for=create + wait --for=jsonpath=Connected (each pair)
+//     4-5. exec into each CSI ctrlplugin container to read ceph-csi config
+//     6-11. for 3 CSIAddonsNodes: wait --for=create + wait --for=jsonpath=Connected
 //
-// Total: 1 + 1 + 1 + 4 + (3*2) = 13 calls.
+// Total: 1 + 1 + 1 + 2 + (3*2) = 11 calls.
 func TestRookClusterArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
 	gateNotReady(f)
 
+	// apply, wait-create, wait-ready succeed.
+	f.Script(cli.FakeResult{})
+	f.Script(cli.FakeResult{})
+	f.Script(cli.FakeResult{})
+	// Two CSI plugin execs: return a config listing monitors so the poll ends
+	// after a single exec per plugin.
+	monitorsConfig := `[{"clusterID":"rook-ceph","monitors":["10.0.0.1:6789"]}]`
+	f.Script(cli.FakeResult{Out: monitorsConfig})
+	f.Script(cli.FakeResult{Out: monitorsConfig})
+	// Remaining waits (3 nodes × create+connected) succeed with default results.
+
 	runStep(t, f, addonsDir, "rook-cluster", "dr1", nil)
 	stripGateCall(f)
 
-	expected := 1 + 1 + 1 + 4 + (3 * 2) // 13
+	expected := 1 + 1 + 1 + 2 + (3 * 2) // 11
 	if len(f.Calls) != expected {
 		t.Fatalf("expected %d calls, got %d:\n%s", expected, len(f.Calls), strings.Join(callNames(f), "\n"))
 	}
@@ -104,67 +147,48 @@ func TestRookClusterArgv(t *testing.T) {
 		"--timeout", "600s",
 	)
 
-	// call[3]: rollout daemonset/csi-rbdplugin
-	assertArgsContain(t, "rollout-csi-rbdplugin", callArgs(t, f, 3),
+	// call[3]: exec into rbd ctrlplugin to read the ceph-csi config
+	assertArgsEqual(t, "exec-rbd-plugin", callArgs(t, f, 3), []string{
 		"--context", "dr1", "-n", "rook-ceph",
-		"rollout", "status", "daemonset/csi-rbdplugin",
+		"exec", "deploy/rook-ceph.rbd.csi.ceph.com-ctrlplugin", "-c", "csi-rbdplugin",
+		"--", "sh", "-c", `if [ -f /etc/ceph-csi-config/config.json ]; then cat /etc/ceph-csi-config/config.json; fi`,
+	})
+
+	// call[4]: exec into cephfs ctrlplugin to read the ceph-csi config
+	assertArgsEqual(t, "exec-cephfs-plugin", callArgs(t, f, 4), []string{
+		"--context", "dr1", "-n", "rook-ceph",
+		"exec", "deploy/rook-ceph.cephfs.csi.ceph.com-ctrlplugin", "-c", "csi-cephfsplugin",
+		"--", "sh", "-c", `if [ -f /etc/ceph-csi-config/config.json ]; then cat /etc/ceph-csi-config/config.json; fi`,
+	})
+
+	// call[5..6]: node0 (rbd nodeplugin csi-addons daemonset) create + connected
+	node0 := "csiaddonsnodes.csiaddons.openshift.io/dr1-rook-ceph-daemonset-rook-ceph.rbd.csi.ceph.com-nodeplugin-csi-addons"
+	assertArgsContain(t, "wait-csiaddon0-create", callArgs(t, f, 5),
+		"--context", "dr1", "-n", "rook-ceph", "wait", node0, "--for=create",
+	)
+	assertArgsContain(t, "wait-csiaddon0-connected", callArgs(t, f, 6),
+		"--context", "dr1", "-n", "rook-ceph", "wait", node0,
+		"--for=jsonpath={.status.state}=Connected",
 	)
 
-	// call[4]: rollout daemonset/csi-cephfsplugin
-	assertArgsContain(t, "rollout-csi-cephfsplugin", callArgs(t, f, 4),
-		"--context", "dr1", "-n", "rook-ceph",
-		"rollout", "status", "daemonset/csi-cephfsplugin",
+	// call[7..8]: node1 (rbd ctrlplugin deployment) create + connected
+	node1 := "csiaddonsnodes.csiaddons.openshift.io/dr1-rook-ceph-deployment-rook-ceph.rbd.csi.ceph.com-ctrlplugin"
+	assertArgsContain(t, "wait-csiaddon1-create", callArgs(t, f, 7),
+		"--context", "dr1", "-n", "rook-ceph", "wait", node1, "--for=create",
+	)
+	assertArgsContain(t, "wait-csiaddon1-connected", callArgs(t, f, 8),
+		"--context", "dr1", "-n", "rook-ceph", "wait", node1,
+		"--for=jsonpath={.status.state}=Connected",
 	)
 
-	// call[5]: rollout deployment/csi-rbdplugin-provisioner
-	assertArgsContain(t, "rollout-csi-rbdplugin-provisioner", callArgs(t, f, 5),
-		"--context", "dr1", "-n", "rook-ceph",
-		"rollout", "status", "deployment/csi-rbdplugin-provisioner",
+	// call[9..10]: node2 (cephfs ctrlplugin deployment) create + connected
+	node2 := "csiaddonsnodes.csiaddons.openshift.io/dr1-rook-ceph-deployment-rook-ceph.cephfs.csi.ceph.com-ctrlplugin"
+	assertArgsContain(t, "wait-csiaddon2-create", callArgs(t, f, 9),
+		"--context", "dr1", "-n", "rook-ceph", "wait", node2, "--for=create",
 	)
-
-	// call[6]: rollout deployment/csi-cephfsplugin-provisioner
-	assertArgsContain(t, "rollout-csi-cephfsplugin-provisioner", callArgs(t, f, 6),
-		"--context", "dr1", "-n", "rook-ceph",
-		"rollout", "status", "deployment/csi-cephfsplugin-provisioner",
-	)
-
-	// call[7]: wait csiaddonsnodes.../dr1-rook-ceph-daemonset-csi-rbdplugin --for=create
-	node0 := "csiaddonsnodes.csiaddons.openshift.io/dr1-rook-ceph-daemonset-csi-rbdplugin"
-	assertArgsContain(t, "wait-csiaddon0-create", callArgs(t, f, 7),
-		"--context", "dr1", "-n", "rook-ceph",
-		"wait", node0, "--for=create",
-	)
-
-	// call[8]: wait csiaddonsnodes.../dr1-rook-ceph-daemonset-csi-rbdplugin --for=jsonpath=Connected
-	assertArgsContain(t, "wait-csiaddon0-connected", callArgs(t, f, 8),
-		"--context", "dr1", "-n", "rook-ceph",
-		"wait", node0, "--for=jsonpath={.status.state}=Connected",
-	)
-
-	// call[9]: wait csiaddonsnodes.../dr1-rook-ceph-deployment-csi-rbdplugin-provisioner --for=create
-	node1 := "csiaddonsnodes.csiaddons.openshift.io/dr1-rook-ceph-deployment-csi-rbdplugin-provisioner"
-	assertArgsContain(t, "wait-csiaddon1-create", callArgs(t, f, 9),
-		"--context", "dr1", "-n", "rook-ceph",
-		"wait", node1, "--for=create",
-	)
-
-	// call[10]: wait node1 --for=jsonpath=Connected
-	assertArgsContain(t, "wait-csiaddon1-connected", callArgs(t, f, 10),
-		"--context", "dr1", "-n", "rook-ceph",
-		"wait", node1, "--for=jsonpath={.status.state}=Connected",
-	)
-
-	// call[11]: wait csiaddonsnodes.../dr1-rook-ceph-deployment-csi-cephfsplugin-provisioner --for=create
-	node2 := "csiaddonsnodes.csiaddons.openshift.io/dr1-rook-ceph-deployment-csi-cephfsplugin-provisioner"
-	assertArgsContain(t, "wait-csiaddon2-create", callArgs(t, f, 11),
-		"--context", "dr1", "-n", "rook-ceph",
-		"wait", node2, "--for=create",
-	)
-
-	// call[12]: wait node2 --for=jsonpath=Connected
-	assertArgsContain(t, "wait-csiaddon2-connected", callArgs(t, f, 12),
-		"--context", "dr1", "-n", "rook-ceph",
-		"wait", node2, "--for=jsonpath={.status.state}=Connected",
+	assertArgsContain(t, "wait-csiaddon2-connected", callArgs(t, f, 10),
+		"--context", "dr1", "-n", "rook-ceph", "wait", node2,
+		"--for=jsonpath={.status.state}=Connected",
 	)
 }
 
