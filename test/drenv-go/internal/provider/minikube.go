@@ -16,6 +16,16 @@ import (
 // MinikubeProvider implements Provider using a cli.Minikube instance.
 type MinikubeProvider struct {
 	MK *cli.Minikube
+
+	// DNSMode selects DNS behavior for `minikube start` — "auto", "static", or
+	// "host" (see minikube_dns.go). An empty value means "auto", matching the
+	// Python provider's default.
+	DNSMode string
+
+	// ManagedMac detects whether we run on a managed Mac (an enabled+active
+	// network extension). It is a seam for tests; when nil, Start uses the real
+	// systemextensionsctl-based detector.
+	ManagedMac func(ctx context.Context) (bool, error)
 }
 
 var _ Provider = MinikubeProvider{}
@@ -82,6 +92,9 @@ const startWaitTimeout = "180s"
 //
 // Argument-building rules:
 //   - Always include: -p <name>.
+//   - Include --dns-servers (immediately after -p) only when DNS bypass is
+//     required — a managed Mac on a VM driver in auto mode, or static mode (see
+//     resolveDNSServers / minikube_dns.go).
 //   - Include --driver/--network only when set and not a "$"-prefixed unresolved
 //     template placeholder.
 //   - Include --container-runtime, --extra-disks, --disk-size, --nodes, --cni,
@@ -92,13 +105,51 @@ const startWaitTimeout = "180s"
 //     (enables running amd64 images on Apple silicon).
 //   - Always include --wait-timeout.
 func (mp MinikubeProvider) Start(ctx context.Context, p envfile.Profile) error {
-	return mp.MK.Start(ctx, buildStartArgs(p, runtime.GOOS, runtime.GOARCH)...)
+	servers, err := mp.resolveDNSServers(ctx, p)
+	if err != nil {
+		return err
+	}
+	return mp.MK.Start(ctx, buildStartArgs(p, runtime.GOOS, runtime.GOARCH, servers)...)
+}
+
+// resolveDNSServers computes the DNS servers to pass to `minikube start`,
+// mirroring the dns.servers() call in the Python provider's start(). Managed-Mac
+// detection only runs in auto mode (as in Python), and defaults to the real
+// systemextensionsctl-based detector when no ManagedMac seam is set.
+func (mp MinikubeProvider) resolveDNSServers(ctx context.Context, p envfile.Profile) ([]string, error) {
+	mode := mp.DNSMode
+	if mode == "" {
+		mode = dnsModeAuto
+	}
+
+	managed := false
+	if mode == dnsModeAuto {
+		detect := mp.ManagedMac
+		if detect == nil {
+			detect = func(ctx context.Context) (bool, error) {
+				return isManagedMac(ctx, runtime.GOOS, mp.MK.R.Output)
+			}
+		}
+		var err error
+		managed, err = detect(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return dnsServers(p.Driver, mode, managed)
 }
 
 // buildStartArgs is the pure arg-builder behind Start, parameterized on GOOS and
-// GOARCH so the platform-dependent --rosetta rule can be unit-tested.
-func buildStartArgs(p envfile.Profile, goos, goarch string) []string {
+// GOARCH so the platform-dependent --rosetta rule can be unit-tested. dnsServers,
+// when non-empty, is joined into a single --dns-servers flag placed immediately
+// after -p, mirroring the Python provider's flag ordering.
+func buildStartArgs(p envfile.Profile, goos, goarch string, dnsServers []string) []string {
 	args := []string{"-p", p.Name}
+
+	if len(dnsServers) > 0 {
+		args = append(args, "--dns-servers", strings.Join(dnsServers, ","))
+	}
 
 	if p.Driver != "" && !strings.HasPrefix(p.Driver, "$") {
 		args = append(args, "--driver", p.Driver)
