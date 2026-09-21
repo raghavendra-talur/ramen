@@ -9,6 +9,7 @@
 //   filesystem.yaml   : $name  (cluster also passed but not referenced)
 //   storage-class.yaml: $name, $cluster, $fsname
 //   snapshot-class.yaml: $scname, $cluster
+//   snapshot-group-class.yaml: $scname, $cluster, $fsname
 //
 // Steps (serial):
 //  1. For each filesystem (fs1, fs2):
@@ -16,7 +17,9 @@
 //     b. ApplyTemplate storage-class.yaml ($name=rook-cephfs-<fs>, $cluster=<cluster>,
 //        $fsname=<fs>) + ApplyStdin
 //  2. ApplyTemplate snapshot-class.yaml ($scname=rook-cephfs-fs1, $cluster=<cluster>) + ApplyStdin
-//  3. For each filesystem:
+//  3. ApplyTemplate snapshot-group-class.yaml ($scname=rook-cephfs-fs1, $cluster=<cluster>,
+//     $fsname=fs1) + ApplyStdin
+//  4. For each filesystem:
 //     a. kubectl wait cephfilesystem/<fs> --for=create -n rook-ceph (300s)
 //     b. kubectl wait cephfilesystem/<fs> --for=jsonpath={.status.phase}=Ready -n rook-ceph (300s)
 
@@ -92,7 +95,24 @@ func buildRookCephFS(d Deps, cluster string, _ []string) ensure.Step {
 		}),
 	)
 
-	// Step 3: wait for each filesystem to be created then Ready
+	// Step 3: apply snapshot group class (VolumeGroupSnapshotClass), mirroring
+	// the SnapshotGroupClass step added to the Python cephfs addon in #2739. It
+	// uses the first filesystem's SC name and filesystem name.
+	steps = append(steps,
+		newApplyStep("apply-snapshot-group-class", func(ctx context.Context) error {
+			manifest, err := ApplyTemplate(d, filepath.Join(cephfsStartData, "snapshot-group-class.yaml"), map[string]string{
+				"cluster": cluster,
+				"scname":  firstSCName,
+				"fsname":  cephfsFileSystems[0],
+			})
+			if err != nil {
+				return err
+			}
+			return d.K.ApplyStdin(ctx, cluster, manifest)
+		}),
+	)
+
+	// Step 4: wait for each filesystem to be created then Ready
 	for _, fs := range cephfsFileSystems {
 		fs := fs // capture
 		resource := "cephfilesystem/" + fs

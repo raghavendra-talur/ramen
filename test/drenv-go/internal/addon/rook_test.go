@@ -340,10 +340,11 @@ func TestRookPoolArgv(t *testing.T) {
 //  3. apply stdin (filesystem fs2)
 //  4. apply stdin (storageclass rook-cephfs-fs2)
 //  5. apply stdin (snapshot-class, scname=rook-cephfs-fs1)
-//  6. wait cephfilesystem/fs1 --for=create (300s)
-//  7. wait cephfilesystem/fs1 --for=jsonpath=Ready (300s)
-//  8. wait cephfilesystem/fs2 --for=create (300s)
-//  9. wait cephfilesystem/fs2 --for=jsonpath=Ready (300s)
+//  6. apply stdin (snapshot-group-class, scname=rook-cephfs-fs1, fsname=fs1)
+//  7. wait cephfilesystem/fs1 --for=create (300s)
+//  8. wait cephfilesystem/fs1 --for=jsonpath=Ready (300s)
+//  9. wait cephfilesystem/fs2 --for=create (300s)
+//  10. wait cephfilesystem/fs2 --for=jsonpath=Ready (300s)
 func TestRookCephFSArgv(t *testing.T) {
 	addonsDir := rookAddonsDir(t)
 	f := &cli.FakeRunner{}
@@ -352,7 +353,7 @@ func TestRookCephFSArgv(t *testing.T) {
 	runStep(t, f, addonsDir, "rook-cephfs", "dr1", nil)
 	stripGateCall(f)
 
-	expected := 5 + 4 // 9 calls
+	expected := 6 + 4 // 10 calls
 	if len(f.Calls) != expected {
 		t.Fatalf("expected %d calls, got %d:\n%s", expected, len(f.Calls), strings.Join(callNames(f), "\n"))
 	}
@@ -395,26 +396,39 @@ func TestRookCephFSArgv(t *testing.T) {
 		t.Errorf("apply-snapclass stdin should contain 'rook-cephfs-fs1'")
 	}
 
-	// call[5]: wait cephfilesystem/fs1 --for=create
-	assertArgsContain(t, "wait-fs1-create", callArgs(t, f, 5),
+	// call[5]: apply snapshot group class (scname=rook-cephfs-fs1, fsname=fs1)
+	c = f.Calls[5]
+	assertArgsContain(t, "apply-snapgroupclass", c.Args, "--context", "dr1", "apply", "--filename", "-")
+	if !strings.Contains(c.Stdin, "VolumeGroupSnapshotClass") {
+		t.Errorf("apply-snapgroupclass stdin should contain 'VolumeGroupSnapshotClass'")
+	}
+	if !strings.Contains(c.Stdin, "fsName: fs1") {
+		t.Errorf("apply-snapgroupclass stdin should contain 'fsName: fs1'")
+	}
+	if !strings.Contains(c.Stdin, "rook-cephfs-fs1") {
+		t.Errorf("apply-snapgroupclass stdin should contain 'rook-cephfs-fs1'")
+	}
+
+	// call[6]: wait cephfilesystem/fs1 --for=create
+	assertArgsContain(t, "wait-fs1-create", callArgs(t, f, 6),
 		"--context", "dr1", "-n", "rook-ceph",
 		"wait", "cephfilesystem/fs1", "--for=create",
 	)
 
-	// call[6]: wait cephfilesystem/fs1 --for=jsonpath=Ready
-	assertArgsContain(t, "wait-fs1-ready", callArgs(t, f, 6),
+	// call[7]: wait cephfilesystem/fs1 --for=jsonpath=Ready
+	assertArgsContain(t, "wait-fs1-ready", callArgs(t, f, 7),
 		"--context", "dr1", "-n", "rook-ceph",
 		"wait", "cephfilesystem/fs1", "--for=jsonpath={.status.phase}=Ready",
 	)
 
-	// call[7]: wait cephfilesystem/fs2 --for=create
-	assertArgsContain(t, "wait-fs2-create", callArgs(t, f, 7),
+	// call[8]: wait cephfilesystem/fs2 --for=create
+	assertArgsContain(t, "wait-fs2-create", callArgs(t, f, 8),
 		"--context", "dr1", "-n", "rook-ceph",
 		"wait", "cephfilesystem/fs2", "--for=create",
 	)
 
-	// call[8]: wait cephfilesystem/fs2 --for=jsonpath=Ready
-	assertArgsContain(t, "wait-fs2-ready", callArgs(t, f, 8),
+	// call[9]: wait cephfilesystem/fs2 --for=jsonpath=Ready
+	assertArgsContain(t, "wait-fs2-ready", callArgs(t, f, 9),
 		"--context", "dr1", "-n", "rook-ceph",
 		"wait", "cephfilesystem/fs2", "--for=jsonpath={.status.phase}=Ready",
 	)
@@ -441,25 +455,32 @@ func TestRookCephFSArgv(t *testing.T) {
 //	 [9]  patch cephblockpool/replicapool --type=merge --patch=... on dr1
 //	 [10] apply stdin vrc-1m on dr1
 //	 [11] apply stdin vrc-5m on dr1
-//	 [12] apply -k rbd_mirror/start-data on dr1
+//	 [12] apply stdin vgrc-1m on dr1
+//	 [13] apply stdin vgrc-5m on dr1
+//	 [14] apply -k rbd_mirror/start-data on dr1
 //	configure_mirroring(dr2, c1Info):
-//	 [13] apply stdin rbd-mirror-secret on dr2
-//	 [14] patch on dr2
-//	 [15] apply stdin vrc-1m on dr2
-//	 [16] apply stdin vrc-5m on dr2
-//	 [17] apply -k on dr2
+//	 [15] apply stdin rbd-mirror-secret on dr2
+//	 [16] patch on dr2
+//	 [17] apply stdin vrc-1m on dr2
+//	 [18] apply stdin vrc-5m on dr2
+//	 [19] apply stdin vgrc-1m on dr2
+//	 [20] apply stdin vgrc-5m on dr2
+//	 [21] apply -k on dr2
 //	wait_until_ready(dr1):
-//	 [18] wait cephrbdmirror/my-rbd-mirror --for=create (dr1)
-//	 [19] wait cephrbdmirror/my-rbd-mirror --for=jsonpath=Ready (dr1)
+//	 [22] wait cephrbdmirror/my-rbd-mirror --for=create (dr1)
+//	 [23] wait cephrbdmirror/my-rbd-mirror --for=jsonpath=Ready (dr1)
 //	wait_until_ready(dr2):
-//	 [20] wait cephrbdmirror/my-rbd-mirror --for=create (dr2)
-//	 [21] wait cephrbdmirror/my-rbd-mirror --for=jsonpath=Ready (dr2)
+//	 [24] wait cephrbdmirror/my-rbd-mirror --for=create (dr2)
+//	 [25] wait cephrbdmirror/my-rbd-mirror --for=jsonpath=Ready (dr2)
 //	wait_until_pool_mirroring_is_healthy(dr1):
-//	 [22] get cephblockpool/replicapool --output=jsonpath=mirroringStatus.summary (dr1)
+//	 [26-28] get cephblockpool/replicapool mirroringStatus.summary.{daemon,,image}_health (dr1)
 //	wait_until_pool_mirroring_is_healthy(dr2):
-//	 [23] get cephblockpool/replicapool --output=jsonpath=mirroringStatus.summary (dr2)
+//	 [29-31] get cephblockpool/replicapool mirroringStatus.summary.{daemon,,image}_health (dr2)
 //
-// Total: 24 calls.
+// The vgrc (VolumeGroupReplicationClass) applies mirror the vgrc loop added to
+// the Python rbd-mirror addon in #2739.
+//
+// Total: 32 calls.
 func TestRBDMirrorArgv(t *testing.T) {
 	addonsDir := rookAddonsDir(t)
 	f := &cli.FakeRunner{}
@@ -477,20 +498,20 @@ func TestRBDMirrorArgv(t *testing.T) {
 	f.Script(cli.FakeResult{Out: "token-secret-dr2"}) // [6] get peer secret name (dr2)
 	f.Script(cli.FakeResult{Out: "tokendr2b64=="})    // [7] get token from secret (dr2)
 
-	// configure_mirroring×2 (10 calls) + wait_ready×2 (4 calls): empty results.
-	for i := 0; i < 14; i++ {
+	// configure_mirroring×2 (14 calls) + wait_ready×2 (4 calls): empty results.
+	for range 18 {
 		f.Script(cli.FakeResult{})
 	}
 	// wait_healthy×2: each polls 3 summary fields, all must report OK so the
 	// health step's Done is satisfied on the first check.
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		f.Script(cli.FakeResult{Out: "OK"})
 	}
 
 	runStepFull(t, f, addonsDir, "testenv", "rbd-mirror", "", []string{"dr1", "dr2"})
 	stripGateCall(f)
 
-	expected := 28
+	expected := 32
 	if len(f.Calls) != expected {
 		t.Fatalf("expected %d calls, got %d:\n%s", expected, len(f.Calls), dumpCalls(f))
 	}
@@ -601,75 +622,105 @@ func TestRBDMirrorArgv(t *testing.T) {
 		t.Errorf("apply-vrc-5m stdin should contain 'vrc-5m'")
 	}
 
-	// [12]: apply -k rbd_mirror/start-data on dr1
+	// [12]: apply stdin vgrc-1m on dr1 (VolumeGroupReplicationClass, #2739)
+	c12 := f.Calls[12]
+	assertArgsContain(t, "apply-vgrc-1m-dr1", c12.Args, "--context", "dr1", "apply", "--filename", "-")
+	if !strings.Contains(c12.Stdin, "VolumeGroupReplicationClass") {
+		t.Errorf("apply-vgrc-1m stdin should contain 'VolumeGroupReplicationClass'")
+	}
+	if !strings.Contains(c12.Stdin, "vgrc-1m") {
+		t.Errorf("apply-vgrc-1m stdin should contain 'vgrc-1m'")
+	}
+	if !strings.Contains(c12.Stdin, "schedulingInterval: 1m") {
+		t.Errorf("apply-vgrc-1m stdin should contain 'schedulingInterval: 1m'")
+	}
+
+	// [13]: apply stdin vgrc-5m on dr1
+	c13 := f.Calls[13]
+	assertArgsContain(t, "apply-vgrc-5m-dr1", c13.Args, "--context", "dr1", "apply", "--filename", "-")
+	if !strings.Contains(c13.Stdin, "vgrc-5m") {
+		t.Errorf("apply-vgrc-5m stdin should contain 'vgrc-5m'")
+	}
+
+	// [14]: apply -k rbd_mirror/start-data on dr1
 	rbdMirrorDir := filepath.Join(addonsDir, "rook", "rbd_mirror", "start-data")
-	assertCall(t, "apply-kustomize-dr1", f, 12, "kubectl", []string{
+	assertCall(t, "apply-kustomize-dr1", f, 14, "kubectl", []string{
 		"--context", "dr1", "apply", "--kustomize", rbdMirrorDir,
 	})
 
 	// ---- configure_mirroring(dr2, c1Info) ----
 	// c1Info: name="site-dr1", token="tokendr1b64==", pool=base64("replicapool")
 
-	// [13]: apply stdin rbd-mirror-secret on dr2 (peer info from dr1)
-	c13 := f.Calls[13]
-	assertArgsContain(t, "apply-secret-dr2", c13.Args,
+	// [15]: apply stdin rbd-mirror-secret on dr2 (peer info from dr1)
+	c15 := f.Calls[15]
+	assertArgsContain(t, "apply-secret-dr2", c15.Args,
 		"--context", "dr2", "apply", "--filename", "-", "--namespace=rook-ceph",
 	)
-	if !strings.Contains(c13.Stdin, "site-dr1") {
+	if !strings.Contains(c15.Stdin, "site-dr1") {
 		t.Errorf("apply-secret-dr2 stdin should contain peer name 'site-dr1'")
 	}
 
-	// [14]: patch on dr2
-	assertCallContains(t, "patch-pool-dr2", f, 14,
+	// [16]: patch on dr2
+	assertCallContains(t, "patch-pool-dr2", f, 16,
 		"--context", "dr2", "-n", "rook-ceph",
 		"patch", "cephblockpool/replicapool", "--type=merge",
 	)
 
-	// [15]: vrc-1m on dr2
-	assertArgsContain(t, "apply-vrc-1m-dr2", f.Calls[15].Args, "--context", "dr2")
+	// [17]: vrc-1m on dr2
+	assertArgsContain(t, "apply-vrc-1m-dr2", f.Calls[17].Args, "--context", "dr2")
 
-	// [16]: vrc-5m on dr2
-	assertArgsContain(t, "apply-vrc-5m-dr2", f.Calls[16].Args, "--context", "dr2")
+	// [18]: vrc-5m on dr2
+	assertArgsContain(t, "apply-vrc-5m-dr2", f.Calls[18].Args, "--context", "dr2")
 
-	// [17]: apply -k on dr2
-	assertCall(t, "apply-kustomize-dr2", f, 17, "kubectl", []string{
+	// [19]: vgrc-1m on dr2
+	c19 := f.Calls[19]
+	assertArgsContain(t, "apply-vgrc-1m-dr2", c19.Args, "--context", "dr2")
+	if !strings.Contains(c19.Stdin, "VolumeGroupReplicationClass") {
+		t.Errorf("apply-vgrc-1m-dr2 stdin should contain 'VolumeGroupReplicationClass'")
+	}
+
+	// [20]: vgrc-5m on dr2
+	assertArgsContain(t, "apply-vgrc-5m-dr2", f.Calls[20].Args, "--context", "dr2")
+
+	// [21]: apply -k on dr2
+	assertCall(t, "apply-kustomize-dr2", f, 21, "kubectl", []string{
 		"--context", "dr2", "apply", "--kustomize", rbdMirrorDir,
 	})
 
 	// ---- wait_until_ready(dr1) ----
-	// [18]: wait cephrbdmirror/my-rbd-mirror --for=create on dr1
-	assertCallContains(t, "wait-rbd-mirror-create-dr1", f, 18,
+	// [22]: wait cephrbdmirror/my-rbd-mirror --for=create on dr1
+	assertCallContains(t, "wait-rbd-mirror-create-dr1", f, 22,
 		"--context", "dr1", "-n", "rook-ceph",
 		"wait", "cephrbdmirror/my-rbd-mirror", "--for=create",
 	)
 
-	// [19]: wait cephrbdmirror/my-rbd-mirror --for=jsonpath=Ready on dr1
-	assertCallContains(t, "wait-rbd-mirror-ready-dr1", f, 19,
+	// [23]: wait cephrbdmirror/my-rbd-mirror --for=jsonpath=Ready on dr1
+	assertCallContains(t, "wait-rbd-mirror-ready-dr1", f, 23,
 		"--context", "dr1", "-n", "rook-ceph",
 		"wait", "cephrbdmirror/my-rbd-mirror", "--for=jsonpath={.status.phase}=Ready",
 	)
 
 	// ---- wait_until_ready(dr2) ----
-	// [20]: wait create on dr2
-	assertCallContains(t, "wait-rbd-mirror-create-dr2", f, 20,
+	// [24]: wait create on dr2
+	assertCallContains(t, "wait-rbd-mirror-create-dr2", f, 24,
 		"--context", "dr2", "-n", "rook-ceph",
 		"wait", "cephrbdmirror/my-rbd-mirror", "--for=create",
 	)
 
-	// [21]: wait ready on dr2
-	assertCallContains(t, "wait-rbd-mirror-ready-dr2", f, 21,
+	// [25]: wait ready on dr2
+	assertCallContains(t, "wait-rbd-mirror-ready-dr2", f, 25,
 		"--context", "dr2",
 	)
 
 	// ---- wait_until_pool_mirroring_is_healthy ----
 	// Each cluster polls the three summary health fields; all must be OK.
 	for i, field := range []string{"daemon_health", "health", "image_health"} {
-		assertCall(t, "get-mirroring-"+field+"-dr1", f, 22+i, "kubectl", []string{
+		assertCall(t, "get-mirroring-"+field+"-dr1", f, 26+i, "kubectl", []string{
 			"--context", "dr1", "-n", "rook-ceph",
 			"get", "cephblockpools.ceph.rook.io/replicapool",
 			"--output=jsonpath={.status.mirroringStatus.summary." + field + "}",
 		})
-		assertCall(t, "get-mirroring-"+field+"-dr2", f, 25+i, "kubectl", []string{
+		assertCall(t, "get-mirroring-"+field+"-dr2", f, 29+i, "kubectl", []string{
 			"--context", "dr2", "-n", "rook-ceph",
 			"get", "cephblockpools.ceph.rook.io/replicapool",
 			"--output=jsonpath={.status.mirroringStatus.summary." + field + "}",
