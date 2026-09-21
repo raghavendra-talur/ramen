@@ -289,7 +289,24 @@ func configureMirroring(ctx context.Context, d Deps, cluster string, peer rbdPee
 		}
 	}
 
-	// 4. Apply the rbd-mirror kustomize dir (creates CephRBDMirror).
+	// 4. Create VolumeGroupReplicationClass for each interval, mirroring the
+	// vgrc loop added to the Python rbd-mirror addon in #2739.
+	for _, interval := range vrcIntervals {
+		vgrcManifest, err := ApplyTemplate(d, "rook/rbd_mirror/start-data/vgrc.yaml", map[string]string{
+			"cluster":  cluster,
+			"pool":     rbdMirrorPoolName,
+			"scname":   "rook-ceph-block",
+			"interval": interval,
+		})
+		if err != nil {
+			return fmt.Errorf("template vgrc.yaml interval=%s: %w", interval, err)
+		}
+		if err := d.K.ApplyStdin(ctx, cluster, vgrcManifest); err != nil {
+			return fmt.Errorf("apply vgrc-%s on %s: %w", interval, cluster, err)
+		}
+	}
+
+	// 5. Apply the rbd-mirror kustomize dir (creates CephRBDMirror).
 	if err := d.K.ApplyKustomizeDir(ctx, cluster, startDataDir); err != nil {
 		return fmt.Errorf("apply rbd-mirror kustomize on %s: %w", cluster, err)
 	}
