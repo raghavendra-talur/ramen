@@ -4,10 +4,15 @@
 TOOLS_MOD := tools.mod
 GO_TOOL := go tool -modfile=$(TOOLS_MOD)
 
-.PHONY: build test lint clean
+.PHONY: build test lint clean render
 
 build:
 	$(GO_TOOL) mage build
+
+# render pre-renders the addon kustomizations (fetching upstream bases) into
+# internal/addon/manifests, which are embedded into the binary. Needs network.
+render:
+	$(GO_TOOL) mage render
 
 test:
 	$(GO_TOOL) mage test
