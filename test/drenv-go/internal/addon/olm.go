@@ -19,7 +19,6 @@ package addon
 
 import (
 	"context"
-	"path/filepath"
 	"time"
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
@@ -35,21 +34,15 @@ func init() {
 }
 
 func buildOLM(d Deps, cluster string, _ []string) ensure.Step {
-	crdsDir := filepath.Join(d.AddonsDir, "olm", "start-data", "crds")
-	operatorsDir := filepath.Join(d.AddonsDir, "olm", "start-data", "operators")
-
-	applyCRDs := newApplyStep("apply-crds-server-side", func(ctx context.Context) error {
-		return d.K.ApplyServerSideKustomizeDir(ctx, cluster, crdsDir)
-	})
+	applyCRDs := applyEmbedded("apply-crds-server-side", d, cluster, "olm-crds.yaml",
+		"--server-side=true")
 
 	waitCRDs := newApplyStep("wait-crds-established", func(ctx context.Context) error {
 		return d.K.WaitFor(ctx, cluster, "", "condition=established",
 			olmWaitTimeout, "crd", "--all")
 	})
 
-	applyOperators := newApplyStep("apply-operators", func(ctx context.Context) error {
-		return d.K.ApplyKustomizeDir(ctx, cluster, operatorsDir)
-	})
+	applyOperators := applyEmbedded("apply-operators", d, cluster, "olm-operators.yaml")
 
 	waitOLMOperator := newApplyStep("wait-olm-operator", func(ctx context.Context) error {
 		return d.K.RolloutStatus(ctx, cluster, "olm", "deploy/olm-operator", olmRolloutTimeout)

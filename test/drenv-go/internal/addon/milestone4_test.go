@@ -693,18 +693,20 @@ func TestArgocdArgv(t *testing.T) {
 		t.Fatalf("expected %d calls, got %d:\n%s", expected, len(f.Calls), dumpCalls(f))
 	}
 
-	startDataDir := filepath.Join(addonsDir, "argocd", "start-data")
-
-	// call[0]: kubectl apply --kustomize <start-data> --namespace argocd
-	// --server-side=true --force-conflicts=true on hub
+	// call[0]: kubectl apply --namespace argocd --server-side=true
+	// --force-conflicts=true --filename - on hub, with the embedded, build-time
+	// rendered argocd manifest piped on stdin.
 	assertCall(t, "apply-argocd", f, 0, "kubectl", []string{
 		"--context", "hub",
 		"apply",
-		"--kustomize", startDataDir,
 		"--namespace", "argocd",
 		"--server-side=true",
 		"--force-conflicts=true",
+		"--filename", "-",
 	})
+	if strings.TrimSpace(f.Calls[0].Stdin) == "" {
+		t.Errorf("apply-argocd: expected non-empty stdin (embedded manifest), got empty")
+	}
 
 	// call[1]: kubectl wait deploy --all --for=condition=Available --namespace=argocd on hub
 	assertCallContains(t, "wait-argocd", f, 1,

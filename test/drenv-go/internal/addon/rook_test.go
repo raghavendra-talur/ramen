@@ -41,13 +41,11 @@ func TestRookOperatorArgv(t *testing.T) {
 		t.Fatalf("expected 7 calls, got %d:\n%s", len(f.Calls), strings.Join(callNames(f), "\n"))
 	}
 
-	depsDir := filepath.Join(addonsDir, "rook", "operator", "start-data", "deps")
-	operatorDir := filepath.Join(addonsDir, "rook", "operator", "start-data", "operator")
-
-	// call[0]: kubectl apply -k <deps-dir>
+	// call[0]: kubectl apply --filename - (embedded deps manifest on stdin)
 	assertArgsEqual(t, "apply-deps", callArgs(t, f, 0), []string{
-		"--context", "dr1", "apply", "--kustomize", depsDir,
+		"--context", "dr1", "apply", "--filename", "-",
 	})
+	assertStdinNotEmpty(t, "apply-deps", f, 0)
 
 	// call[1]: wait crd/operatorconfigs.csi.ceph.io --for=condition=established
 	assertArgsContain(t, "wait-csi-crd-1", callArgs(t, f, 1),
@@ -68,10 +66,11 @@ func TestRookOperatorArgv(t *testing.T) {
 		"--timeout", "300s",
 	)
 
-	// call[4]: kubectl apply -k <operator-dir>
+	// call[4]: kubectl apply --filename - (embedded operator manifest on stdin)
 	assertArgsEqual(t, "apply-operator", callArgs(t, f, 4), []string{
-		"--context", "dr1", "apply", "--kustomize", operatorDir,
+		"--context", "dr1", "apply", "--filename", "-",
 	})
+	assertStdinNotEmpty(t, "apply-operator", f, 4)
 
 	// call[5]: kubectl rollout status deploy/rook-ceph-operator (600s)
 	assertArgsContain(t, "rollout-operator", callArgs(t, f, 5),
@@ -126,12 +125,11 @@ func TestRookClusterArgv(t *testing.T) {
 		t.Fatalf("expected %d calls, got %d:\n%s", expected, len(f.Calls), strings.Join(callNames(f), "\n"))
 	}
 
-	clusterDir := filepath.Join(addonsDir, "rook", "cluster")
-
-	// call[0]: apply -k rook/cluster
+	// call[0]: apply --filename - (embedded cluster manifest on stdin)
 	assertArgsEqual(t, "apply-cluster", callArgs(t, f, 0), []string{
-		"--context", "dr1", "apply", "--kustomize", clusterDir,
+		"--context", "dr1", "apply", "--filename", "-",
 	})
+	assertStdinNotEmpty(t, "apply-cluster", f, 0)
 
 	// call[1]: wait cephcluster/my-cluster --for=create (300s)
 	assertArgsContain(t, "wait-create", callArgs(t, f, 1),
@@ -215,12 +213,11 @@ func TestRookToolboxArgv(t *testing.T) {
 		t.Fatalf("expected 3 calls, got %d:\n%s", len(f.Calls), strings.Join(callNames(f), "\n"))
 	}
 
-	toolboxDir := filepath.Join(addonsDir, "rook", "toolbox")
-
-	// call[0]: apply -k rook/toolbox
+	// call[0]: apply --filename - (embedded toolbox manifest on stdin)
 	assertArgsEqual(t, "apply-toolbox", callArgs(t, f, 0), []string{
-		"--context", "dr1", "apply", "--kustomize", toolboxDir,
+		"--context", "dr1", "apply", "--filename", "-",
 	})
+	assertStdinNotEmpty(t, "apply-toolbox", f, 0)
 
 	// call[1]: rollout status deploy/rook-ceph-tools
 	assertArgsContain(t, "rollout-toolbox", callArgs(t, f, 1),

@@ -25,7 +25,6 @@ package addon
 
 import (
 	"context"
-	"path/filepath"
 	"time"
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
@@ -48,12 +47,7 @@ func init() {
 }
 
 func buildRookOperator(d Deps, cluster string, _ []string) ensure.Step {
-	depsDir := filepath.Join(d.AddonsDir, "rook", "operator", "start-data", "deps")
-	operatorDir := filepath.Join(d.AddonsDir, "rook", "operator", "start-data", "operator")
-
-	applyDeps := newApplyStep("apply-rook-operator-deps", func(ctx context.Context) error {
-		return d.K.ApplyKustomizeDir(ctx, cluster, depsDir)
-	})
+	applyDeps := applyEmbedded("apply-rook-operator-deps", d, cluster, "rook-operator-deps.yaml")
 
 	waitCSICRDs := newApplyStep("wait-csi-crds-established", func(ctx context.Context) error {
 		for _, crd := range csiCRDs {
@@ -69,9 +63,7 @@ func buildRookOperator(d Deps, cluster string, _ []string) ensure.Step {
 		return d.K.RolloutStatus(ctx, cluster, "rook-ceph", "deploy/ceph-csi-controller-manager", rookDefaultWaitTimeout)
 	})
 
-	applyOperator := newApplyStep("apply-rook-operator", func(ctx context.Context) error {
-		return d.K.ApplyKustomizeDir(ctx, cluster, operatorDir)
-	})
+	applyOperator := applyEmbedded("apply-rook-operator", d, cluster, "rook-operator.yaml")
 
 	waitRollout := newApplyStep("wait-rook-operator-rollout", func(ctx context.Context) error {
 		return d.K.RolloutStatus(ctx, cluster, "rook-ceph", "deploy/rook-ceph-operator", rookOperatorRolloutTimeout)

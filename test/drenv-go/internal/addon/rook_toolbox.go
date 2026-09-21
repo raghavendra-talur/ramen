@@ -14,7 +14,6 @@ package addon
 import (
 	"context"
 	"log"
-	"path/filepath"
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
 )
@@ -24,11 +23,7 @@ func init() {
 }
 
 func buildRookToolbox(d Deps, cluster string, _ []string) ensure.Step {
-	toolboxDir := filepath.Join(d.AddonsDir, "rook", "toolbox")
-
-	applyToolbox := newApplyStep("apply-rook-toolbox", func(ctx context.Context) error {
-		return d.K.ApplyKustomizeDir(ctx, cluster, toolboxDir)
-	})
+	applyToolbox := applyEmbedded("apply-rook-toolbox", d, cluster, "rook-toolbox.yaml")
 
 	waitRollout := newApplyStep("wait-rook-toolbox-rollout", func(ctx context.Context) error {
 		return d.K.RolloutStatus(ctx, cluster, "rook-ceph", "deploy/rook-ceph-tools", rookCSIRolloutTimeout)
