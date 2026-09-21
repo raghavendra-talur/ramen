@@ -33,7 +33,7 @@ func TestMinikubeStatusParses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := cli.MinikubeStatus{Name: "dr1", Host: "Running", APIServer: "Running"}
+	want := cli.MinikubeStatus{Name: "dr1", Host: "Running", APIServer: "Running", Kubeconfig: "Configured"}
 	if st != want {
 		t.Errorf("Status = %+v, want %+v", st, want)
 	}
@@ -98,6 +98,33 @@ func TestMinikubeStatusStoppedWithExitError(t *testing.T) {
 	}
 	if st.Host != "Stopped" {
 		t.Errorf("Host = %q, want %q", st.Host, "Stopped")
+	}
+}
+
+// misconfiguredOutput reproduces minikube's combined stdout+stderr for an
+// existing-but-misconfigured cluster (interrupted mid-start): a stderr
+// diagnostic line is interleaved before the JSON, and minikube exits 6.
+const misconfiguredOutput = `E0916 18:28:03.535535   86523 status.go:457] kubeconfig endpoint: get endpoint: "dr2" does not appear in /Users/rtalur/.kube/config
+{"Name":"dr2","Host":"Running","Kubelet":"Stopped","APIServer":"Stopped","Kubeconfig":"Misconfigured","Worker":false}`
+
+// TestMinikubeStatusMisconfiguredWithStderrNoise pins the fix for minikube
+// exit-6 on a misconfigured cluster whose stderr diagnostics are interleaved
+// with the JSON payload in the combined output the runner captures. Status must
+// isolate and parse the JSON object rather than treating the cluster as failed,
+// so the start flow reconciles it via `minikube start`.
+func TestMinikubeStatusMisconfiguredWithStderrNoise(t *testing.T) {
+	ctx := context.Background()
+	f := &cli.FakeRunner{}
+	f.Script(cli.FakeResult{Out: misconfiguredOutput, Err: &fakeExitError{}})
+
+	mk := cli.Minikube{R: f}
+	st, err := mk.Status(ctx, "dr2")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := cli.MinikubeStatus{Name: "dr2", Host: "Running", APIServer: "Stopped", Kubeconfig: "Misconfigured"}
+	if st != want {
+		t.Errorf("Status = %+v, want %+v", st, want)
 	}
 }
 
