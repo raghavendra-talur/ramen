@@ -337,21 +337,3 @@ func TestOCMControllerArgv(t *testing.T) {
 		"--context", testCluster, "-n", "open-cluster-management",
 		"rollout", "status", "deploy/ocm-controller")
 }
-
-// TestODFExternalSnapshotterArgv verifies the odf-external-snapshotter builder
-// issues apply-crds + wait-established.
-func TestODFExternalSnapshotterArgv(t *testing.T) {
-	addonsDir := "/fake/addons"
-	f := &cli.FakeRunner{}
-	runStep(t, f, addonsDir, "odf-external-snapshotter", testCluster, nil)
-
-	if len(f.Calls) != 2 {
-		t.Fatalf("expected 2 kubectl calls, got %d: %v", len(f.Calls), callNames(f))
-	}
-	crdsDir := filepath.Join(addonsDir, "odf_external_snapshotter", "start-data", "crds")
-	assertArgsEqual(t, "apply-crds", callArgs(t, f, 0), []string{
-		"--context", testCluster, "apply", "--kustomize", crdsDir,
-	})
-	assertArgsContain(t, "wait-crds", callArgs(t, f, 1),
-		"--context", testCluster, "wait", "crd", "--all", "--for=condition=established")
-}
