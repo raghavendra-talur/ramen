@@ -124,6 +124,13 @@ func failoverRelocateDiscoveredApps(
 		return err
 	}
 
+	// currentCluster was demoted to Secondary. Discovered apps always enable kube
+	// object protection, so verify Ramen cleaned up the Velero Backup CRs it left
+	// behind while this cluster was Primary (without touching shared S3 copies).
+	if err := util.WaitForVeleroBackupsDeleted(ctx, currentCluster, managementNamespace, name); err != nil {
+		return err
+	}
+
 	return deployers.WaitWorkloadHealth(ctx, targetCluster)
 }
 
