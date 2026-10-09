@@ -54,90 +54,79 @@ type envFile struct {
 	} `json:"ramen"`
 }
 
-func main() {
-	root := repoRoot()
+// runOptions holds the flags shared by run and refresh.
+type runOptions struct {
+	root        string
+	envfile     string
+	logDir      string
+	noLogs      bool
+	reconcilers string
+	skipBuild   bool
+}
 
-	var (
-		envfilePath string
-		logDir      string
-		noLogs      bool
-		reconcilers string
-		skipBuild   bool
-	)
+func (o runOptions) bin() string {
+	return filepath.Join(o.root, "localrun", "bin", "manager")
+}
+
+// resolvedLogDir returns the absolute log directory, or "" with --no-logs.
+func (o runOptions) resolvedLogDir() string {
+	if o.noLogs {
+		return ""
+	}
+
+	if filepath.IsAbs(o.logDir) {
+		return o.logDir
+	}
+
+	return filepath.Join(o.root, o.logDir)
+}
+
+func addRunFlags(cmd *cobra.Command, o *runOptions) {
+	cmd.Flags().BoolVar(&o.skipBuild, "skip-build", false, "skip building the manager binary")
+	cmd.Flags().StringVar(&o.logDir, "log-dir", "localrun/logs", "directory for per-reconciler log files")
+	cmd.Flags().BoolVar(&o.noLogs, "no-logs", false, "disable log files (terminal only)")
+	cmd.Flags().StringVar(&o.reconcilers, "reconcilers", "", "comma-separated reconciler filter (e.g. vrg,pvrgl)")
+}
+
+func main() {
+	opts := runOptions{root: repoRoot()}
 
 	rootCmd := &cobra.Command{
 		Use:   "localrun",
 		Short: "Build and run ramen managers locally against drenv clusters",
 	}
 
-	rootCmd.PersistentFlags().StringVar(&envfilePath, "envfile",
-		filepath.Join(root, "test", "envs", "regional-dr.yaml"),
+	rootCmd.PersistentFlags().StringVar(&opts.envfile, "envfile",
+		filepath.Join(opts.root, "test", "envs", "regional-dr.yaml"),
 		"path to drenv environment file")
 
-	runCmd := &cobra.Command{
+	rootCmd.AddCommand(newRunCmd(&opts), newConfigureCmd(&opts), newRefreshCmd(&opts))
+
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func newRunCmd(opts *runOptions) *cobra.Command {
+	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Build and start ramen managers (one process per reconciler)",
 		Run: func(cmd *cobra.Command, args []string) {
-			clusters := loadClusters(envfilePath)
-			bin := filepath.Join(root, "localrun", "bin", "manager")
-
-			if !skipBuild {
-				build(root, bin)
-			}
-
-			resolvedLogDir := ""
-			if !noLogs {
-				resolvedLogDir = logDir
-				if !filepath.IsAbs(resolvedLogDir) {
-					resolvedLogDir = filepath.Join(root, resolvedLogDir)
-				}
-
-				os.MkdirAll(resolvedLogDir, 0o755)
-			}
-
-			for _, c := range clusters {
-				scaleDownOperator(c)
-			}
-
-			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-			defer stop()
-
-			fmt.Println("Starting ramen managers (Ctrl-C to stop)...")
-
-			var wg sync.WaitGroup
-
-			filter := parseReconcilerFilter(reconcilers)
-
-			for _, c := range clusters {
-				for _, rec := range reconcilersForCluster(c) {
-					if len(filter) > 0 && !filter[rec] {
-						continue
-					}
-
-					wg.Add(1)
-
-					go func() {
-						defer wg.Done()
-						runManager(ctx, bin, c, rec, resolvedLogDir)
-					}()
-				}
-			}
-
-			wg.Wait()
-			fmt.Println("All managers stopped.")
+			supervise(*opts, loadClusters(opts.envfile))
 		},
 	}
 
-	runCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "skip building the manager binary")
-	runCmd.Flags().StringVar(&logDir, "log-dir", "localrun/logs", "directory for per-reconciler log files")
-	runCmd.Flags().BoolVar(&noLogs, "no-logs", false, "disable log files (terminal only)")
-	runCmd.Flags().StringVar(&reconcilers, "reconcilers", "", "comma-separated reconciler filter (e.g. vrg,pvrgl)")
+	addRunFlags(cmd, opts)
 
-	configureCmd := &cobra.Command{
+	return cmd
+}
+
+func newConfigureCmd(opts *runOptions) *cobra.Command {
+	return &cobra.Command{
 		Use:   "configure",
 		Short: "Install CRDs, create namespaces, S3 secrets, and config",
 		Run: func(cmd *cobra.Command, args []string) {
-			clusters := loadClusters(envfilePath)
+			clusters := loadClusters(opts.envfile)
 
 			for _, c := range clusters {
 				if c.openshift {
@@ -146,78 +135,79 @@ func main() {
 				}
 			}
 
-			configure(root, clusters)
+			configure(opts.root, clusters)
 		},
 	}
+}
 
-	refreshCmd := &cobra.Command{
+func newRefreshCmd(opts *runOptions) *cobra.Command {
+	cmd := &cobra.Command{
 		Use:   "refresh",
 		Short: "Kill local managers, clear logs, rebuild, and restart",
 		Run: func(cmd *cobra.Command, args []string) {
-			clusters := loadClusters(envfilePath)
-			bin := filepath.Join(root, "localrun", "bin", "manager")
+			clusters := loadClusters(opts.envfile)
 
 			fmt.Println("Killing existing local manager processes...")
-			killLocalManagers(bin)
+			killLocalManagers(opts.bin())
 
-			resolvedLogDir := ""
-			if !noLogs {
-				resolvedLogDir = logDir
-				if !filepath.IsAbs(resolvedLogDir) {
-					resolvedLogDir = filepath.Join(root, resolvedLogDir)
-				}
-
-				fmt.Printf("Clearing log directory %s...\n", resolvedLogDir)
-				clearLogDir(resolvedLogDir)
+			if logDir := opts.resolvedLogDir(); logDir != "" {
+				fmt.Printf("Clearing log directory %s...\n", logDir)
+				clearLogDir(logDir)
 			}
 
-			if !skipBuild {
-				build(root, bin)
-			}
-
-			for _, c := range clusters {
-				scaleDownOperator(c)
-			}
-
-			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-			defer stop()
-
-			fmt.Println("Starting ramen managers (Ctrl-C to stop)...")
-
-			var wg sync.WaitGroup
-
-			filter := parseReconcilerFilter(reconcilers)
-
-			for _, c := range clusters {
-				for _, rec := range reconcilersForCluster(c) {
-					if len(filter) > 0 && !filter[rec] {
-						continue
-					}
-
-					wg.Add(1)
-
-					go func() {
-						defer wg.Done()
-						runManager(ctx, bin, c, rec, resolvedLogDir)
-					}()
-				}
-			}
-
-			wg.Wait()
-			fmt.Println("All managers stopped.")
+			supervise(*opts, clusters)
 		},
 	}
 
-	refreshCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "skip building the manager binary")
-	refreshCmd.Flags().StringVar(&logDir, "log-dir", "localrun/logs", "directory for per-reconciler log files")
-	refreshCmd.Flags().BoolVar(&noLogs, "no-logs", false, "disable log files (terminal only)")
-	refreshCmd.Flags().StringVar(&reconcilers, "reconcilers", "", "comma-separated reconciler filter (e.g. vrg,pvrgl)")
+	addRunFlags(cmd, opts)
 
-	rootCmd.AddCommand(runCmd, configureCmd, refreshCmd)
+	return cmd
+}
 
-	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
+// supervise builds the manager, scales down the in-cluster operators, and
+// runs one manager per (cluster, reconciler) until SIGINT or SIGTERM.
+func supervise(o runOptions, clusters []cluster) {
+	bin := o.bin()
+
+	if !o.skipBuild {
+		build(o.root, bin)
 	}
+
+	logDir := o.resolvedLogDir()
+	if logDir != "" {
+		os.MkdirAll(logDir, 0o755)
+	}
+
+	for _, c := range clusters {
+		scaleDownOperator(c)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	fmt.Println("Starting ramen managers (Ctrl-C to stop)...")
+
+	var wg sync.WaitGroup
+
+	filter := parseReconcilerFilter(o.reconcilers)
+
+	for _, c := range clusters {
+		for _, rec := range reconcilersForCluster(c) {
+			if len(filter) > 0 && !filter[rec] {
+				continue
+			}
+
+			wg.Add(1)
+
+			go func() {
+				defer wg.Done()
+				runManager(ctx, bin, c, rec, logDir)
+			}()
+		}
+	}
+
+	wg.Wait()
+	fmt.Println("All managers stopped.")
 }
 
 func loadClusters(envfilePath string) []cluster {
