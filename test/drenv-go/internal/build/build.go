@@ -9,7 +9,6 @@ package build
 
 import (
 	"context"
-	"fmt"
 	"log"
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/addon"
@@ -40,66 +39,7 @@ type ProviderSelector func(envfile.Profile) provider.Provider
 // named "addon/<name> (unimplemented)" so an env with not-yet-ported addons
 // still composes without error.
 func Start(e *envfile.Env, providerFor ProviderSelector, d addon.Deps, opts ensure.Options) ensure.Step {
-	profileSteps := make([]ensure.Step, len(e.Profiles))
-	for i, prof := range e.Profiles {
-		p := providerFor(prof)
-		// Build per-worker steps for this profile.
-		workerSteps := make([]ensure.Step, len(prof.Workers))
-		for wi, w := range prof.Workers {
-			addonSteps := make([]ensure.Step, len(w.Addons))
-			for ai, a := range w.Addons {
-				addonSteps[ai] = buildAddonStep(d, prof.Name, a, opts)
-			}
-			workerSteps[wi] = ensure.NewGroup(
-				fmt.Sprintf("worker/%d", wi),
-				ensure.Serial, opts,
-				addonSteps...,
-			)
-		}
-
-		// Profile group: [cluster-running, (containerd-config), parallel-workers].
-		profileChildren := []ensure.Step{provider.ClusterRunningStep(p, prof)}
-		// After the cluster is up, apply the profile's containerd config (e.g.
-		// rook's device_ownership_from_security_context) before any addon runs.
-		// Only minikube profiles with a containerd block need this; external
-		// clusters are managed elsewhere.
-		if !prof.External && len(prof.Containerd) > 0 && d.MK != nil {
-			profileChildren = append(profileChildren, provider.ContainerdConfigStep(d.MK, prof))
-		}
-		if len(workerSteps) > 0 {
-			profileChildren = append(profileChildren,
-				ensure.NewGroup("workers", ensure.Parallel, opts, workerSteps...),
-			)
-		}
-		profileSteps[i] = ensure.NewGroup("profile/"+prof.Name, ensure.Serial, opts, profileChildren...)
-	}
-
-	children := []ensure.Step{
-		ensure.NewGroup("profiles", ensure.Parallel, opts, profileSteps...),
-	}
-
-	// Global workers come after all profiles.
-	if len(e.Workers) > 0 {
-		globalWorkerSteps := make([]ensure.Step, len(e.Workers))
-		for wi, w := range e.Workers {
-			addonSteps := make([]ensure.Step, len(w.Addons))
-			for ai, a := range w.Addons {
-				// Global addons target clusters given by their args; pass
-				// cluster="" so builders know they are in global context.
-				addonSteps[ai] = buildAddonStep(d, "", a, opts)
-			}
-			globalWorkerSteps[wi] = ensure.NewGroup(
-				fmt.Sprintf("global-worker/%d", wi),
-				ensure.Serial, opts,
-				addonSteps...,
-			)
-		}
-		children = append(children,
-			ensure.NewGroup("workers", ensure.Parallel, opts, globalWorkerSteps...),
-		)
-	}
-
-	return ensure.NewGroup(e.Name, ensure.Serial, opts, children...)
+	return NewPlan(e, providerFor, d, opts).Tree()
 }
 
 // buildAddonStep looks up the addon builder and invokes it. If the addon is not
