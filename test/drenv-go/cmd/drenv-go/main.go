@@ -26,6 +26,7 @@ func main() {
 	root.PersistentFlags().StringVar(&envfilePath, "envfile", "", "path to the environment file")
 	root.AddCommand(newAddonsCommand())
 	root.AddCommand(newStatusCommand())
+	root.AddCommand(newCheckCommand())
 	root.AddCommand(newStartCommand())
 	root.AddCommand(newStopCommand())
 	root.AddCommand(newDeleteCommand())
