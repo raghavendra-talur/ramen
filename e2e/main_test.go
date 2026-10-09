@@ -11,11 +11,8 @@ import (
 	"testing"
 
 	"github.com/ramendr/ramen/e2e/app"
-	"github.com/ramendr/ramen/e2e/config"
-	"github.com/ramendr/ramen/e2e/deployers"
 	"github.com/ramendr/ramen/e2e/env"
 	"github.com/ramendr/ramen/e2e/util"
-	"github.com/ramendr/ramen/e2e/workloads"
 )
 
 // The global test context.
@@ -48,12 +45,7 @@ func testMain(m *testing.M) int {
 	log.Infof("Using config file %q", configFile)
 	log.Infof("Using log file %q", logFile)
 
-	options := config.Options{
-		Deployers: deployers.AvailableTypes(),
-		Workloads: workloads.AvailableNames(),
-	}
-
-	config, err := config.ReadConfig(configFile, options)
+	config, err := app.ReadConfig(configFile)
 	if err != nil {
 		log.Errorf("Failed to read config: %s", err)
 
