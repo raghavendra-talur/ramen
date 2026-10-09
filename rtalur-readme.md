@@ -97,6 +97,10 @@ Parallel Go implementation of `drenv`. Reflects state as of Milestone 4D.
 | `resume` | 🚧 | Per-profile; unit-tested |
 | `dump` | ✅ | YAML marshal of expanded env; trivially correct |
 | `gather` | ✅ | Uses `kubectl cluster-info dump --all-namespaces --output=yaml` per profile; argv-tested |
+| `addons` | ✅ | `addons [--json]` lists registered addon names; needs no `--envfile` |
+| `check` | 🚧 | Read-only readiness report: builds the `start` plan and evaluates each cluster/addon step's `Done()` without `Do`. States `ready`/`not-ready`/`error`/`unimplemented`/`skipped` (addons on a non-running cluster are skipped, not probed). Profiles probed in parallel, 30s per-probe timeout. Exit 0 whenever the report is produced. Unit-tested; not yet run against live clusters |
+| `--json` (`addons`, `status`, `check`) | ✅ | stdout holds only the JSON document; subprocess output is routed to stderr. Field names are a contract consumed by ramendev |
+| `--only SEL` (`start`, `check`) | 🚧 | `NAME`, `NAME@PROFILE`, `NAME@global`; repeatable and comma-separated. Keeps only the selected addons plus the clusters they need; a selector matching nothing is an error. Unit-tested |
 | `cache` | ⬜ | Out of scope: drenv-go applies kustomizations via `kubectl -k` directly, so the Python kustomize-build cache (pre-downloading manifests) is unnecessary. Not reimplemented. |
 
 ### Not reimplemented (honest)
