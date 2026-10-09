@@ -10,4 +10,4 @@ e2e-step:
 	go build -o e2e-step ./cmd/e2e-step
 
 test:
-	go test -v ./config ./recipes
+	go test -v ./config ./recipes ./stepper ./cmd/...
