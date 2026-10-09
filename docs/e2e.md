@@ -304,6 +304,58 @@ Undeploy the application:
 ./run.sh -test.run TestDR/appset-deploy-rbd/Undeploy
 ```
 
+### Stepping one action at a time
+
+Running a single step with `-test.run TestDR/<name>/<Step>` deletes the test
+channel when the test ends, breaking `subscr` and `appset` applications between
+steps. To step through the DR lifecycle of one test, for example from a
+dashboard, use the `e2e-step` command instead. It runs the same actions with the
+same timeouts as `TestDR`, and never deletes the channel.
+
+Build the command:
+
+```sh
+make e2e-step
+```
+
+List the configured tests (does not access the clusters):
+
+```sh
+./e2e-step list --json
+```
+
+Run one action (`deploy`, `enable`, `failover`, `relocate`, `disable`,
+`undeploy`, or `purge`) for one test:
+
+```sh
+./e2e-step run --test appset-deploy-rbd --action deploy
+./e2e-step run --test appset-deploy-rbd --action enable
+./e2e-step run --test appset-deploy-rbd --action failover
+```
+
+Between actions, report where the application is in the DR lifecycle
+(`undeployed`, `deployed`, `protected`, `failed-over`, `relocated`, or `unknown`
+while an action is in progress, the observations contradict each other, or a
+cluster cannot be read):
+
+```sh
+./e2e-step state --test appset-deploy-rbd --json
+```
+
+The state includes the DRPC on the hub and the VRG, PVCs and pods on every
+managed cluster. Failed lookups are listed in `errors`, and the command exits
+with 1 when there are any.
+
+When done, delete the channel:
+
+```sh
+./e2e-step channel delete
+```
+
+All commands accept `--config` (default `config.yaml`) and `--logfile` (default
+`e2e-step.log`). With `--json`, stdout contains only the JSON document; logs go
+to stderr and the log file.
+
 ### Using multiple config files
 
 Use this option if you want to maintain multiple configuration files and run
