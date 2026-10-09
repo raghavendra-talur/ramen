@@ -60,6 +60,27 @@ func defaultAddonsDir() string {
 	return filepath.Join(envDir, "..", "drenv", "addons")
 }
 
+// newDeps wires the addon dependencies with real CLI clients on runner r.
+// addonsDir "" means defaultAddonsDir().
+func newDeps(r cli.Runner, env *envfile.Env, addonsDir string, opts ensure.Options) addon.Deps {
+	if addonsDir == "" {
+		addonsDir = defaultAddonsDir()
+	}
+	return addon.Deps{
+		K:          &cli.Kubectl{R: r},
+		MK:         &cli.Minikube{R: r},
+		Helm:       &cli.Helm{R: r},
+		Clusteradm: &cli.Clusteradm{R: r},
+		Subctl:     &cli.Subctl{R: r},
+		MC:         &cli.MC{R: r},
+		Velero:     &cli.Velero{R: r},
+		Argocd:     &cli.Argocd{R: r},
+		AddonsDir:  addonsDir,
+		EnvName:    env.Name,
+		Opts:       opts,
+	}
+}
+
 func newStartCommand() *cobra.Command {
 	var addonsDir string
 	var dnsMode string
@@ -82,25 +103,7 @@ func newStartCommand() *cobra.Command {
 			opts := ensure.DefaultOptions()
 			opts.Reporter = ensure.ConsoleReporter{W: cmd.OutOrStdout()}
 
-			dir := addonsDir
-			if dir == "" {
-				dir = defaultAddonsDir()
-			}
-
-			r := cli.Exec{}
-			deps := addon.Deps{
-				K:          &cli.Kubectl{R: r},
-				MK:         &cli.Minikube{R: r},
-				Helm:       &cli.Helm{R: r},
-				Clusteradm: &cli.Clusteradm{R: r},
-				Subctl:     &cli.Subctl{R: r},
-				MC:         &cli.MC{R: r},
-				Velero:     &cli.Velero{R: r},
-				Argocd:     &cli.Argocd{R: r},
-				AddonsDir:  dir,
-				EnvName:    env.Name,
-				Opts:       opts,
-			}
+			deps := newDeps(cli.Exec{}, env, addonsDir, opts)
 
 			step := build.Start(env, newProviderSelector(dnsMode), deps, opts)
 			if _, err := ensure.Ensure(cmd.Context(), step, opts); err != nil {
