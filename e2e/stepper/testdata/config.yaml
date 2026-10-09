@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+---
+clusters:
+  hub:
+    kubeconfig: hub/config
+  c1:
+    kubeconfig: dr1/config
+  c2:
+    kubeconfig: dr2/config
+distro: k8s
+pvcspecs:
+  - name: rbd
+    storageclassname: rook-ceph-block
+    accessmodes: ReadWriteOnce
+  - name: cephfs
+    storageclassname: rook-cephfs-fs1
+    accessmodes: ReadWriteMany
+deployers:
+  - name: subscr
+    type: subscr
+    description: OCM Subscription based deployer
+  - name: disapp-recipe
+    type: disapp
+    recipe:
+      type: generate
+    description: Discovered application deployer using a recipe
+tests:
+  - deployer: subscr
+    workload: deploy
+    pvcspec: rbd
+  - name: second
+    deployer: disapp-recipe
+    workload: deploy
+    pvcspec: cephfs
