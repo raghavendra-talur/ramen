@@ -24,7 +24,12 @@ import (
 // auto) is forwarded to minikube providers and only affects `start`; other
 // commands pass "" since they never create clusters.
 func newProviderSelector(dnsMode string) build.ProviderSelector {
-	r := cli.Exec{}
+	return newProviderSelectorWith(cli.Exec{}, dnsMode)
+}
+
+// newProviderSelectorWith is newProviderSelector with an explicit runner, so
+// --json commands can route subprocess output away from stdout.
+func newProviderSelectorWith(r cli.Runner, dnsMode string) build.ProviderSelector {
 	mk := &cli.Minikube{R: r}
 	k := &cli.Kubectl{R: r}
 	return func(prof envfile.Profile) provider.Provider {
