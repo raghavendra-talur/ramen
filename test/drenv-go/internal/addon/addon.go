@@ -12,6 +12,7 @@ package addon
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/cli"
@@ -78,4 +79,16 @@ func Lookup(name string) (Builder, bool) {
 	defer registry.mu.RUnlock()
 	b, ok := registry.builders[name]
 	return b, ok
+}
+
+// Names returns the names of all registered addons, sorted.
+func Names() []string {
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	names := make([]string, 0, len(registry.builders))
+	for name := range registry.builders {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
