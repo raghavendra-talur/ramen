@@ -5,6 +5,7 @@ package stepper
 
 import (
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 
@@ -320,4 +321,42 @@ func quoteList(names []string) string {
 	}
 
 	return "[" + strings.Join(quoted, ", ") + "]"
+}
+
+// WriteText writes a human readable summary of the state.
+func (s *State) WriteText(w io.Writer) {
+	fmt.Fprintf(w, "Test:       %s (namespace %q, management namespace %q)\n",
+		s.Test, s.Namespace, s.ManagementNamespace)
+	fmt.Fprintf(w, "Position:   %s (%s)\n", s.Position, s.PositionReason)
+	fmt.Fprintf(w, "Clusters:   home %q, current %q\n", s.HomeCluster, s.CurrentCluster)
+
+	switch {
+	case s.DRPC.readFailed:
+		fmt.Fprintln(w, "DRPC:       unknown (could not read)")
+	case s.DRPC.Exists:
+		fmt.Fprintf(w, "DRPC:       phase %q, progression %q, action %q\n",
+			s.DRPC.Phase, s.DRPC.Progression, s.DRPC.Action)
+	default:
+		fmt.Fprintln(w, "DRPC:       not found")
+	}
+
+	for i := range s.Clusters {
+		c := &s.Clusters[i]
+
+		app := string(c.app)
+		if c.readFailed {
+			app = "unknown"
+		}
+
+		vrg := "no vrg"
+		if c.VRG.Exists {
+			vrg = fmt.Sprintf("vrg %s/%s", c.VRG.ReplicationState, c.VRG.State)
+		}
+
+		fmt.Fprintf(w, "%-11s application %s, %s, %d pvcs, %d pods\n", c.Name+":", app, vrg, len(c.PVCs), len(c.Pods))
+	}
+
+	for _, e := range s.Errors {
+		fmt.Fprintf(w, "Error:      %s\n", e)
+	}
 }
