@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -52,13 +53,27 @@ type Runner interface {
 }
 
 // Exec is the real Runner that shells out via os/exec.CommandContext.
-type Exec struct{}
+//
+// Stdout is where the live output of Run, RunStdin and RunEnv goes; nil means
+// os.Stdout. Commands that must keep stdout clean (e.g. --json reports) set it
+// to os.Stderr so subprocess chatter cannot corrupt the document.
+type Exec struct {
+	Stdout io.Writer
+}
 
-// Run wires stdout and stderr to the current process's file descriptors so
-// that subcommand output is visible to the user in real time.
-func (Exec) Run(ctx context.Context, name string, args ...string) error {
+// stdout returns the configured live-output writer, defaulting to os.Stdout.
+func (e Exec) stdout() io.Writer {
+	if e.Stdout == nil {
+		return os.Stdout
+	}
+	return e.Stdout
+}
+
+// Run wires stdout (Exec.Stdout, default os.Stdout) and stderr to the current
+// process so that subcommand output is visible to the user in real time.
+func (e Exec) Run(ctx context.Context, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = e.stdout()
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
@@ -85,10 +100,10 @@ func (Exec) Output(ctx context.Context, name string, args ...string) (string, er
 // RunStdin executes name with args, feeding stdin as the command's standard
 // input. Stdout and stderr are wired to the current process's file descriptors
 // so the caller sees live output. A non-zero exit status is returned as an error.
-func (Exec) RunStdin(ctx context.Context, stdin string, name string, args ...string) error {
+func (e Exec) RunStdin(ctx context.Context, stdin string, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = strings.NewReader(stdin)
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = e.stdout()
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
@@ -96,10 +111,10 @@ func (Exec) RunStdin(ctx context.Context, stdin string, name string, args ...str
 // RunEnv executes name with args with the process environment augmented by the
 // extra key=value pairs in env (e.g. []string{"KUBECONFIG=/tmp/kc"}). Stdout
 // and stderr are wired to the current process's file descriptors.
-func (Exec) RunEnv(ctx context.Context, env []string, name string, args ...string) error {
+func (e Exec) RunEnv(ctx context.Context, env []string, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = append(os.Environ(), env...)
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = e.stdout()
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
