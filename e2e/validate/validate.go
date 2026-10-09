@@ -101,7 +101,7 @@ func FindPod(ctx types.Context, cluster *types.Cluster, namespace, labelSelector
 // the test environment configurations with the DR resources on the clusters.
 // Returns an error if any validation fails.
 func TestConfig(ctx types.Context) error {
-	if err := detectDistro(ctx); err != nil {
+	if err := DetectDistro(ctx); err != nil {
 		return fmt.Errorf("failed to validate test config: %w", err)
 	}
 
@@ -177,10 +177,10 @@ func clustersInClusterSet(ctx types.Context) error {
 	return nil
 }
 
-// detectDistro detects the cluster distribution. If distro is set in config, it uses the user
+// DetectDistro detects the cluster distribution. If distro is set in config, it uses the user
 // provided distro. Otherwise, it determines the distro, sets config.Distro and config.Namespaces.
 // Returns an error if distro detection fails or if clusters have inconsistent distributions.
-func detectDistro(ctx types.Context) error {
+func DetectDistro(ctx types.Context) error {
 	env := ctx.Env()
 	cfg := ctx.Config()
 	log := ctx.Logger()
