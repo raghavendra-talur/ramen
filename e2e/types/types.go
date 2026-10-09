@@ -94,6 +94,8 @@ type Workload interface {
 	GetOperations(string) []*recipe.Operation
 	Health(ctx TestContext, cluster *Cluster) error
 	Status(ctx TestContext) ([]WorkloadStatus, error)
+	// StatusForCluster returns the status of the application on a single managed cluster.
+	StatusForCluster(ctx TestContext, cluster *Cluster) (WorkloadStatus, error)
 }
 
 // Context keeps the Logger, Env, Config, and Context shared by all code in the e2e package.

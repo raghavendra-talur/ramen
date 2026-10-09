@@ -167,7 +167,7 @@ func (w Deployment) Status(ctx types.TestContext) ([]types.WorkloadStatus, error
 	var statuses []types.WorkloadStatus
 
 	for _, cluster := range ctx.Env().ManagedClusters() {
-		status, err := w.statusForCluster(ctx, cluster)
+		status, err := w.StatusForCluster(ctx, cluster)
 		if err != nil {
 			return nil, fmt.Errorf("error checking application \"%s/%s\" on cluster %q: %w",
 				ctx.AppNamespace(), w.GetAppName(), cluster.Name, err)
@@ -181,7 +181,8 @@ func (w Deployment) Status(ctx types.TestContext) ([]types.WorkloadStatus, error
 	return statuses, nil
 }
 
-func (w Deployment) statusForCluster(ctx types.TestContext, cluster *types.Cluster) (types.WorkloadStatus, error) {
+// StatusForCluster returns the deployment status on a single managed cluster.
+func (w Deployment) StatusForCluster(ctx types.TestContext, cluster *types.Cluster) (types.WorkloadStatus, error) {
 	deploymentExist, err := findDeployment(ctx, cluster, ctx.AppNamespace(), w.GetAppName())
 	if err != nil {
 		return types.WorkloadStatus{}, err
