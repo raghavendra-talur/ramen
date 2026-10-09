@@ -101,7 +101,7 @@ func main() {
 		filepath.Join(opts.root, "test", "envs", "regional-dr.yaml"),
 		"path to drenv environment file")
 
-	rootCmd.AddCommand(newRunCmd(&opts), newConfigureCmd(&opts), newRefreshCmd(&opts))
+	rootCmd.AddCommand(newRunCmd(&opts), newConfigureCmd(&opts), newRefreshCmd(&opts), newStatusCmd(&opts))
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
