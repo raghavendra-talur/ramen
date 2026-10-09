@@ -84,6 +84,7 @@ func newDeps(r cli.Runner, env *envfile.Env, addonsDir string, opts ensure.Optio
 func newStartCommand() *cobra.Command {
 	var addonsDir string
 	var dnsMode string
+	var only []string
 
 	cmd := &cobra.Command{
 		Use:   "start",
@@ -105,7 +106,11 @@ func newStartCommand() *cobra.Command {
 
 			deps := newDeps(cli.Exec{}, env, addonsDir, opts)
 
-			step := build.Start(env, newProviderSelector(dnsMode), deps, opts)
+			plan, err := newPlan(env, newProviderSelector(dnsMode), deps, opts, only)
+			if err != nil {
+				return err
+			}
+			step := plan.Tree()
 			if _, err := ensure.Ensure(cmd.Context(), step, opts); err != nil {
 				return err
 			}
@@ -137,5 +142,6 @@ func newStartCommand() *cobra.Command {
 			"if needed; 'static' configures public DNS servers (8.8.8.8, 1.1.1.1); "+
 			"'host' uses the host resolver (minikube default, may not work on "+
 			"managed Macs)")
+	addOnlyFlag(cmd, &only)
 	return cmd
 }
