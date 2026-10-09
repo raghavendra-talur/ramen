@@ -150,12 +150,15 @@ func newConfigureCmd(opts *runOptions) *cobra.Command {
 func newRefreshCmd(opts *runOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "refresh",
-		Short: "Kill local managers, clear logs, rebuild, and restart",
+		Short: "Stop running managers, clear logs, rebuild, and restart",
 		Run: func(cmd *cobra.Command, args []string) {
 			clusters := loadClusters(opts.envfile)
 
-			fmt.Println("Killing existing local manager processes...")
-			killLocalManagers(opts.bin())
+			fmt.Println("Stopping the running supervisor and managers...")
+
+			if err := newStopper(opts, os.Stdout, defaultStopTimeout).stop(stateFilePath(opts.root)); err != nil {
+				fatal("stop: %v", err)
+			}
 
 			if logDir := opts.resolvedLogDir(); logDir != "" {
 				fmt.Printf("Clearing log directory %s...\n", logDir)
@@ -743,11 +746,6 @@ func logLines(dst io.Writer, src io.Reader, tag string, logFile *os.File) {
 			fmt.Fprintln(logFile, line)
 		}
 	}
-}
-
-func killLocalManagers(bin string) {
-	exec.Command("pkill", "-f", bin).Run() //nolint:errcheck
-	time.Sleep(1 * time.Second)
 }
 
 func clearLogDir(dir string) {
