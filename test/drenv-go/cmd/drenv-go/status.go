@@ -9,10 +9,13 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/envfile"
+	"github.com/ramendr/ramen/test/drenv-go/internal/report"
 )
 
 func newStatusCommand() *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Print the lifecycle status of every cluster in the environment",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -21,7 +24,11 @@ func newStatusCommand() *cobra.Command {
 				return err
 			}
 
-			sel := newProviderSelector("")
+			sel := newProviderSelectorWith(runnerFor(asJSON), "")
+
+			if asJSON {
+				return writeJSON(cmd.OutOrStdout(), report.BuildStatus(cmd.Context(), env, sel))
+			}
 
 			// Print cluster status for each profile.
 			for _, prof := range env.Profiles {
@@ -42,4 +49,6 @@ func newStatusCommand() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print a JSON document instead of text")
+	return cmd
 }
