@@ -221,45 +221,14 @@ func main() {
 }
 
 func loadClusters(envfilePath string) []cluster {
-	data, err := os.ReadFile(envfilePath)
+	env, err := parseEnvFile(envfilePath)
 	if err != nil {
-		fatal("cannot read envfile %s: %v", envfilePath, err)
+		fatal("%v", err)
 	}
 
-	var env envFile
-	if err := yaml.Unmarshal(data, &env); err != nil {
-		fatal("cannot parse envfile %s: %v", envfilePath, err)
-	}
-
-	if env.Name == "" {
-		fatal("envfile %s: missing 'name' field", envfilePath)
-	}
-
-	if env.Ramen.Hub == "" {
-		fatal("envfile %s: missing 'ramen.hub' field", envfilePath)
-	}
-
-	if len(env.Ramen.Clusters) == 0 {
-		fatal("envfile %s: missing 'ramen.clusters' field", envfilePath)
-	}
-
-	home, err := os.UserHomeDir()
+	clusters, err := clusterTopology(env)
 	if err != nil {
-		fatal("cannot get home directory: %v", err)
-	}
-
-	kcDir := filepath.Join(home, ".config", "drenv", env.Name, "kubeconfigs")
-
-	clusters := []cluster{
-		{name: env.Ramen.Hub, kubeconfig: filepath.Join(kcDir, env.Ramen.Hub), hub: true, index: 1},
-	}
-
-	for i, name := range env.Ramen.Clusters {
-		clusters = append(clusters, cluster{
-			name:       name,
-			kubeconfig: filepath.Join(kcDir, name),
-			index:      i + 2,
-		})
+		fatal("%v", err)
 	}
 
 	for i, c := range clusters {
@@ -272,6 +241,57 @@ func loadClusters(envfilePath string) []cluster {
 	}
 
 	return clusters
+}
+
+// parseEnvFile reads and validates a drenv environment file without touching
+// any cluster.
+func parseEnvFile(envfilePath string) (envFile, error) {
+	var env envFile
+
+	data, err := os.ReadFile(envfilePath)
+	if err != nil {
+		return env, fmt.Errorf("cannot read envfile %s: %w", envfilePath, err)
+	}
+
+	if err := yaml.Unmarshal(data, &env); err != nil {
+		return env, fmt.Errorf("cannot parse envfile %s: %w", envfilePath, err)
+	}
+
+	switch {
+	case env.Name == "":
+		return env, fmt.Errorf("envfile %s: missing 'name' field", envfilePath)
+	case env.Ramen.Hub == "":
+		return env, fmt.Errorf("envfile %s: missing 'ramen.hub' field", envfilePath)
+	case len(env.Ramen.Clusters) == 0:
+		return env, fmt.Errorf("envfile %s: missing 'ramen.clusters' field", envfilePath)
+	}
+
+	return env, nil
+}
+
+// clusterTopology returns the clusters of env with their port index and
+// kubeconfig path. It does not check that the kubeconfigs exist.
+func clusterTopology(env envFile) ([]cluster, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("cannot get home directory: %w", err)
+	}
+
+	kcDir := filepath.Join(home, ".config", "drenv", env.Name, "kubeconfigs")
+
+	clusters := make([]cluster, 0, 1+len(env.Ramen.Clusters))
+	clusters = append(clusters,
+		cluster{name: env.Ramen.Hub, kubeconfig: filepath.Join(kcDir, env.Ramen.Hub), hub: true, index: 1})
+
+	for i, name := range env.Ramen.Clusters {
+		clusters = append(clusters, cluster{
+			name:       name,
+			kubeconfig: filepath.Join(kcDir, name),
+			index:      i + 2,
+		})
+	}
+
+	return clusters, nil
 }
 
 func reconcilersForCluster(c cluster) []string {
