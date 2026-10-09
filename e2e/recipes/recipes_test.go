@@ -185,6 +185,10 @@ func (w *NoHooks) Health(ctx types.TestContext, cluster *types.Cluster) error { 
 
 func (w *NoHooks) Status(ctx types.TestContext) ([]types.WorkloadStatus, error) { return nil, nil }
 
+func (w *NoHooks) StatusForCluster(ctx types.TestContext, cluster *types.Cluster) (types.WorkloadStatus, error) {
+	return types.WorkloadStatus{}, nil
+}
+
 // Helpers
 
 func loadExpectedRecipe(t *testing.T, filename string) *recipe.Recipe {
