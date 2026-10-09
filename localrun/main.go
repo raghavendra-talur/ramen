@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -165,8 +166,15 @@ func newRefreshCmd(opts *runOptions) *cobra.Command {
 }
 
 // supervise builds the manager, scales down the in-cluster operators, and
-// runs one manager per (cluster, reconciler) until SIGINT or SIGTERM.
+// runs one manager per (cluster, reconciler) until SIGINT or SIGTERM. It
+// records itself and each manager in the state file.
 func supervise(o runOptions, clusters []cluster) {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	state := newSupervisorRecorder(o)
+	defer state.stopped()
+
 	bin := o.bin()
 
 	if !o.skipBuild {
@@ -182,32 +190,46 @@ func supervise(o runOptions, clusters []cluster) {
 		scaleDownOperator(c)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	if ctx.Err() != nil {
+		fmt.Println("Interrupted before starting managers.")
+
+		return
+	}
 
 	fmt.Println("Starting ramen managers (Ctrl-C to stop)...")
 
 	var wg sync.WaitGroup
 
-	filter := parseReconcilerFilter(o.reconcilers)
+	filter := parseReconcilerList(o.reconcilers)
 
 	for _, c := range clusters {
-		for _, rec := range reconcilersForCluster(c) {
-			if len(filter) > 0 && !filter[rec] {
-				continue
-			}
-
+		for _, rec := range selectedReconcilers(c, filter) {
 			wg.Add(1)
 
 			go func() {
 				defer wg.Done()
-				runManager(ctx, bin, c, rec, logDir)
+
+				runManager(ctx, bin, c, rec, logDir, state)
 			}()
 		}
 	}
 
 	wg.Wait()
 	fmt.Println("All managers stopped.")
+}
+
+func newSupervisorRecorder(o runOptions) *stateRecorder {
+	env, err := parseEnvFile(o.envfile)
+	if err != nil {
+		fatal("%v", err)
+	}
+
+	envfile, err := filepath.Abs(o.envfile)
+	if err != nil {
+		fatal("cannot resolve envfile path %s: %v", o.envfile, err)
+	}
+
+	return newStateRecorder(stateFilePath(o.root), envfile, env.Name, parseReconcilerList(o.reconcilers))
 }
 
 func loadClusters(envfilePath string) []cluster {
@@ -292,18 +314,37 @@ func reconcilersForCluster(c cluster) []string {
 	return drClusterReconcilers
 }
 
-func parseReconcilerFilter(s string) map[string]bool {
-	if s == "" {
-		return nil
-	}
-
-	m := make(map[string]bool)
+// parseReconcilerList parses the --reconcilers flag. An empty list means all
+// reconcilers.
+func parseReconcilerList(s string) []string {
+	names := []string{}
 
 	for _, name := range strings.Split(s, ",") {
-		m[strings.TrimSpace(name)] = true
+		if name = strings.TrimSpace(name); name != "" {
+			names = append(names, name)
+		}
 	}
 
-	return m
+	return names
+}
+
+// selectedReconcilers returns the reconcilers to run on c, restricted to
+// filter unless it is empty.
+func selectedReconcilers(c cluster, filter []string) []string {
+	all := reconcilersForCluster(c)
+	if len(filter) == 0 {
+		return all
+	}
+
+	var selected []string
+
+	for _, rec := range all {
+		if slices.Contains(filter, rec) {
+			selected = append(selected, rec)
+		}
+	}
+
+	return selected
 }
 
 func metricsAddr(c cluster, rec string) string {
@@ -574,9 +615,70 @@ func scaleDownOperator(c cluster) {
 	}
 }
 
-func runManager(ctx context.Context, bin string, c cluster, rec, logDirPath string) {
+func runManager(ctx context.Context, bin string, c cluster, rec, logDirPath string, state *stateRecorder) {
 	tag := fmt.Sprintf("%s:%s", c.name, rec)
+	cmd := managerCommand(ctx, bin, c, rec)
 
+	stdout, _ := cmd.StdoutPipe()
+	stderr, _ := cmd.StderrPipe()
+
+	logFile := openLogFile(tag, logDirPath, c, rec)
+	if logFile != nil {
+		defer logFile.Close()
+	}
+
+	m := managerState{
+		Cluster:     c.name,
+		Reconciler:  rec,
+		HealthAddr:  healthAddr(c, rec),
+		MetricsAddr: metricsAddr(c, rec),
+	}
+	if logFile != nil {
+		m.Log = logFile.Name()
+	}
+
+	fmt.Printf("[%s] starting (kubeconfig=%s)\n", tag, c.kubeconfig)
+
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "[%s] start failed: %v\n", tag, err)
+		state.managerExited(state.managerStarted(m), fmt.Errorf("start failed: %w", err))
+
+		return
+	}
+
+	m.PID = cmd.Process.Pid
+	idx := state.managerStarted(m)
+
+	var wg sync.WaitGroup
+
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+
+		logLines(os.Stderr, stdout, tag, logFile)
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		logLines(os.Stderr, stderr, tag, logFile)
+	}()
+
+	waitErr := cmd.Wait()
+	wg.Wait()
+	state.managerExited(idx, waitErr)
+
+	if ctx.Err() != nil {
+		fmt.Printf("[%s] stopped\n", tag)
+	} else if waitErr != nil {
+		fmt.Fprintf(os.Stderr, "[%s] exited: %v\n", tag, waitErr)
+	}
+}
+
+// managerCommand returns the command running bin as the manager for one
+// reconciler on cluster c.
+func managerCommand(ctx context.Context, bin string, c cluster, rec string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, bin,
 		"--kubeconfig="+c.kubeconfig,
 		"--metrics-bind-address="+metricsAddr(c, rec),
@@ -599,54 +701,28 @@ func runManager(ctx context.Context, bin string, c cluster, rec, logDirPath stri
 		"RAMEN_RECONCILERS="+rec,
 	)
 
-	stdout, _ := cmd.StdoutPipe()
-	stderr, _ := cmd.StderrPipe()
+	return cmd
+}
 
-	fmt.Printf("[%s] starting (kubeconfig=%s)\n", tag, c.kubeconfig)
-
-	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "[%s] start failed: %v\n", tag, err)
-		return
+// openLogFile creates the manager's log file, or returns nil when logging to
+// files is disabled or the file cannot be created.
+func openLogFile(tag, logDirPath string, c cluster, rec string) *os.File {
+	if logDirPath == "" {
+		return nil
 	}
 
-	var logFile *os.File
+	logFileName := filepath.Join(logDirPath, fmt.Sprintf("%s-%s.log", c.name, rec))
 
-	if logDirPath != "" {
-		logFileName := filepath.Join(logDirPath, fmt.Sprintf("%s-%s.log", c.name, rec))
+	logFile, err := os.Create(logFileName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[%s] cannot create log file %s: %v\n", tag, logFileName, err)
 
-		var err error
-
-		logFile, err = os.Create(logFileName)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[%s] cannot create log file %s: %v\n", tag, logFileName, err)
-		} else {
-			defer logFile.Close()
-			fmt.Printf("[%s] logging to %s\n", tag, logFileName)
-		}
+		return nil
 	}
 
-	var wg sync.WaitGroup
+	fmt.Printf("[%s] logging to %s\n", tag, logFileName)
 
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		logLines(os.Stderr, stdout, tag, logFile)
-	}()
-
-	go func() {
-		defer wg.Done()
-		logLines(os.Stderr, stderr, tag, logFile)
-	}()
-
-	waitErr := cmd.Wait()
-	wg.Wait()
-
-	if ctx.Err() != nil {
-		fmt.Printf("[%s] stopped\n", tag)
-	} else if waitErr != nil {
-		fmt.Fprintf(os.Stderr, "[%s] exited: %v\n", tag, waitErr)
-	}
+	return logFile
 }
 
 func logLines(dst io.Writer, src io.Reader, tag string, logFile *os.File) {
