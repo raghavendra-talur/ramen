@@ -21,7 +21,10 @@ func main() {
 			return cmd.Help()
 		},
 	}
+	// --envfile is required per command (via loadEnv), not globally: commands
+	// such as `addons` do not read an environment.
 	root.PersistentFlags().StringVar(&envfilePath, "envfile", "", "path to the environment file")
+	root.AddCommand(newAddonsCommand())
 	root.AddCommand(newStatusCommand())
 	root.AddCommand(newStartCommand())
 	root.AddCommand(newStopCommand())
