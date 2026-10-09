@@ -1,7 +1,7 @@
 # Ramen dr-cluster ConfigMap for dr1 (local development).
 #
 # The CHANGE_ME placeholders in s3CompatibleEndpoint are resolved
-# automatically by localrun --configure via kubectl.
+# automatically by localrun configure via kubectl.
 ---
 apiVersion: v1
 kind: ConfigMap
