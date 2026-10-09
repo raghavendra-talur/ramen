@@ -27,7 +27,7 @@ func validateVRG(
 ) error {
 	log := ctx.Logger()
 	name := ctx.Name()
-	namespace := vrgNamespace(ctx)
+	namespace := VRGNamespace(ctx)
 
 	vrg, err := getVRG(ctx, cluster, namespace, name)
 	if err != nil {
@@ -47,7 +47,8 @@ func validateVRG(
 	return nil
 }
 
-func vrgNamespace(ctx types.TestContext) string {
+// VRGNamespace returns the namespace of the test VRG on the managed clusters.
+func VRGNamespace(ctx types.TestContext) string {
 	if ctx.Deployer().IsDiscovered() {
 		return ctx.ManagementNamespace()
 	}
