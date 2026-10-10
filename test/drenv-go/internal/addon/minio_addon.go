@@ -25,6 +25,8 @@ const (
 	minioBucket         = "bucket"
 	minioAccessKey      = "minio"
 	minioSecretKey      = "minio123"
+	minioAliasAttempts  = 5
+	minioAliasDelay     = 2 * time.Second
 )
 
 func init() {
@@ -47,7 +49,8 @@ func buildMinio(d Deps, cluster string, _ []string) ensure.Step {
 		if err != nil {
 			return err
 		}
-		return d.MC.SetAlias(ctx, cluster, url, minioAccessKey, minioSecretKey)
+
+		return setMinioAlias(ctx, d, cluster, url)
 	})
 
 	makeBucket := newApplyStep("mc-make-bucket", func(ctx context.Context) error {
@@ -60,4 +63,35 @@ func buildMinio(d Deps, cluster string, _ []string) ensure.Step {
 		gateDeploymentAvailable(d.K, cluster, "minio", "minio"),
 		applyMinio, waitRollout, setAlias, makeBucket,
 	)
+}
+
+// setMinioAlias retries mc alias set with a doubling delay, matching Python's
+// minio start: the Deployment is Available before minio serves on its
+// NodePort, so the first attempts can be refused.
+func setMinioAlias(ctx context.Context, d Deps, cluster, url string) error {
+	delay := d.Opts.VerifyInterval
+	if delay <= 0 {
+		delay = minioAliasDelay
+	}
+
+	var err error
+	for attempt := 1; attempt <= minioAliasAttempts; attempt++ {
+		if err = d.MC.SetAlias(ctx, cluster, url, minioAccessKey, minioSecretKey); err == nil {
+			return nil
+		}
+
+		if attempt == minioAliasAttempts {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
+
+		delay *= 2
+	}
+
+	return err
 }
