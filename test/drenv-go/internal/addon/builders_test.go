@@ -360,7 +360,9 @@ func assertArgsContain(t *testing.T, label string, got []string, want ...string)
 func TestRecipeArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
+	gateNotReady(f)
 	runStep(t, f, addonsDir, "recipe", testCluster, nil)
+	stripGateCall(f)
 
 	if len(f.Calls) != 1 {
 		t.Fatalf("expected 1 kubectl call, got %d: %v", len(f.Calls), callNames(f))
@@ -369,6 +371,23 @@ func TestRecipeArgv(t *testing.T) {
 		"--context", testCluster, "apply", "--filename", "-",
 	})
 	assertStdinNotEmpty(t, "apply", f, 0)
+}
+
+// TestRecipeGateSatisfied verifies that recipe is skipped once its CRD is
+// Established, so check can report it ready.
+func TestRecipeGateSatisfied(t *testing.T) {
+	f := &cli.FakeRunner{}
+	f.Script(cli.FakeResult{Out: "True"}) // gate: recipes CRD Established
+	runStep(t, f, "/fake/addons", "recipe", testCluster, nil)
+
+	if len(f.Calls) != 1 {
+		t.Fatalf("expected only the gate probe, got %d: %v", len(f.Calls), callNames(f))
+	}
+
+	assertArgsEqual(t, "gate", callArgs(t, f, 0), []string{
+		"--context", testCluster, "-n", "", "get", "crd/recipes.ramendr.openshift.io",
+		`--output=jsonpath={.status.conditions[?(@.type=="Established")].status}`,
+	})
 }
 
 // TestCSIAddonsArgv verifies the csi-addons builder issues apply + rollout.
