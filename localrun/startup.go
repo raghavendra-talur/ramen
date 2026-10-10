@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
@@ -71,4 +72,14 @@ func waitStarted(
 		case <-tick.C:
 		}
 	}
+}
+
+// managersEnded reports how the supervised managers ended: stopping because
+// the supervisor was asked to stop is success; stopping on their own is not.
+func managersEnded(ctx context.Context) error {
+	if ctx.Err() == nil {
+		return errors.New("all managers exited")
+	}
+
+	return nil
 }
