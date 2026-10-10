@@ -120,7 +120,9 @@ func newRunCmd(opts *runOptions) *cobra.Command {
 		Use:   "run",
 		Short: "Build and start ramen managers (one process per reconciler)",
 		Run: func(cmd *cobra.Command, args []string) {
-			supervise(*opts, loadClusters(opts.envfile))
+			if err := supervise(*opts, loadClusters(opts.envfile)); err != nil {
+				fatal("%v", err)
+			}
 		},
 	}
 
@@ -166,7 +168,9 @@ func newRefreshCmd(opts *runOptions) *cobra.Command {
 				clearLogDir(logDir)
 			}
 
-			supervise(*opts, clusters)
+			if err := supervise(*opts, clusters); err != nil {
+				fatal("%v", err)
+			}
 		},
 	}
 
@@ -179,7 +183,8 @@ func newRefreshCmd(opts *runOptions) *cobra.Command {
 // runs one manager per (cluster, reconciler) until SIGINT or SIGTERM. It
 // records itself and each manager in the state file. Clusters start in
 // parallel; managers on one cluster start one at a time (see startInOrder).
-func supervise(o runOptions, clusters []cluster) {
+// It fails when the managers stop on their own rather than on a signal.
+func supervise(o runOptions, clusters []cluster) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -204,7 +209,7 @@ func supervise(o runOptions, clusters []cluster) {
 	if ctx.Err() != nil {
 		fmt.Println("Interrupted before starting managers.")
 
-		return
+		return nil
 	}
 
 	fmt.Println("Starting ramen managers (Ctrl-C to stop)...")
@@ -238,6 +243,8 @@ func supervise(o runOptions, clusters []cluster) {
 
 	wg.Wait()
 	fmt.Println("All managers stopped.")
+
+	return managersEnded(ctx)
 }
 
 func newSupervisorRecorder(o runOptions) *stateRecorder {
