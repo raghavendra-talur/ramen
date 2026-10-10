@@ -594,8 +594,7 @@ func build(root, out string) {
 
 	os.MkdirAll(filepath.Dir(out), 0o755)
 
-	cmd := exec.Command("go", "build", "-o", out, "./cmd")
-	cmd.Dir = root
+	cmd := buildCommand(root, out)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -604,6 +603,18 @@ func build(root, out string) {
 	}
 
 	fmt.Println("Build complete.")
+}
+
+// buildCommand returns the go build command for the manager binary. It
+// disables cgo, as the container image build does: the manager does not need
+// it, and a cgo link breaks whenever the host linker and SDK disagree.
+func buildCommand(root, out string) *exec.Cmd {
+	cmd := exec.Command("go", "build", "-o", out, "./cmd")
+	cmd.Dir = root
+
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+
+	return cmd
 }
 
 func scaleDownOperator(c cluster) {
