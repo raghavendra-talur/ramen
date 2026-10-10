@@ -3,7 +3,15 @@
 
 package cli
 
-import "context"
+import (
+	"context"
+	"sync"
+)
+
+// mcConfigMu serializes mc alias updates. mc keeps every alias in one
+// per-user config file and each update rewrites the whole file, so
+// concurrent updates for different clusters lose each other's alias.
+var mcConfigMu sync.Mutex
 
 // MC wraps a Runner to issue mc (MinIO Client) CLI commands. All methods take a
 // context so callers can cancel long-running operations.
@@ -13,6 +21,9 @@ type MC struct {
 
 // SetAlias runs `mc alias set <name> <url> <key> <secret>`.
 func (m MC) SetAlias(ctx context.Context, name, url, key, secret string) error {
+	mcConfigMu.Lock()
+	defer mcConfigMu.Unlock()
+
 	return m.R.Run(ctx, "mc", "alias", "set", name, url, key, secret)
 }
 
