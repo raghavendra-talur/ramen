@@ -27,6 +27,7 @@ const (
 	minioSecretKey      = "minio123"
 	minioAliasAttempts  = 5
 	minioAliasDelay     = 2 * time.Second
+	minioStatTimeout    = 30 * time.Second
 )
 
 func init() {
@@ -57,10 +58,12 @@ func buildMinio(d Deps, cluster string, _ []string) ensure.Step {
 		return d.MC.MakeBucket(ctx, cluster+"/"+minioBucket, true)
 	})
 
-	// Gate on the minio Deployment being Available. The mc alias/bucket steps
-	// are idempotent, so skipping them on a satisfied re-run is safe.
+	// Gate on what the addon produces: the Deployment Available and the bucket
+	// reachable through the mc alias. An alias left by a previous cluster
+	// points at a dead address, so the steps re-run and refresh it; they are
+	// idempotent.
 	return gatedAddon("addon/minio", d.Opts,
-		gateDeploymentAvailable(d.K, cluster, "minio", "minio"),
+		gateMinioReady(d, cluster),
 		applyMinio, waitRollout, setAlias, makeBucket,
 	)
 }
@@ -94,4 +97,19 @@ func setMinioAlias(ctx context.Context, d Deps, cluster, url string) error {
 	}
 
 	return err
+}
+
+// gateMinioReady reports whether the minio Deployment is Available and its
+// bucket is reachable through the cluster's mc alias.
+func gateMinioReady(d Deps, cluster string) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		if !deploymentAvailable(ctx, d.K, cluster, "minio", "minio") {
+			return false, nil
+		}
+
+		ctx, cancel := context.WithTimeout(ctx, minioStatTimeout)
+		defer cancel()
+
+		return d.MC.Stat(ctx, cluster+"/"+minioBucket) == nil, nil
+	}
 }
