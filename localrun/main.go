@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -176,7 +177,8 @@ func newRefreshCmd(opts *runOptions) *cobra.Command {
 
 // supervise builds the manager, scales down the in-cluster operators, and
 // runs one manager per (cluster, reconciler) until SIGINT or SIGTERM. It
-// records itself and each manager in the state file.
+// records itself and each manager in the state file. Clusters start in
+// parallel; managers on one cluster start one at a time (see startInOrder).
 func supervise(o runOptions, clusters []cluster) {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -211,16 +213,27 @@ func supervise(o runOptions, clusters []cluster) {
 
 	filter := parseReconcilerList(o.reconcilers)
 
+	prober := httpProber{client: &http.Client{Timeout: probeTimeout}}
+
 	for _, c := range clusters {
-		for _, rec := range selectedReconcilers(c, filter) {
-			wg.Add(1)
+		// The starter counts as running until it has started every manager,
+		// so wg.Wait cannot return between one manager exiting and the next
+		// starting.
+		wg.Add(1)
 
-			go func() {
-				defer wg.Done()
+		go func() {
+			defer wg.Done()
 
-				runManager(ctx, bin, c, rec, logDir, state)
-			}()
-		}
+			startInOrder(ctx, selectedReconcilers(c, filter), func(rec string, settled func()) {
+				wg.Add(1)
+
+				go func() {
+					defer wg.Done()
+
+					runManager(ctx, bin, c, rec, logDir, state, prober, settled)
+				}()
+			})
+		}()
 	}
 
 	wg.Wait()
@@ -635,7 +648,17 @@ func scaleDownOperator(c cluster) {
 	}
 }
 
-func runManager(ctx context.Context, bin string, c cluster, rec, logDirPath string, state *stateRecorder) {
+// runManager runs one manager until it exits, calling settled once it is past
+// startup: ready, exited, or failed to start.
+func runManager(
+	ctx context.Context,
+	bin string,
+	c cluster,
+	rec, logDirPath string,
+	state *stateRecorder,
+	prober readinessProber,
+	settled func(),
+) {
 	tag := fmt.Sprintf("%s:%s", c.name, rec)
 	cmd := managerCommand(ctx, bin, c, rec)
 
@@ -662,6 +685,7 @@ func runManager(ctx context.Context, bin string, c cluster, rec, logDirPath stri
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "[%s] start failed: %v\n", tag, err)
 		state.managerExited(state.managerStarted(m), fmt.Errorf("start failed: %w", err))
+		settled()
 
 		return
 	}
@@ -669,24 +693,16 @@ func runManager(ctx context.Context, bin string, c cluster, rec, logDirPath stri
 	m.PID = cmd.Process.Pid
 	idx := state.managerStarted(m)
 
-	var wg sync.WaitGroup
+	exited := make(chan struct{})
+	defer close(exited)
 
-	wg.Add(2)
+	go waitStarted(ctx, prober, m.HealthAddr, exited, startupTimeout, settled)
 
-	go func() {
-		defer wg.Done()
-
-		logLines(os.Stderr, stdout, tag, logFile)
-	}()
-
-	go func() {
-		defer wg.Done()
-
-		logLines(os.Stderr, stderr, tag, logFile)
-	}()
+	waitLogs := streamLogs(tag, logFile, stdout, stderr)
 
 	waitErr := cmd.Wait()
-	wg.Wait()
+
+	waitLogs()
 	state.managerExited(idx, waitErr)
 
 	if ctx.Err() != nil {
@@ -694,6 +710,24 @@ func runManager(ctx context.Context, bin string, c cluster, rec, logDirPath stri
 	} else if waitErr != nil {
 		fmt.Fprintf(os.Stderr, "[%s] exited: %v\n", tag, waitErr)
 	}
+}
+
+// streamLogs copies each of a manager's output streams to stderr and its log
+// file, and returns a function waiting until all of them are drained.
+func streamLogs(tag string, logFile *os.File, streams ...io.Reader) func() {
+	var wg sync.WaitGroup
+
+	for _, r := range streams {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			logLines(os.Stderr, r, tag, logFile)
+		}()
+	}
+
+	return wg.Wait
 }
 
 // managerCommand returns the command running bin as the manager for one
