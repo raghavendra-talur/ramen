@@ -8,6 +8,7 @@ package addon_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -244,6 +245,42 @@ func TestMinioArgv(t *testing.T) {
 	assertArgsEqual(t, "mc-mb", callArgs(t, f, 5), []string{
 		"mb", "--ignore-existing", testCluster + "/bucket",
 	})
+}
+
+// TestMinioRetriesAlias verifies that mc alias set is retried while minio is
+// rolled out but not yet serving on its NodePort (connection refused).
+func TestMinioRetriesAlias(t *testing.T) {
+	f := &cli.FakeRunner{}
+	refused := errors.New("dial tcp 192.168.64.10:30000: connect: connection refused")
+
+	gateNotReady(f)
+	f.Script(cli.FakeResult{})                     // apply
+	f.Script(cli.FakeResult{})                     // rollout status
+	f.Script(cli.FakeResult{Out: "192.168.64.10"}) // pod hostIP
+	f.Script(cli.FakeResult{Out: "30000"})         // service nodePort
+	f.Script(cli.FakeResult{Err: refused})         // mc alias set
+	f.Script(cli.FakeResult{Err: refused})         // mc alias set
+	// third mc alias set and mc mb consume the empty queue → nil error
+
+	runStep(t, f, "/fake/addons", "minio", testCluster, nil)
+	stripGateCall(f)
+
+	var aliases int
+
+	for _, c := range f.Calls {
+		if c.Name == "mc" && len(c.Args) > 1 && c.Args[0] == "alias" {
+			aliases++
+		}
+	}
+
+	if aliases != 3 {
+		t.Errorf("expected 3 mc alias set attempts, got %d:\n%v", aliases, callNames(f))
+	}
+
+	last := f.Calls[len(f.Calls)-1]
+	if last.Name != "mc" || last.Args[0] != "mb" {
+		t.Errorf("expected mc mb last, got %v", callNames(f))
+	}
 }
 
 // ---- helpers ----
