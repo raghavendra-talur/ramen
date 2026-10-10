@@ -9,6 +9,9 @@ package addon
 //  1. apply -k <AddonsDir>/recipe/start-data
 
 import (
+	"context"
+
+	"github.com/ramendr/ramen/test/drenv-go/internal/cli"
 	"github.com/ramendr/ramen/test/drenv-go/internal/ensure"
 )
 
@@ -19,5 +22,14 @@ func init() {
 func buildRecipe(d Deps, cluster string, _ []string) ensure.Step {
 	apply := applyEmbedded("apply", d, cluster, "recipe.yaml")
 
-	return Serial("addon/recipe", d.Opts, apply)
+	// Gate on the Recipe CRD being Established: without a gate an apply step
+	// is never done, so check could not report recipe ready.
+	return gatedAddon("addon/recipe", d.Opts, gateRecipeCRDEstablished(d.K, cluster), apply)
+}
+
+func gateRecipeCRDEstablished(k *cli.Kubectl, cluster string) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		return jsonPathEquals(ctx, k, cluster, "", "crd/recipes.ramendr.openshift.io",
+			`{.status.conditions[?(@.type=="Established")].status}`, "True"), nil
+	}
 }
