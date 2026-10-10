@@ -114,3 +114,18 @@ func TestWaitStartedTimeout(t *testing.T) {
 		t.Fatal("not settled after the startup timeout")
 	}
 }
+
+// TestManagersEnded verifies that the supervisor fails when its managers stop
+// on their own, and succeeds when they stop because it was asked to stop.
+func TestManagersEnded(t *testing.T) {
+	if err := managersEnded(context.Background()); err == nil {
+		t.Error("managers stopped without a stop signal: want an error, got nil")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := managersEnded(ctx); err != nil {
+		t.Errorf("managers stopped by a stop signal: want nil, got %v", err)
+	}
+}
