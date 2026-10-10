@@ -6,7 +6,10 @@ package cli_test
 import (
 	"context"
 	"reflect"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ramendr/ramen/test/drenv-go/internal/cli"
 )
@@ -73,5 +76,55 @@ func TestMCStatIssuesCorrectArgv(t *testing.T) {
 	want := []string{"stat", "dr1/bucket"}
 	if len(f.Calls) != 1 || f.Calls[0].Name != "mc" || !reflect.DeepEqual(f.Calls[0].Args, want) {
 		t.Errorf("calls = %+v, want mc %v", f.Calls, want)
+	}
+}
+
+// overlapRunner records the peak number of concurrent Run calls.
+type overlapRunner struct {
+	*cli.FakeRunner
+
+	running, peak atomic.Int32
+}
+
+func (r *overlapRunner) Run(context.Context, string, ...string) error {
+	n := r.running.Add(1)
+	defer r.running.Add(-1)
+
+	for {
+		p := r.peak.Load()
+		if n <= p || r.peak.CompareAndSwap(p, n) {
+			break
+		}
+	}
+
+	time.Sleep(20 * time.Millisecond)
+
+	return nil
+}
+
+// TestMCSetAliasIsSerialized verifies that concurrent alias updates never
+// overlap: each mc alias set rewrites the whole mc config file, so parallel
+// runs lose each other's alias.
+func TestMCSetAliasIsSerialized(t *testing.T) {
+	r := &overlapRunner{FakeRunner: &cli.FakeRunner{}}
+
+	var wg sync.WaitGroup
+	for _, name := range []string{"dr1", "dr2", "dr3"} {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			m := cli.MC{R: r}
+			if err := m.SetAlias(context.Background(), name, "http://192.168.64.10:30000", "minio", "minio123"); err != nil {
+				t.Errorf("SetAlias(%s): %v", name, err)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	if p := r.peak.Load(); p != 1 {
+		t.Errorf("peak concurrent mc alias set = %d, want 1", p)
 	}
 }
