@@ -13,17 +13,7 @@ import (
 var envfilePath string
 
 func main() {
-	root := &cobra.Command{
-		Use:   "drenv-go",
-		Short: "Ensure-model test environment manager (parallel Go rewrite of drenv)",
-		// RunE enables full help output (including flags) when no subcommand is given.
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmd.Help()
-		},
-	}
-	// --envfile is required per command (via loadEnv), not globally: commands
-	// such as `addons` do not read an environment.
-	root.PersistentFlags().StringVar(&envfilePath, "envfile", "", "path to the environment file")
+	root := newRootCommand()
 	root.AddCommand(newAddonsCommand())
 	root.AddCommand(newStatusCommand())
 	root.AddCommand(newCheckCommand())
@@ -40,4 +30,25 @@ func main() {
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func newRootCommand() *cobra.Command {
+	root := &cobra.Command{
+		Use:   "drenv-go",
+		Short: "Ensure-model test environment manager (parallel Go rewrite of drenv)",
+		// RunE enables full help output (including flags) when no subcommand is given.
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
+		// Flags and args are valid by now, so a later error is a runtime
+		// failure: print the error alone, not the usage that buries it.
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			cmd.SilenceUsage = true
+		},
+	}
+	// --envfile is required per command (via loadEnv), not globally: commands
+	// such as `addons` do not read an environment.
+	root.PersistentFlags().StringVar(&envfilePath, "envfile", "", "path to the environment file")
+
+	return root
 }
