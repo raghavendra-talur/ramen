@@ -25,3 +25,9 @@ func (m MC) MakeBucket(ctx context.Context, target string, ignoreExisting bool) 
 	args = append(args, target)
 	return m.R.Run(ctx, "mc", args...)
 }
+
+// Stat runs `mc stat <target>`; it fails when the target is unreachable or
+// does not exist.
+func (m MC) Stat(ctx context.Context, target string) error {
+	return m.R.Run(ctx, "mc", "stat", target)
+}
