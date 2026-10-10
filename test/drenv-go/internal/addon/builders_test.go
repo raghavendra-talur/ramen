@@ -283,6 +283,42 @@ func TestMinioRetriesAlias(t *testing.T) {
 	}
 }
 
+// TestMinioGateNeedsBucket verifies that an Available minio Deployment does not
+// satisfy the gate while its bucket is unreachable through the mc alias (for
+// example a stale alias left by a previous cluster), so the alias is refreshed.
+func TestMinioGateNeedsBucket(t *testing.T) {
+	f := &cli.FakeRunner{}
+	f.Script(cli.FakeResult{Out: "True"})                              // gate: deploy/minio Available
+	f.Script(cli.FakeResult{Err: errors.New("Object does not exist")}) // gate: mc stat dr1/bucket
+	f.Script(cli.FakeResult{})                                         // apply
+	f.Script(cli.FakeResult{})                                         // rollout status
+	f.Script(cli.FakeResult{Out: "192.168.64.10"})                     // pod hostIP
+	f.Script(cli.FakeResult{Out: "30000"})                             // service nodePort
+	// mc calls consume the empty queue → nil error
+
+	runStep(t, f, "/fake/addons", "minio", testCluster, nil)
+
+	assertArgsEqual(t, "gate-stat", callArgs(t, f, 1), []string{"stat", testCluster + "/bucket"})
+
+	if len(f.Calls) != 8 {
+		t.Errorf("expected the 2 gate probes and 6 addon calls, got %d:\n%v", len(f.Calls), callNames(f))
+	}
+}
+
+// TestMinioGateSatisfied verifies that minio is skipped when the Deployment is
+// Available and the bucket is reachable.
+func TestMinioGateSatisfied(t *testing.T) {
+	f := &cli.FakeRunner{}
+	f.Script(cli.FakeResult{Out: "True"}) // gate: deploy/minio Available
+	// gate: mc stat dr1/bucket consumes the empty queue → nil error
+
+	runStep(t, f, "/fake/addons", "minio", testCluster, nil)
+
+	if len(f.Calls) != 2 {
+		t.Errorf("expected only the 2 gate probes, got %d:\n%v", len(f.Calls), callNames(f))
+	}
+}
+
 // ---- helpers ----
 
 // callNames returns a slice of "<name> <args>" strings for all recorded calls,
