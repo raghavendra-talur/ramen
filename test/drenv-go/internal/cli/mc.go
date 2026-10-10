@@ -38,7 +38,10 @@ func (m MC) MakeBucket(ctx context.Context, target string, ignoreExisting bool) 
 }
 
 // Stat runs `mc stat <target>`; it fails when the target is unreachable or
-// does not exist.
+// does not exist. Its output is discarded: Stat serves readiness probes,
+// which run often and must not flood the log.
 func (m MC) Stat(ctx context.Context, target string) error {
-	return m.R.Run(ctx, "mc", "stat", target)
+	_, err := m.R.Output(ctx, "mc", "stat", target)
+
+	return err
 }
