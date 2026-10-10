@@ -61,3 +61,17 @@ func TestMCMakeBucketWithoutIgnoreExisting(t *testing.T) {
 		t.Errorf("args = %v, want %v", c.Args, want)
 	}
 }
+
+func TestMCStatIssuesCorrectArgv(t *testing.T) {
+	f := &cli.FakeRunner{}
+	m := cli.MC{R: f}
+
+	if err := m.Stat(context.Background(), "dr1/bucket"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := []string{"stat", "dr1/bucket"}
+	if len(f.Calls) != 1 || f.Calls[0].Name != "mc" || !reflect.DeepEqual(f.Calls[0].Args, want) {
+		t.Errorf("calls = %+v, want mc %v", f.Calls, want)
+	}
+}
