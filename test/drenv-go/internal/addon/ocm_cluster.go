@@ -102,7 +102,7 @@ func buildOCMCluster(d Deps, cluster string, args []string) ensure.Step {
 	// --- wait_for_hub steps ---
 	// Mirror Python wait_for_hub: wait for each namespace to exist before
 	// waiting for the deployments within it.
-	var hubWaitSteps []ensure.Step
+	hubWaitSteps := []ensure.Step{newClusterReadyStep(d, hub)}
 	for _, ns := range ocmClusterHubDeployments {
 		namespace := ns.namespace // capture
 		// Wait for the namespace to be created before probing deployments inside it.

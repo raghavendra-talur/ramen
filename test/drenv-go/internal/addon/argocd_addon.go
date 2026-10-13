@@ -94,7 +94,13 @@ func buildArgocd(d Deps, _ string, args []string) ensure.Step {
 		)
 	}
 
-	steps := []ensure.Step{deployStep, waitStep}
+	// Mirror Python wait_for_clusters: wait until every member is ready first.
+	steps := make([]ensure.Step, 0, len(members)+2+len(clusterSteps))
+	for _, m := range members {
+		steps = append(steps, newClusterReadyStep(d, m))
+	}
+
+	steps = append(steps, deployStep, waitStep)
 	steps = append(steps, clusterSteps...)
 	return gatedAddon("addon/argocd", d.Opts, argocdReady(d.K, hub, members), steps...)
 }

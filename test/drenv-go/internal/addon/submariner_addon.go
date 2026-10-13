@@ -172,7 +172,13 @@ func buildSubmariner(d Deps, _ string, args []string) ensure.Step {
 		memberSteps = append(memberSteps, clusterWaitSteps...)
 	}
 
-	steps := []ensure.Step{deployBrokerStep}
+	// Mirror Python: wait until the broker and every member are ready first.
+	steps := make([]ensure.Step, 0, len(args)+1+len(brokerWaitSteps)+len(memberSteps))
+	for _, c := range args {
+		steps = append(steps, newClusterReadyStep(d, c))
+	}
+
+	steps = append(steps, deployBrokerStep)
 	steps = append(steps, brokerWaitSteps...)
 	steps = append(steps, memberSteps...)
 
