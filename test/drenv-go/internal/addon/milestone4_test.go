@@ -652,6 +652,17 @@ func TestSubmarinerArgv(t *testing.T) {
 		"--version", "0.24.1",
 		"--check-broker-certificate=false",
 	})
+
+	// calls[21..24]: once every member is up, restart CoreDNS on each member,
+	// then wait for each rollout (Python restart_coredns + wait_for_coredns).
+	for i, want := range [][]string{
+		{"--context", "dr1", "-n", "kube-system", "rollout", "restart", "deployment/coredns"},
+		{"--context", "dr2", "-n", "kube-system", "rollout", "restart", "deployment/coredns"},
+		{"--context", "dr1", "-n", "kube-system", "rollout", "status", "deployment/coredns", "--timeout", "60s"},
+		{"--context", "dr2", "-n", "kube-system", "rollout", "status", "deployment/coredns", "--timeout", "60s"},
+	} {
+		assertCall(t, "coredns", f, 21+i, "kubectl", want)
+	}
 }
 
 // brokerInfoPathFor returns the expected broker-info path for a given envName,
