@@ -50,6 +50,7 @@ const (
 	submarinerBrokerRolloutTimeout  = 5 * time.Minute
 	submarinerClusterWaitTimeout    = 3 * time.Minute
 	submarinerClusterRolloutTimeout = 3 * time.Minute
+	submarinerCoreDNSRolloutTimeout = 60 * time.Second
 )
 
 // submarinerBrokerDeployments mirrors BROKER_DEPLOYMENTS in start.py.
@@ -173,7 +174,23 @@ func buildSubmariner(d Deps, _ string, args []string) ensure.Step {
 	}
 
 	// Mirror Python: wait until the broker and every member are ready first.
-	steps := make([]ensure.Step, 0, len(args)+1+len(brokerWaitSteps)+len(memberSteps))
+	// Mirror Python restart_coredns + wait_for_coredns: reload CoreDNS after
+	// lighthouse has patched the Corefile. CoreDNS reload defaults to ~30s;
+	// until then clusterset.local queries miss the lighthouse forward and
+	// NXDOMAIN is cached. Restart on every member, then wait for every member.
+	restartCoreDNS := make([]ensure.Step, 0, len(members))
+	waitCoreDNS := make([]ensure.Step, 0, len(members))
+
+	for _, m := range members {
+		restartCoreDNS = append(restartCoreDNS, newApplyStep("restart-coredns/"+m, func(ctx context.Context) error {
+			return d.K.RolloutRestart(ctx, m, "kube-system", "deployment/coredns")
+		}))
+		waitCoreDNS = append(waitCoreDNS, newApplyStep("wait-coredns/"+m, func(ctx context.Context) error {
+			return d.K.RolloutStatus(ctx, m, "kube-system", "deployment/coredns", submarinerCoreDNSRolloutTimeout)
+		}))
+	}
+
+	steps := make([]ensure.Step, 0, len(args)+1+len(brokerWaitSteps)+len(memberSteps)+2*len(members))
 	for _, c := range args {
 		steps = append(steps, newClusterReadyStep(d, c))
 	}
@@ -181,6 +198,8 @@ func buildSubmariner(d Deps, _ string, args []string) ensure.Step {
 	steps = append(steps, deployBrokerStep)
 	steps = append(steps, brokerWaitSteps...)
 	steps = append(steps, memberSteps...)
+	steps = append(steps, restartCoreDNS...)
+	steps = append(steps, waitCoreDNS...)
 
 	return gatedAddon("addon/submariner", d.Opts, submarinerReady(d.K, broker, members), steps...)
 }
