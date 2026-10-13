@@ -475,13 +475,17 @@ func TestOCMClusterArgv(t *testing.T) {
 		"--context", "hub",
 		"wait", "managedcluster/dr1",
 		"--for=condition=ManagedClusterJoined",
+		"--timeout", "60s",
 	)
 
-	// call[30]: wait --for=condition=ManagedClusterConditionAvailable
+	// call[30]: wait --for=condition=ManagedClusterConditionAvailable, longer
+	// than the other conditions: a new registration agent on a restarted
+	// cluster waits out the old agent's 137s leader lease first.
 	assertCallContains(t, "wait-Available", f, hubWaitCalls+6,
 		"--context", "hub",
 		"wait", "managedcluster/dr1",
 		"--for=condition=ManagedClusterConditionAvailable",
+		"--timeout", "300s",
 	)
 
 	// call[31]: kubectl label managedclusters/dr1 name=dr1 --overwrite on hub
