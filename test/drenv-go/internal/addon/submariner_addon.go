@@ -8,7 +8,7 @@
 //   args[0]  = broker cluster context
 //   args[1:] = member cluster contexts
 //
-// VERSION is fixed at 0.21.2 (0.22.0 is broken in minikube).
+// VERSION matches start.py (0.24.1).
 //
 // Broker-info placement:
 //   `subctl deploy-broker` has no flag to choose the output path: it always
@@ -43,7 +43,7 @@ import (
 )
 
 const (
-	submarinerVersion               = "0.21.2"
+	submarinerVersion               = "0.24.1"
 	submarinerNamespace             = "submariner-operator"
 	submarinerBrokerInfoFile        = "broker-info.subm"
 	submarinerBrokerWaitTimeout     = 5 * time.Minute
