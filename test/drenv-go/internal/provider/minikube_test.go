@@ -385,3 +385,42 @@ func TestStatusString(t *testing.T) {
 		}
 	}
 }
+
+// TestMinikubeProviderStatusNodeNotReadyIsNotRunning verifies a cluster whose
+// node is not Ready (e.g. a start interrupted before the CNI was configured)
+// is not reported running, so start runs `minikube start` again.
+func TestMinikubeProviderStatusNodeNotReadyIsNotRunning(t *testing.T) {
+	for _, nodes := range []string{"False", "True False", ""} {
+		f := &cli.FakeRunner{}
+		f.Script(cli.FakeResult{Out: runningJSON("dr1")})
+		f.Script(cli.FakeResult{Out: nodes})
+
+		s, err := newProvider(f).Status(context.Background(), "dr1")
+		if err != nil {
+			t.Fatalf("nodes %q: Status: %v", nodes, err)
+		}
+
+		if s == provider.StatusRunning {
+			t.Errorf("nodes %q: Status = running, want not running", nodes)
+		}
+	}
+}
+
+// TestMinikubeProviderStatusProbesNodes verifies the node readiness probe argv.
+func TestMinikubeProviderStatusProbesNodes(t *testing.T) {
+	f := &cli.FakeRunner{}
+	f.Script(cli.FakeResult{Out: runningJSON("dr1")})
+	f.Script(cli.FakeResult{Out: "True"})
+
+	if _, err := newProvider(f).Status(context.Background(), "dr1"); err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+
+	want := []string{
+		"--context", "dr1", "-n", "", "get", "nodes",
+		`--output=jsonpath={.items[*].status.conditions[?(@.type=="Ready")].status}`,
+	}
+	if len(f.Calls) != 2 || f.Calls[1].Name != "kubectl" || !reflect.DeepEqual(f.Calls[1].Args, want) {
+		t.Errorf("calls = %v, want second call kubectl %v", f.Calls, want)
+	}
+}
