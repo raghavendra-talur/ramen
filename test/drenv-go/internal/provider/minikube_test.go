@@ -64,6 +64,7 @@ func newProvider(f *cli.FakeRunner) provider.MinikubeProvider {
 func TestMinikubeProviderStatusRunning(t *testing.T) {
 	f := &cli.FakeRunner{}
 	f.Script(cli.FakeResult{Out: runningJSON("dr1")})
+	f.Script(cli.FakeResult{Out: "True"}) // node Ready
 	p := newProvider(f)
 
 	s, err := p.Status(context.Background(), "dr1")
