@@ -579,12 +579,12 @@ func TestSubmarinerArgv(t *testing.T) {
 		t.Fatalf("expected %d calls, got %d:\n%s", expected, len(f.Calls), dumpCalls(f))
 	}
 
-	// call[0]: subctl deploy-broker hub --globalnet --version 0.21.2
+	// call[0]: subctl deploy-broker hub --globalnet --version 0.24.1
 	assertCall(t, "deploy-broker", f, 0, "subctl", []string{
 		"deploy-broker",
 		"--context", "hub",
 		"--globalnet",
-		"--version", "0.21.2",
+		"--version", "0.24.1",
 	})
 
 	// call[1]: kubectl wait deploy/submariner-operator --for=create in submariner-operator on hub
@@ -614,14 +614,14 @@ func TestSubmarinerArgv(t *testing.T) {
 		"--overwrite",
 	})
 
-	// call[5]: subctl join <brokerInfo> --context dr1 --clusterid dr1 --cable-driver vxlan --version 0.21.2
+	// call[5]: subctl join <brokerInfo> --context dr1 --clusterid dr1 --cable-driver vxlan --version 0.24.1
 	brokerInfo := brokerInfoPathFor("myenv")
 	assertCall(t, "subctl-join-dr1", f, 5, "subctl", []string{
 		"join", brokerInfo,
 		"--context", "dr1",
 		"--clusterid", "dr1",
 		"--cable-driver", "vxlan",
-		"--version", "0.21.2",
+		"--version", "0.24.1",
 		"--check-broker-certificate=false",
 	})
 
@@ -649,7 +649,7 @@ func TestSubmarinerArgv(t *testing.T) {
 		"--context", "dr2",
 		"--clusterid", "dr2",
 		"--cable-driver", "vxlan",
-		"--version", "0.21.2",
+		"--version", "0.24.1",
 		"--check-broker-certificate=false",
 	})
 }
