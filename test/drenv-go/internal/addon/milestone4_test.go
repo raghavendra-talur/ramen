@@ -9,6 +9,7 @@ package addon_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -886,5 +887,48 @@ func TestRookPoolSkippedWhenReady(t *testing.T) {
 	}
 	if len(f.Calls) != 2 {
 		t.Errorf("expected only the 2 gate probes, got %d:\n%s", len(f.Calls), dumpCalls(f))
+	}
+}
+
+// TestSubmarinerWaitsForClusters verifies submariner waits until the broker and
+// every member are ready before deploying anything: profiles start
+// concurrently, so the members may still be booting.
+func TestSubmarinerWaitsForClusters(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+
+	if err := os.WriteFile(filepath.Join(tmp, "broker-info.subm"), []byte("fake"), 0o600); err != nil {
+		t.Fatalf("setup broker-info.subm: %v", err)
+	}
+
+	f := &cli.FakeRunner{}
+	gateNotReady(f)
+	f.Script(cli.FakeResult{Out: "ok"})                             // hub ready
+	f.Script(cli.FakeResult{Err: errors.New("connection refused")}) // dr1 still booting
+	f.Script(cli.FakeResult{Out: "ok"})                             // dr1 ready
+	f.Script(cli.FakeResult{Out: "ok"})                             // dr2 ready
+	f.Script(cli.FakeResult{})                                      // subctl deploy-broker
+	f.Script(cli.FakeResult{})                                      // wait
+	f.Script(cli.FakeResult{})                                      // rollout
+	f.Script(cli.FakeResult{Out: `{"items":[]}`})                   // get nodes dr1
+	f.Script(cli.FakeResult{})                                      // subctl join dr1
+
+	for range 6 {
+		f.Script(cli.FakeResult{}) // wait + rollout * 3 deployments on dr1
+	}
+
+	f.Script(cli.FakeResult{Out: `{"items":[]}`}) // get nodes dr2
+
+	runStepFull(t, f, "/fake/addons", "myenv", "submariner", "", []string{"hub", "dr1", "dr2"})
+	stripGateCall(f)
+
+	for i, cluster := range []string{"hub", "dr1", "dr1", "dr2"} {
+		assertCall(t, "wait-cluster-ready/"+cluster, f, i, "kubectl", []string{
+			"--context", cluster, "get", "--raw", "/readyz",
+		})
+	}
+
+	if c := callAt(t, f, 4); c.Name != "subctl" {
+		t.Errorf("call[4] = %s %v, want subctl deploy-broker after the clusters are ready", c.Name, c.Args)
 	}
 }
