@@ -75,6 +75,11 @@ var ocmClusterHubDeployments = []struct {
 const (
 	ocmManagedClusterCreateTimeout    = 180 * time.Second
 	ocmManagedClusterConditionTimeout = 60 * time.Second
+	// ocmManagedClusterAvailableTimeout is longer than Python's 60s. On a
+	// restarted cluster the previous registration agent still holds the
+	// agent's leader lease, and a new agent waits the lease duration (137s)
+	// before it takes over and reports the cluster Available.
+	ocmManagedClusterAvailableTimeout = 5 * time.Minute
 	ocmClusterWaitTimeout             = 5 * time.Minute
 	ocmClusterRolloutTimeout          = 5 * time.Minute
 )
@@ -151,9 +156,13 @@ func buildOCMCluster(d Deps, cluster string, args []string) ensure.Step {
 	var condSteps []ensure.Step
 	for _, cond := range conditions {
 		c := cond // capture
+
+		timeout := ocmManagedClusterConditionTimeout
+		if c == "ManagedClusterConditionAvailable" {
+			timeout = ocmManagedClusterAvailableTimeout
+		}
 		condSteps = append(condSteps, newApplyStep("wait-mc-condition/"+c, func(ctx context.Context) error {
-			return d.K.WaitFor(ctx, hub, "", "condition="+c,
-				ocmManagedClusterConditionTimeout, managedCluster)
+			return d.K.WaitFor(ctx, hub, "", "condition="+c, timeout, managedCluster)
 		}))
 	}
 
