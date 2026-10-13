@@ -574,7 +574,7 @@ func TestSubmarinerArgv(t *testing.T) {
 	stripGateCall(f)
 	stripReadyCalls(f, 3)
 
-	expected := 3 + 2*9
+	expected := 3 + 2*9 + 2*2
 	if len(f.Calls) != expected {
 		t.Fatalf("expected %d calls, got %d:\n%s", expected, len(f.Calls), dumpCalls(f))
 	}
