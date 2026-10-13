@@ -33,7 +33,8 @@ var _ Provider = MinikubeProvider{}
 // Status maps the raw cli.MinikubeStatus to the provider Status enum.
 //
 // Mapping rules:
-//   - Host == "Running" && APIServer == "Running" → StatusRunning
+//   - Host and APIServer "Running", Kubeconfig "Configured", every node
+//     Ready → StatusRunning
 //   - Host == "Stopped" → StatusStopped
 //   - Host == "" (cli layer's "not found" signal, nil error) → StatusNotFound
 //   - any other state (including error with non-empty Host) → StatusUnknown (or propagated error)
@@ -57,8 +58,17 @@ func (mp MinikubeProvider) Status(ctx context.Context, profile string) (Status, 
 	// would skip the reconciling `minikube start` and leave every addon failing
 	// with `context "<name>" does not exist`, so fall through to StatusUnknown
 	// (which the Start step treats as not-done) to re-run start and register it.
+	//
+	// The nodes must be Ready as well. A start interrupted after the API server
+	// came up but before minikube configured the CNI leaves the node NotReady
+	// ("cni plugin not initialized") with nothing scheduling, and only another
+	// `minikube start` writes the missing CNI config.
 	if st.Host == "Running" && st.APIServer == "Running" && st.Kubeconfig == "Configured" {
-		return StatusRunning, nil
+		if mp.nodesReady(ctx, profile) {
+			return StatusRunning, nil
+		}
+
+		return StatusUnknown, nil
 	}
 
 	if st.Host == "Stopped" {
@@ -66,6 +76,31 @@ func (mp MinikubeProvider) Status(ctx context.Context, profile string) (Status, 
 	}
 
 	return StatusUnknown, nil
+}
+
+// nodesReady reports whether every node of the cluster is Ready. Any error
+// reports false.
+func (mp MinikubeProvider) nodesReady(ctx context.Context, profile string) bool {
+	k := cli.Kubectl{R: mp.MK.R}
+
+	out, err := k.Get(ctx, profile, "", "nodes",
+		`--output=jsonpath={.items[*].status.conditions[?(@.type=="Ready")].status}`)
+	if err != nil {
+		return false
+	}
+
+	statuses := strings.Fields(out)
+	if len(statuses) == 0 {
+		return false
+	}
+
+	for _, s := range statuses {
+		if s != "True" {
+			return false
+		}
+	}
+
+	return true
 }
 
 // Exists reports whether the cluster profile is not StatusNotFound.
