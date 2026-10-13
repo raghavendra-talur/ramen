@@ -106,6 +106,18 @@ func gateNotReady(f *cli.FakeRunner) { f.Script(cli.FakeResult{Out: ""}) }
 // records, so argv assertions written before gating keep their indices.
 func stripGateCall(f *cli.FakeRunner) { f.Calls = f.Calls[1:] }
 
+// clustersReady scripts n successful /readyz probes, one per cluster an addon
+// waits for before using it.
+func clustersReady(f *cli.FakeRunner, n int) {
+	for range n {
+		f.Script(cli.FakeResult{Out: "ok"})
+	}
+}
+
+// stripReadyCalls drops the n leading /readyz probe calls (after the gate call
+// is stripped), so argv assertions keep their indices.
+func stripReadyCalls(f *cli.FakeRunner, n int) { f.Calls = f.Calls[n:] }
+
 func TestExternalSnapshotterArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}

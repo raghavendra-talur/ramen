@@ -387,6 +387,7 @@ func TestOCMHubArgv(t *testing.T) {
 func TestOCMClusterArgv(t *testing.T) {
 	f := &cli.FakeRunner{}
 	gateNotReady(f) // readiness gate: managedcluster not Available → run
+	clustersReady(f, 1)
 
 	// Script the hub-wait calls to succeed.
 	// Layout: 1 ns-wait + 7*2 deploy waits for open-cluster-management
@@ -402,6 +403,7 @@ func TestOCMClusterArgv(t *testing.T) {
 	// Envfile shape: args = [cluster, hub]; the hub is args[1].
 	runStepFull(t, f, "/fake/addons", "testenv", "ocm-cluster", "dr1", []string{"dr1", "hub"})
 	stripGateCall(f)
+	stripReadyCalls(f, 1)
 
 	expected := 24 + 2 + 5 + 1 + 1 + 6
 	if len(f.Calls) != expected {
@@ -537,6 +539,7 @@ func TestSubmarinerArgv(t *testing.T) {
 
 	f := &cli.FakeRunner{}
 	gateNotReady(f) // readiness gate: submariner deployments not Available → run
+	clustersReady(f, 3)
 
 	nodeJSON := `{"items":[{"metadata":{"name":"node1"},"status":{"addresses":[{"type":"InternalIP","address":"10.0.0.2"}]}}]}`
 
@@ -564,6 +567,7 @@ func TestSubmarinerArgv(t *testing.T) {
 
 	runStepFull(t, f, "/fake/addons", "myenv", "submariner", "", []string{"hub", "dr1", "dr2"})
 	stripGateCall(f)
+	stripReadyCalls(f, 3)
 
 	expected := 3 + 2*9
 	if len(f.Calls) != expected {
@@ -673,6 +677,7 @@ func TestArgocdArgv(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
 	gateNotReady(f) // readiness gate: argocd-server not Available → run
+	clustersReady(f, 2)
 
 	// Script the kubectl config view calls to return non-empty yaml.
 	f.Script(cli.FakeResult{})                        // apply
@@ -687,6 +692,7 @@ func TestArgocdArgv(t *testing.T) {
 
 	runStepFull(t, f, addonsDir, "myenv", "argocd", "", []string{"hub", "dr1", "dr2"})
 	stripGateCall(f)
+	stripReadyCalls(f, 2)
 
 	expected := 12
 	if len(f.Calls) != expected {
@@ -774,6 +780,7 @@ func TestArgocdClusterAddNOAUTHSuppressed(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
 	gateNotReady(f) // readiness gate: argocd-server not Available → run
+	clustersReady(f, 1)
 
 	f.Script(cli.FakeResult{})                        // apply
 	f.Script(cli.FakeResult{})                        // wait
@@ -801,6 +808,7 @@ func TestArgocdClusterAddExit20WithoutNOAUTHPropagated(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
 	gateNotReady(f) // readiness gate: argocd-server not Available → run
+	clustersReady(f, 1)
 
 	f.Script(cli.FakeResult{})                        // apply
 	f.Script(cli.FakeResult{})                        // wait
@@ -834,6 +842,7 @@ func TestArgocdClusterAddOtherErrorPropagated(t *testing.T) {
 	addonsDir := "/fake/addons"
 	f := &cli.FakeRunner{}
 	gateNotReady(f) // readiness gate: argocd-server not Available → run
+	clustersReady(f, 1)
 
 	f.Script(cli.FakeResult{})                        // apply
 	f.Script(cli.FakeResult{})                        // wait

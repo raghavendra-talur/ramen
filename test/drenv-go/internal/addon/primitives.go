@@ -5,6 +5,7 @@ package addon
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,6 +82,50 @@ func newCreateWaitStep(name string, d Deps, kubeContext, namespace, resource str
 		}
 		return d.K.WaitFor(ctx, kubeContext, namespace, "create", timeout, resource)
 	})
+}
+
+const (
+	// clusterReadyTimeout mirrors the default of drenv's
+	// cluster.wait_until_ready.
+	clusterReadyTimeout = 10 * time.Minute
+
+	// clusterProbeTimeout bounds one /readyz probe, so a booting VM that does
+	// not answer yet cannot use up the whole wait in a single attempt.
+	clusterProbeTimeout = 10 * time.Second
+)
+
+// newClusterReadyStep returns a step that waits until the cluster's API server
+// is ready, mirroring drenv's cluster.wait_until_ready. Profiles start
+// concurrently, so an addon that works on other clusters (the hub, or the
+// members) must wait for them before using them.
+func newClusterReadyStep(d Deps, kubeContext string) ensure.Step {
+	return newApplyStep("wait-cluster-ready/"+kubeContext, func(ctx context.Context) error {
+		return waitClusterReady(ctx, d, kubeContext, clusterReadyTimeout)
+	})
+}
+
+// waitClusterReady probes the cluster's /readyz every d.Opts.VerifyInterval
+// until it succeeds or timeout elapses.
+func waitClusterReady(ctx context.Context, d Deps, kubeContext string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	for {
+		probeCtx, probeCancel := context.WithTimeout(ctx, clusterProbeTimeout)
+		_, err := d.K.GetRaw(probeCtx, kubeContext, "/readyz")
+
+		probeCancel()
+
+		if err == nil {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("cluster %s is not ready after %v: %w", kubeContext, timeout, err)
+		case <-time.After(d.Opts.VerifyInterval):
+		}
+	}
 }
 
 // ApplyTemplate reads a file from the AddonsDir and substitutes $key and ${key}
