@@ -120,7 +120,13 @@ func newRunCmd(opts *runOptions) *cobra.Command {
 		Use:   "run",
 		Short: "Build and start ramen managers (one process per reconciler)",
 		Run: func(cmd *cobra.Command, args []string) {
-			if err := supervise(*opts, loadClusters(opts.envfile)); err != nil {
+			clusters := loadClusters(opts.envfile)
+
+			if err := preflight(clusters, kubectlGet); err != nil {
+				fatal("%v", err)
+			}
+
+			if err := supervise(*opts, clusters); err != nil {
 				fatal("%v", err)
 			}
 		},
@@ -156,6 +162,12 @@ func newRefreshCmd(opts *runOptions) *cobra.Command {
 		Short: "Stop running managers, clear logs, rebuild, and restart",
 		Run: func(cmd *cobra.Command, args []string) {
 			clusters := loadClusters(opts.envfile)
+
+			// Check before stopping anything, so a refresh that cannot start
+			// leaves the running managers alone.
+			if err := preflight(clusters, kubectlGet); err != nil {
+				fatal("%v", err)
+			}
 
 			fmt.Println("Stopping the running supervisor and managers...")
 
