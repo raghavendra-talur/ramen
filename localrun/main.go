@@ -272,11 +272,27 @@ func loadClusters(envfilePath string) []cluster {
 		fatal("%v", err)
 	}
 
-	for i, c := range clusters {
+	for _, c := range clusters {
 		checkFile(c.kubeconfig, "kubeconfig")
+	}
 
-		clusters[i].openshift = isOpenShift(c.kubeconfig)
-		if clusters[i].openshift {
+	// Probe in parallel: an unreachable cluster costs a full timeout.
+	var wg sync.WaitGroup
+
+	for i := range clusters {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			clusters[i].openshift = isOpenShift(clusters[i].kubeconfig)
+		}()
+	}
+
+	wg.Wait()
+
+	for _, c := range clusters {
+		if c.openshift {
 			fmt.Printf("[%s] OpenShift cluster detected\n", c.name)
 		}
 	}
@@ -836,8 +852,17 @@ func repoRoot() string {
 	}
 }
 
+// kubectlProbeTimeout bounds a quick kubectl probe. Without it, kubectl
+// waits minutes for a cluster that is gone (a stopped or deleted VM).
+const kubectlProbeTimeout = 10 * time.Second
+
+// isOpenShift reports whether the cluster has OpenShift's ClusterVersion; an
+// unreachable cluster is not OpenShift.
 func isOpenShift(kubeconfig string) bool {
-	return exec.Command("kubectl", "--kubeconfig="+kubeconfig,
+	ctx, cancel := context.WithTimeout(context.Background(), kubectlProbeTimeout)
+	defer cancel()
+
+	return exec.CommandContext(ctx, "kubectl", "--kubeconfig="+kubeconfig, //nolint:gosec // our envfile's kubeconfigs
 		"get", "clusterversions", "--no-headers",
 	).Run() == nil
 }
