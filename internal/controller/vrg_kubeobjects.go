@@ -275,7 +275,6 @@ const (
 	vrgGenerationNumberBitCount = 64
 )
 
-// nolint: funlen
 func (v *VRGInstance) kubeObjectsCaptureStartOrResume(
 	result *ctrl.Result,
 	captureNumber int64,
@@ -300,30 +299,7 @@ func (v *VRGInstance) kubeObjectsCaptureStartOrResume(
 	allEssentialStepsFailed, err := v.executeCaptureSteps(result, pathName, capturePathName, namePrefix,
 		veleroNamespaceName, annotations, requests, log)
 	if err != nil {
-		rStatus, ok := v.reconciler.recipeRetries.Load(v.namespacedName)
-		if !ok {
-			v.reconciler.recipeRetries.Store(v.namespacedName, 0)
-		}
-
-		val, ok := rStatus.(int)
-		if ok {
-			val++
-		}
-
-		v.reconciler.recipeRetries.Store(v.namespacedName, val)
-
-		if val > RecipeMaxAttempts {
-			v.kubeObjectsCaptureStatusFalse("KubeObjectsCaptureError", "recipe reconcile failed for more than max attempts")
-
-			return
-		}
-
-		result.Requeue = true
-
-		if v.instance.Status.KubeObjectProtection.CaptureToRecoverFrom != nil &&
-			time.Since(v.instance.Status.KubeObjectProtection.CaptureToRecoverFrom.StartTime.Time) <= 2*interval {
-			v.kubeObjectsCaptureStatusTrue(VRGConditionReasonUploading, "Kube objects capture in-progress")
-		}
+		v.recordCaptureStepsFailure(result, interval)
 
 		return
 	}
@@ -354,6 +330,41 @@ func (v *VRGInstance) kubeObjectsCaptureStartOrResume(
 		firstRequest.StartTime(),
 		firstRequest.Object().GetAnnotations(),
 	)
+}
+
+// recordCaptureStepsFailure reacts to a failed capture-steps run: it counts the
+// attempt and either gives up (once RecipeMaxAttempts is exceeded) or requeues,
+// keeping ClusterDataProtected=Uploading while the recovery point is still fresh.
+func (v *VRGInstance) recordCaptureStepsFailure(result *ctrl.Result, interval time.Duration) {
+	if v.incrementRecipeRetries() > RecipeMaxAttempts {
+		v.kubeObjectsCaptureStatusFalse("KubeObjectsCaptureError", "recipe reconcile failed for more than max attempts")
+
+		return
+	}
+
+	result.Requeue = true
+
+	if v.instance.Status.KubeObjectProtection.CaptureToRecoverFrom != nil &&
+		time.Since(v.instance.Status.KubeObjectProtection.CaptureToRecoverFrom.StartTime.Time) <= 2*interval {
+		v.kubeObjectsCaptureStatusTrue(VRGConditionReasonUploading, "Kube objects capture in-progress")
+	}
+}
+
+// incrementRecipeRetries bumps and returns the recipe-retry count for this VRG.
+func (v *VRGInstance) incrementRecipeRetries() int {
+	rStatus, loaded := v.reconciler.recipeRetries.Load(v.namespacedName)
+	if !loaded {
+		v.reconciler.recipeRetries.Store(v.namespacedName, 0)
+	}
+
+	val, isInt := rStatus.(int)
+	if isInt {
+		val++
+	}
+
+	v.reconciler.recipeRetries.Store(v.namespacedName, val)
+
+	return val
 }
 
 // kubeObjectsHookExecute resolves and runs a recipe hook.
