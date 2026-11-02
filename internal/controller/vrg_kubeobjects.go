@@ -141,7 +141,7 @@ func (v *VRGInstance) kubeObjectsCaptureStartOrResumeOrDelay(
 		return
 	}
 
-	if count := requests.Count(); count > 0 {
+	if requests.Count() > 0 {
 		generation := requests.Get(0).Object().GetGeneration()
 
 		log.Info("Kube objects capture resume", "generation", generation)
@@ -152,20 +152,8 @@ func (v *VRGInstance) kubeObjectsCaptureStartOrResumeOrDelay(
 		return
 	}
 
-	// requeue with a delay if the time for the next capture has not yet arrived,
-	// unless the VM list in VM-recipe has been updated (out-of-band capture).
-	if !v.isProtectedVMsListUpdated() {
-		if delay := interval - time.Since(captureToRecoverFrom.StartTime.Time); delay > 0 {
-			v.log.Info("delaying kube objects capture start as per capture interval", "delay", delay,
-				"interval", interval)
-			delaySetIfLess(result, delay, v.log)
-			v.kubeObjectsCaptureStatusTrue(VRGConditionReasonUploaded, kubeObjectsClusterDataProtectedTrueMessage)
-
-			return
-		}
-	} else {
-		log.Info("Protected VMs list in VM-recipe updated; triggering immediate kube objects capture instead of delaying",
-			"currentVMs", vrg.Spec.KubeObjectProtection.RecipeParameters[recipecore.VMList])
+	if v.kubeObjectsCaptureNotYetDue(result, captureToRecoverFrom, interval, log) {
+		return
 	}
 
 	// before starting a new capture, delete the previous one with the same number
@@ -181,6 +169,36 @@ func (v *VRGInstance) kubeObjectsCaptureStartOrResumeOrDelay(
 	v.kubeObjectsCaptureStartOrResume(result, number, pathName, capturePathName,
 		namePrefix, veleroNamespaceName, interval, generation,
 		kubeobjects.RequestsMapKeyedByName(requests), log)
+}
+
+// kubeObjectsCaptureNotYetDue reports whether the next capture should wait. When
+// the configured interval has not yet elapsed it requeues with the remaining
+// delay, holds ClusterDataProtected=Uploaded, and returns true. An updated
+// VM-recipe VM list forces an immediate (out-of-band) capture, returning false.
+func (v *VRGInstance) kubeObjectsCaptureNotYetDue(
+	result *ctrl.Result,
+	captureToRecoverFrom *ramen.KubeObjectsCaptureIdentifier,
+	interval time.Duration,
+	log logr.Logger,
+) bool {
+	if v.isProtectedVMsListUpdated() {
+		log.Info("Protected VMs list in VM-recipe updated; triggering immediate kube objects capture instead of delaying",
+			"currentVMs", v.instance.Spec.KubeObjectProtection.RecipeParameters[recipecore.VMList])
+
+		return false
+	}
+
+	delay := interval - time.Since(captureToRecoverFrom.StartTime.Time)
+	if delay <= 0 {
+		return false
+	}
+
+	v.log.Info("delaying kube objects capture start as per capture interval", "delay", delay,
+		"interval", interval)
+	delaySetIfLess(result, delay, v.log)
+	v.kubeObjectsCaptureStatusTrue(VRGConditionReasonUploaded, kubeObjectsClusterDataProtectedTrueMessage)
+
+	return true
 }
 
 // isProtectedVMsListUpdated checks if the list of protected Virtual Machines in the
