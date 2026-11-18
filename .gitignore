@@ -58,6 +58,8 @@ ramendev/build
 # e2e generated files
 /e2e/ramen-e2e
 /e2e/ramen-e2e.log
+/e2e/e2e-step
+/e2e/e2e-step.log
 
 # Invalid placeholder CRD files
 /config/crd/bases/_.yaml
